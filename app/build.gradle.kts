@@ -53,9 +53,7 @@ android {
 
 chaquopy {
     defaultConfig {
-        buildPython("python")
         pip {
-            options("--only-binary=:all:")
             install("pillow==10.4.0")
             install("numpy")
             install("natsort==8.4.0")
