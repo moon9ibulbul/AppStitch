@@ -1,4 +1,5 @@
 name: Android CI
+
 on:
   push:
     branches: [ "main" ]
@@ -9,19 +10,55 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: '17'
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-    - name: Build Debug APK
-      run: ./gradlew :app:assembleDebug
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: StitchApp-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Hapus stub wrapper kalau ada (penyebab error 126)
+      - name: Remove stub gradle wrapper if present
+        run: |
+          if [ -f gradle/wrapper/gradle-wrapper ]; then
+            echo "Removing stub gradle/wrapper/gradle-wrapper"
+            rm -f gradle/wrapper/gradle-wrapper
+          fi
+
+      # Install Gradle CLI hanya untuk bootstrap 'gradle wrapper'
+      - name: Install Gradle CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gradle
+
+      # Generate Gradle Wrapper RESMI kalau belum ada
+      - name: Generate Gradle Wrapper (if missing)
+        run: |
+          if [ ! -f gradlew ] || [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Generating official Gradle Wrapper (8.9)"
+            gradle wrapper --gradle-version 8.9
+          else
+            echo "Gradle Wrapper already present."
+          fi
+
+      # Pastikan gradlew executable
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
+
+      # (Opsional) Tampilkan versi untuk debugging
+      - name: Gradle Wrapper version
+        run: ./gradlew --version
+
+      # Build APK Debug
+      - name: Build Debug APK
+        run: ./gradlew :app:assembleDebug
+
+      # Upload artifact APK
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StitchApp-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
