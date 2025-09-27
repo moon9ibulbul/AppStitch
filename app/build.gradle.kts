@@ -26,6 +26,11 @@ android {
         }
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
@@ -49,6 +54,10 @@ android {
             )
         }
     }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 chaquopy {
