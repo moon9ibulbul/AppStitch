@@ -54,8 +54,15 @@ android {
 chaquopy {
     defaultConfig {
         pip {
-            install("pillow==10.4.0")
-            install("numpy")
+            options("--only-binary=:all:",
+                    "--extra-index-url", "https://chaquo.com/pypi-16.1")
+
+            // Pilih versi yg ada wheelnya di repo Chaquopy (tertinggi: 9.2.0)
+            install("pillow==9.2.0")
+
+            // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
+            install("numpy<2")
+
             install("natsort==8.4.0")
         }
     }
