@@ -17,9 +17,7 @@ android {
     }
 
     buildTypes {
-        debug {
-            isMinifyEnabled = false
-        }
+        debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -29,15 +27,16 @@ android {
         }
     }
 
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
-    }
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.15" }
+
     packaging {
         resources {
-            excludes += setOf("META-INF/DEPENDENCIES","META-INF/NOTICE","META-INF/LICENSE")
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/NOTICE",
+                "META-INF/LICENSE"
+            )
         }
     }
 }
