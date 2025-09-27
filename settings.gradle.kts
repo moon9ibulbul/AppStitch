@@ -7,7 +7,7 @@ pluginManagement {
     plugins {
         // Versi plugin dideklarasikan di sini
         id("com.android.application") version "8.5.2"
-        id("com.chaquo.python") version "15.0.1"
+        id("com.chaquo.python") version "16.1"
         kotlin("android") version "1.9.24"
     }
 }
