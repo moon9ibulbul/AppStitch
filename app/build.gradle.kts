@@ -55,7 +55,7 @@ chaquopy {
     defaultConfig {
         pip {
             install("pillow==10.4.0")
-            install("numpy==1.26.4")
+            install("numpy==1.24.4")
             install("natsort==8.4.0")
         }
     }
