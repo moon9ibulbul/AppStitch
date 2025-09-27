@@ -53,7 +53,7 @@ android {
 
 chaquopy {
     defaultConfig {
-        buildPython("python3.11")
+        buildPython("python")
         pip {
             install("pillow==10.4.0")
             install("numpy==1.24.4")
