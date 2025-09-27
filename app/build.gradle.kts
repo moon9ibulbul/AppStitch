@@ -8,12 +8,22 @@ android {
     namespace = "com.astral.stitchapp"
     compileSdk = 34
 
+    // (Opsional tapi dianjurkan) Kunci versi NDK agar build CI konsisten
+    ndkVersion = "26.3.11579264"
+
     defaultConfig {
         applicationId = "com.astral.stitchapp"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        // Wajib untuk Chaquopy: pilih ABI yang mau dibangun
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // Jika perlu dukungan emulator x86, tambahkan:
+            // abiFilters += listOf("x86", "x86_64")
+        }
     }
 
     buildTypes {
