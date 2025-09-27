@@ -1,13 +1,14 @@
 pluginManagement {
     repositories {
+        // ⬅️ WAJIB: repo plugin Chaquopy
+        maven { url = uri("https://chaquo.com/maven") }
         google()
         mavenCentral()
         gradlePluginPortal()
     }
     plugins {
-        // Versi plugin dideklarasikan di sini
         id("com.android.application") version "8.5.2"
-        id("com.chaquo.python") version "16.1"
+        id("com.chaquo.python") version "16.1"   // ⬅️ versi yang kamu ingin pakai
         kotlin("android") version "1.9.24"
     }
 }
@@ -15,6 +16,8 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // ⬅️ WAJIB juga di sini untuk dependency runtime Chaquopy
+        maven { url = uri("https://chaquo.com/maven") }
         google()
         mavenCentral()
     }
