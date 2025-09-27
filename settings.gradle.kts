@@ -8,7 +8,7 @@ pluginManagement {
     }
     plugins {
         id("com.android.application") version "8.5.2"
-        id("com.chaquo.python") version "16.1"   // ⬅️ versi yang kamu ingin pakai
+        id("com.chaquo.python") version "16.1.0"   // ⬅️ versi yang kamu ingin pakai
         kotlin("android") version "1.9.24"
     }
 }
