@@ -55,7 +55,6 @@ fun StitchScreen() {
 
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            // persist permission
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             context.contentResolver.takePersistableUriPermission(uri, flags)
             inputUri = uri
@@ -173,10 +172,11 @@ fun StitchScreen() {
                     val outUri = outputUri!!
                     scope.launch {
                         try {
+                            // 1) File I/O → IO dispatcher
                             val cacheIn = withContext(Dispatchers.IO) {
                                 val dir = java.io.File(context.cacheDir, "input")
                                 dir.deleteRecursively(); dir.mkdirs()
-                                copyFromTree(context, inUri, dir) // <-- root children langsung ke dir
+                                copyFromTree(context, inUri, dir)
                                 dir.absolutePath
                             }
                             val cacheOut = withContext(Dispatchers.IO) {
@@ -185,34 +185,37 @@ fun StitchScreen() {
                                 dir.absolutePath
                             }
 
-                            // Pastikan Python start (defensif, selain PyApplication di manifest)
-                            if (!Python.isStarted()) {
-                                Python.start(AndroidPlatform(context))
+                            // 2) Python init + run → worker thread (Default) agar UI tidak beku
+                            withContext(Dispatchers.Default) {
+                                if (!Python.isStarted()) {
+                                    Python.start(AndroidPlatform(context))
+                                }
+                                val py = Python.getInstance()
+                                val bridge = py.getModule("bridge")
+                                bridge.callAttr(
+                                    "run",
+                                    cacheIn,
+                                    (splitHeight.toIntOrNull() ?: 5000),
+                                    outputType,
+                                    batchMode,
+                                    widthEnforce,
+                                    (customWidth.toIntOrNull() ?: 720),
+                                    (sensitivity.toIntOrNull() ?: 90),
+                                    (ignorable.toIntOrNull() ?: 0),
+                                    (scanStep.toIntOrNull() ?: 5),
+                                    lowRam,
+                                    (unitImages.toIntOrNull() ?: 20),
+                                    cacheOut
+                                )
                             }
 
-                            val py = Python.getInstance()
-                            val bridge = py.getModule("bridge")
-                            bridge.callAttr(
-                                "run",
-                                cacheIn,
-                                (splitHeight.toIntOrNull() ?: 5000),
-                                outputType,
-                                batchMode,
-                                widthEnforce,
-                                (customWidth.toIntOrNull() ?: 720),
-                                (sensitivity.toIntOrNull() ?: 90),
-                                (ignorable.toIntOrNull() ?: 0),
-                                (scanStep.toIntOrNull() ?: 5),
-                                lowRam,
-                                (unitImages.toIntOrNull() ?: 20),
-                                cacheOut
-                            )
-
+                            // 3) Salin hasil balik → IO dispatcher
                             withContext(Dispatchers.IO) {
                                 val outDoc = DocumentFile.fromTreeUri(context, outUri)
                                 val src = java.io.File(cacheOut)
                                 copyToTree(context, src, outDoc)
                             }
+
                             logText += "\nSelesai."
                         } catch (e: Exception) {
                             logText += "\nERROR: ${e.message}"
@@ -251,7 +254,7 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         }
     }
 
-    // penting: anak-anak root langsung ke 'dest' tanpa subfolder tambahan
+    // anak-anak root langsung ke 'dest' tanpa subfolder tambahan
     copy(root, dest, true)
 }
 
