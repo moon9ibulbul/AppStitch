@@ -1,5 +1,6 @@
 package com.astral.stitchapp
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +33,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StitchScreen() {
+    val context = LocalContext.current
+
     var inputUri by remember { mutableStateOf<Uri?>(null) }
     var outputUri by remember { mutableStateOf<Uri?>(null) }
     var splitHeight by remember { mutableStateOf("5000") }
@@ -48,10 +52,22 @@ fun StitchScreen() {
     var isRunning by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
-    val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> inputUri = uri }
-    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> outputUri = uri }
 
-    val context = LocalContext.current
+    val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            // persist permission
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            context.contentResolver.takePersistableUriPermission(uri, flags)
+            inputUri = uri
+        }
+    }
+    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            context.contentResolver.takePersistableUriPermission(uri, flags)
+            outputUri = uri
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Smart Stitch (Android)") }) }) { padding ->
         Column(
@@ -82,7 +98,7 @@ fun StitchScreen() {
                 Text(outputUri?.lastPathSegment ?: "Belum dipilih")
             }
 
-            // ------ Fields angka: filter digit agar tetap numeric tanpa KeyboardOptions ------
+            // ------ Fields angka difilter digit ------
             OutlinedTextField(
                 value = splitHeight,
                 onValueChange = { splitHeight = it.filter { ch -> ch.isDigit() } },
@@ -146,7 +162,7 @@ fun StitchScreen() {
                 onValueChange = { scanStep = it.filter { ch -> ch.isDigit() } },
                 label = { Text("Scan Line Step [1-20]") }
             )
-            // -------------------------------------------------------------------------------
+            // ----------------------------------------
 
             Button(
                 enabled = !isRunning && inputUri != null && outputUri != null,
@@ -160,13 +176,20 @@ fun StitchScreen() {
                             val cacheIn = withContext(Dispatchers.IO) {
                                 val dir = java.io.File(context.cacheDir, "input")
                                 dir.deleteRecursively(); dir.mkdirs()
-                                copyFromTree(context, inUri, dir); dir.absolutePath
+                                copyFromTree(context, inUri, dir) // <-- root children langsung ke dir
+                                dir.absolutePath
                             }
                             val cacheOut = withContext(Dispatchers.IO) {
                                 val dir = java.io.File(context.cacheDir, "output")
                                 dir.deleteRecursively(); dir.mkdirs()
                                 dir.absolutePath
                             }
+
+                            // Pastikan Python start (defensif, selain PyApplication di manifest)
+                            if (!Python.isStarted()) {
+                                Python.start(AndroidPlatform(context))
+                            }
+
                             val py = Python.getInstance()
                             val bridge = py.getModule("bridge")
                             bridge.callAttr(
@@ -184,6 +207,7 @@ fun StitchScreen() {
                                 (unitImages.toIntOrNull() ?: 20),
                                 cacheOut
                             )
+
                             withContext(Dispatchers.IO) {
                                 val outDoc = DocumentFile.fromTreeUri(context, outUri)
                                 val src = java.io.File(cacheOut)
@@ -210,21 +234,25 @@ fun StitchScreen() {
     }
 }
 
-// SAF helpers
+// ===== SAF helpers =====
+
 fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File) {
     val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return
-    fun copy(doc: DocumentFile, base: java.io.File) {
+
+    fun copy(doc: DocumentFile, base: java.io.File, isRoot: Boolean) {
         if (doc.isDirectory) {
-            val dir = java.io.File(base, doc.name ?: "dir"); dir.mkdirs()
-            for (child in doc.listFiles()) copy(child, dir)
+            val targetDir = if (isRoot) base else java.io.File(base, doc.name ?: "dir").also { it.mkdirs() }
+            for (child in doc.listFiles()) copy(child, targetDir, false)
         } else {
-            val out = java.io.File(base, doc.name ?: "file.bin")
+            val outFile = java.io.File(base, doc.name ?: "file.bin")
             ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                out.outputStream().use { outs -> ins.copyTo(outs) }
+                outFile.outputStream().use { outs -> ins.copyTo(outs) }
             }
         }
     }
-    copy(root, dest)
+
+    // penting: anak-anak root langsung ke 'dest' tanpa subfolder tambahan
+    copy(root, dest, true)
 }
 
 fun copyToTree(ctx: android.content.Context, src: java.io.File, destTree: DocumentFile?) {
