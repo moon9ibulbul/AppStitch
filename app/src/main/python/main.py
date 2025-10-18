@@ -1,5 +1,7 @@
 import SmartStitchCore as ssc
 import argparse
+import os
+import shutil
 import time
 
 
@@ -30,7 +32,10 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
         return final_images
 
     if output_folder is None:
-        output_folder = input_folder + " [Stitched]"
+        abs_input = os.path.abspath(input_folder)
+        parent_dir = os.path.dirname(abs_input)
+        folder_name = os.path.basename(abs_input.rstrip(os.sep)) or os.path.basename(parent_dir)
+        output_folder = os.path.join(parent_dir, f"{folder_name} [Stitched]")
     print("Process Starting Up")
     folder_paths = ssc.get_folder_paths(batch_mode, input_folder, output_folder)
     # Sets the number of folders as a global variable, so it can be used in other update related functions.
@@ -92,13 +97,34 @@ def main():
                         help='Sets the value of Ignorable Border Pixels')
     parser.add_argument("--scan_line_step", "-sl", type=int, default=5, choices=range(1, 21), metavar="[1-20]",
                         help='Sets the value of Scan Line Step')
+    parser.add_argument("--output_folder", "-o", type=str, default=None,
+                        help='Sets the path of Output Folder. Defaults to INPUT + " [Stitched]"')
+    parser.add_argument("--zip_output", "-z", dest='zip_output', action='store_true',
+                        help='Compress the output folder into a .zip archive')
     parser.set_defaults(batch_mode=False)
 
     args = parser.parse_args()
+    output_folder = args.output_folder
+    if output_folder is not None:
+        output_folder = os.path.abspath(output_folder)
+    else:
+        abs_input = os.path.abspath(args.input_folder)
+        parent_dir = os.path.dirname(abs_input)
+        folder_name = os.path.basename(abs_input.rstrip(os.sep)) or os.path.basename(parent_dir)
+        output_folder = os.path.join(parent_dir, f"{folder_name} [Stitched]")
     start_time = time.time()
     run_stitch_process(args.input_folder, args.split_height, args.output_files_type, args.batch_mode,
                        args.width_enforce_type, args.custom_width, args.senstivity, args.ignorable_pixels,
-                       args.scan_line_step, args.low_ram, args.unit_images)
+                       args.scan_line_step, args.low_ram, args.unit_images, output_folder)
+    if args.zip_output:
+        zip_path = shutil.make_archive(
+            output_folder,
+            "zip",
+            root_dir=os.path.dirname(output_folder),
+            base_dir=os.path.basename(output_folder)
+        )
+        shutil.rmtree(output_folder, ignore_errors=True)
+        print(f"ZIP saved to {zip_path}")
     print(f"Total Time: {time.time() - start_time}")
 
 
