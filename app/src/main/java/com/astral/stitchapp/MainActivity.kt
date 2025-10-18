@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.documentfile.provider.DocumentFile
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +48,7 @@ fun StitchScreen() {
     var sensitivity by remember { mutableStateOf("90") }
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
+    var zipOutput by remember { mutableStateOf(false) }
 
     var logText by remember { mutableStateOf("") }
     var isRunning by remember { mutableStateOf(false) }
@@ -161,15 +163,23 @@ fun StitchScreen() {
                 onValueChange = { scanStep = it.filter { ch -> ch.isDigit() } },
                 label = { Text("Scan Line Step [1-20]") }
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(
+                    selected = zipOutput,
+                    onClick = { zipOutput = !zipOutput },
+                    label = { Text("Kemas sebagai .zip") }
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(if (zipOutput) "YA" else "TIDAK")
+            }
             // ----------------------------------------
 
             Button(
-                enabled = !isRunning && inputUri != null && outputUri != null,
+                enabled = !isRunning && inputUri != null,
                 onClick = {
                     isRunning = true
                     logText = ""
                     val inUri = inputUri!!
-                    val outUri = outputUri!!
                     scope.launch {
                         try {
                             // 1) File I/O → IO dispatcher
@@ -179,9 +189,14 @@ fun StitchScreen() {
                                 copyFromTree(context, inUri, dir)
                                 dir.absolutePath
                             }
+                            val inputDoc = DocumentFile.fromTreeUri(context, inUri)
+                            val outputFolderName = ((inputDoc?.name ?: "output").trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
+                            val cacheOutParent = java.io.File(context.cacheDir, "output")
                             val cacheOut = withContext(Dispatchers.IO) {
-                                val dir = java.io.File(context.cacheDir, "output")
-                                dir.deleteRecursively(); dir.mkdirs()
+                                cacheOutParent.deleteRecursively()
+                                cacheOutParent.mkdirs()
+                                val dir = java.io.File(cacheOutParent, outputFolderName)
+                                dir.mkdirs()
                                 dir.absolutePath
                             }
 
@@ -205,15 +220,26 @@ fun StitchScreen() {
                                     (scanStep.toIntOrNull() ?: 5),
                                     lowRam,
                                     (unitImages.toIntOrNull() ?: 20),
-                                    cacheOut
+                                    cacheOut,
+                                    zipOutput
                                 )
                             }
 
                             // 3) Salin hasil balik → IO dispatcher
                             withContext(Dispatchers.IO) {
-                                val outDoc = DocumentFile.fromTreeUri(context, outUri)
-                                val src = java.io.File(cacheOut)
-                                copyToTree(context, src, outDoc)
+                                val destinationTree = outputUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                    ?: DocumentFile.fromTreeUri(context, inUri)
+                                val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
+                                val zipFile = java.io.File("$cacheOut.zip")
+                                if (zipOutput) {
+                                    require(zipFile.exists()) { "File ZIP tidak ditemukan" }
+                                    copyToTree(context, zipFile, targetTree, "application/zip")
+                                } else {
+                                    val src = java.io.File(cacheOut)
+                                    require(src.exists()) { "Folder output tidak ditemukan" }
+                                    copyToTree(context, src, targetTree)
+                                }
+                                cacheOutParent.deleteRecursively()
                             }
 
                             logText += "\nSelesai."
@@ -258,19 +284,42 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
     copy(root, dest, true)
 }
 
-fun copyToTree(ctx: android.content.Context, src: java.io.File, destTree: DocumentFile?) {
+fun copyToTree(
+    ctx: android.content.Context,
+    src: java.io.File,
+    destTree: DocumentFile?,
+    mimeOverride: String? = null
+) {
     if (destTree == null) return
-    fun upload(file: java.io.File, parent: DocumentFile) {
+
+    fun inferredMime(file: java.io.File): String {
+        return when (file.extension.lowercase(Locale.ROOT)) {
+            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga" -> "image/*"
+            "zip" -> "application/zip"
+            else -> "application/octet-stream"
+        }
+    }
+
+    fun upload(file: java.io.File, parent: DocumentFile, overrideMime: String? = null) {
         if (file.isDirectory) {
-            val dir = parent.findFile(file.name) ?: parent.createDirectory(file.name)!!
-            file.listFiles()?.forEach { upload(it, dir) }
+            val dir = parent.findFile(file.name)?.takeIf { it.isDirectory } ?: parent.createDirectory(file.name)!!
+            file.listFiles()?.forEach { child -> upload(child, dir, null) }
         } else {
-            val mime = "image/*"
-            val target = parent.findFile(file.name) ?: parent.createFile(mime, file.name)!!
+            val mime = overrideMime ?: inferredMime(file)
+            val existing = parent.findFile(file.name)?.let { current ->
+                if (current.isDirectory) {
+                    current.delete()
+                    null
+                } else {
+                    current
+                }
+            }
+            val target = existing ?: parent.createFile(mime, file.name)!!
             ctx.contentResolver.openOutputStream(target.uri, "w")?.use { outs ->
                 file.inputStream().use { ins -> ins.copyTo(outs) }
             }
         }
     }
-    upload(src, destTree)
+
+    upload(src, destTree, mimeOverride)
 }

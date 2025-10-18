@@ -1,8 +1,18 @@
-import os, json
+import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
 
 PROGRESS_FILE = None
+
+
+def _resolve_output_folder(input_folder, output_folder):
+    input_abs = os.path.abspath(input_folder)
+    if output_folder:
+        return os.path.abspath(output_folder)
+
+    parent_dir = os.path.dirname(input_abs)
+    folder_name = os.path.basename(input_abs.rstrip(os.sep)) or os.path.basename(parent_dir)
+    return os.path.join(parent_dir, f"{folder_name} [Stitched]")
 
 def _progress_cb_factory(total_images):
     count = {"n": 0}
@@ -27,12 +37,11 @@ def run(input_folder,
         scan_line_step=5,
         low_ram=False,
         unit_images=20,
-        output_folder=None):
+        output_folder=None,
+        zip_output=False):
     global PROGRESS_FILE
-    if output_folder is None:
-        PROGRESS_FILE = os.path.join(os.path.abspath(input_folder) + " [Stitched]", "progress.json")
-    else:
-        PROGRESS_FILE = os.path.join(os.path.abspath(output_folder), "progress.json")
+    resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
+    PROGRESS_FILE = os.path.join(resolved_output_folder, "progress.json")
 
     _orig_save = ssc.save_data
 
@@ -55,7 +64,7 @@ def run(input_folder,
         scan_line_step=scan_line_step,
         low_ram=low_ram,
         unit_images=unit_images,
-        output_folder=output_folder
+        output_folder=resolved_output_folder
     )
 
     ssc.save_data = _orig_save
@@ -63,3 +72,20 @@ def run(input_folder,
     if PROGRESS_FILE:
         with open(PROGRESS_FILE, "w") as f:
             json.dump({"done": True}, f)
+        try:
+            os.remove(PROGRESS_FILE)
+        except OSError:
+            pass
+        PROGRESS_FILE = None
+
+    if zip_output:
+        zip_path = shutil.make_archive(
+            resolved_output_folder,
+            "zip",
+            root_dir=os.path.dirname(resolved_output_folder),
+            base_dir=os.path.basename(resolved_output_folder)
+        )
+        shutil.rmtree(resolved_output_folder, ignore_errors=True)
+        return zip_path
+
+    return resolved_output_folder
