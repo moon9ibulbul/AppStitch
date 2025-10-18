@@ -1,6 +1,7 @@
 import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
+from PIL import Image
 
 PROGRESS_FILE = None
 
@@ -38,7 +39,8 @@ def run(input_folder,
         low_ram=False,
         unit_images=20,
         output_folder=None,
-        zip_output=False):
+        zip_output=False,
+        pdf_output=False):
     global PROGRESS_FILE
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
     PROGRESS_FILE = os.path.join(resolved_output_folder, "progress.json")
@@ -87,5 +89,32 @@ def run(input_folder,
         )
         shutil.rmtree(resolved_output_folder, ignore_errors=True)
         return zip_path
+
+    if pdf_output:
+        image_paths = [
+            os.path.join(resolved_output_folder, name)
+            for name in sorted(os.listdir(resolved_output_folder))
+            if name.lower().endswith((
+                ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga"
+            ))
+        ]
+        if not image_paths:
+            raise RuntimeError("Tidak ada gambar untuk dikonversi ke PDF")
+
+        images = []
+        try:
+            for path in image_paths:
+                with Image.open(path) as img:
+                    images.append(img.convert("RGB"))
+
+            first, *rest = images
+            pdf_path = f"{resolved_output_folder}.pdf"
+            first.save(pdf_path, save_all=True, append_images=rest)
+        finally:
+            for img in images:
+                img.close()
+
+        shutil.rmtree(resolved_output_folder, ignore_errors=True)
+        return pdf_path
 
     return resolved_output_folder
