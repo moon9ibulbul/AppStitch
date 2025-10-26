@@ -7,7 +7,8 @@ import time
 
 def run_stitch_process(input_folder, split_height=5000, output_files_type=".png", batch_mode=False,
                        width_enforce_type=0, custom_width=720, senstivity=90, ignorable_pixels=0, scan_line_step=5,
-                       low_ram=False, unit_images=20, output_folder=None):
+                       low_ram=False, unit_images=20, output_folder=None, bubble_protect=False,
+                       detector_padding=12):
     """Runs the stitch process using the SS core functions, and updates the progress on the UI."""
 
     def helper_func(images, width_enforce_type, num_of_inputs, unit=False):
@@ -27,7 +28,20 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
         del images
         combined_image = ssc.combine_images(resized_images)
         del resized_images
-        final_images = ssc.split_image(combined_image, split_height, senstivity, ignorable_pixels, scan_line_step)
+        protected_zones = None
+        if detector is not None:
+            try:
+                protected_zones = detector.protected_rows(combined_image, padding=detector_padding)
+            except Exception as exc:
+                print(f"Bubble detector failed, continuing without protection: {exc}")
+        final_images = ssc.split_image(
+            combined_image,
+            split_height,
+            senstivity,
+            ignorable_pixels,
+            scan_line_step,
+            protected_zones=protected_zones,
+        )
         print(f"Working - Saving Finalized {unit_str}Images!")
         return final_images
 
@@ -43,6 +57,16 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
     if num_of_inputs == 0:
         print("Batch Mode Enabled, No Suitable Input Folders Found!")
         return
+    detector = None
+    if bubble_protect:
+        try:
+            from bubble_detector import ComicBubbleDetector
+
+            detector = ComicBubbleDetector()
+            print("Bubble detector initialized")
+        except Exception as exc:
+            print(f"Bubble detector unavailable: {exc}")
+
     for path in folder_paths:
         if low_ram:
             save_offset = 0
@@ -101,6 +125,10 @@ def main():
                         help='Sets the path of Output Folder. Defaults to INPUT + " [Stitched]"')
     parser.add_argument("--zip_output", "-z", dest='zip_output', action='store_true',
                         help='Compress the output folder into a .zip archive')
+    parser.add_argument("--bubble_protect", "-bp", dest='bubble_protect', action='store_true',
+                        help='Use speech bubble detector to avoid slicing text')
+    parser.add_argument("--detector_padding", "-dp", type=int, default=12,
+                        help='Extra pixels added above and below detected bubbles')
     parser.set_defaults(batch_mode=False)
 
     args = parser.parse_args()
@@ -115,7 +143,8 @@ def main():
     start_time = time.time()
     run_stitch_process(args.input_folder, args.split_height, args.output_files_type, args.batch_mode,
                        args.width_enforce_type, args.custom_width, args.senstivity, args.ignorable_pixels,
-                       args.scan_line_step, args.low_ram, args.unit_images, output_folder)
+                       args.scan_line_step, args.low_ram, args.unit_images, output_folder,
+                       bubble_protect=args.bubble_protect, detector_padding=args.detector_padding)
     if args.zip_output:
         zip_path = shutil.make_archive(
             output_folder,

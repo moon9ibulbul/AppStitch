@@ -59,6 +59,8 @@ fun StitchScreen() {
     var sensitivity by remember { mutableStateOf("90") }
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
+    var bubbleProtect by remember { mutableStateOf(true) }
+    var detectorPadding by remember { mutableStateOf("12") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
 
     var logText by remember { mutableStateOf("") }
@@ -176,6 +178,22 @@ fun StitchScreen() {
                 onValueChange = { scanStep = it.filter { ch -> ch.isDigit() } },
                 label = { Text("Scan Line Step [1-20]") }
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilterChip(
+                    selected = bubbleProtect,
+                    onClick = { bubbleProtect = !bubbleProtect },
+                    label = { Text("Bubble Protect AI") }
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(if (bubbleProtect) "Deteksi aktif" else "Deteksi nonaktif")
+            }
+            if (bubbleProtect) {
+                OutlinedTextField(
+                    value = detectorPadding,
+                    onValueChange = { detectorPadding = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Padding Detektor (px)") }
+                )
+            }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Kemas Output")
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -287,7 +305,9 @@ fun StitchScreen() {
                                         (unitImages.toIntOrNull() ?: 20),
                                         cacheOut,
                                         packagingOption == PackagingOption.ZIP,
-                                        packagingOption == PackagingOption.PDF
+                                        packagingOption == PackagingOption.PDF,
+                                        bubbleProtect,
+                                        (detectorPadding.toIntOrNull() ?: 12)
                                     )
                                 }
                                 progress = 1f

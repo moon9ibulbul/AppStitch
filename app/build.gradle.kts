@@ -73,6 +73,8 @@ chaquopy {
             install("numpy<2")
 
             install("natsort==8.4.0")
+            install("huggingface-hub==0.23.4")
+            install("onnxruntime==1.16.3")
         }
     }
 }
