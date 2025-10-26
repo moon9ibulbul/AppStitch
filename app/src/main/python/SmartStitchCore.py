@@ -127,34 +127,59 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
     """Where the smart magic happens, compares pixels of each row, to decide if it's okay to cut there."""
     st = time.time()
     threshold = int(255 * (1 - (senstivity / 100)))
-    new_split_height = split_height
     last_row = len(combined_pixels) - 1
-    adjust_in_progress = True
-    countdown = True
-    while adjust_in_progress:
-        adjust_in_progress = False
-        split_row = split_offset + new_split_height
-        if split_row > last_row:
-            break
-        pixel_row = combined_pixels[split_row]
-        prev_pixel = int(pixel_row[ignorable_pixels])
-        for x in range((ignorable_pixels + 1), len(pixel_row) - (ignorable_pixels)):
-            current_pixel = int(pixel_row[x])
-            pixel_value_diff = current_pixel - prev_pixel
-            if pixel_value_diff < -threshold or pixel_value_diff > threshold:
-                if countdown:
-                    new_split_height -= scan_step
-                else:
-                    new_split_height += scan_step
-                adjust_in_progress = True
-                break
-            current_pixel = prev_pixel
-        if new_split_height < 0.4 * split_height:
-            new_split_height = split_height
-            countdown = False
-            adjust_in_progress = True
+    target_row = min(split_offset + split_height, last_row)
+
+    # Define a search window around the desired split location to look for calmer rows.
+    search_window = max(int(split_height * 0.15), scan_step * 3)
+    search_start = max(split_offset, target_row - search_window)
+    search_end = min(last_row - 1, target_row + search_window)
+
+    if search_start >= search_end:
+        print(f"adjust_split_location: {time.time() - st}")
+        return split_height
+
+    sample_stride = max(1, scan_step // 2)
+    edge_limit = max(12, threshold + 8)
+    max_dark_ratio = min(0.45, 0.2 + (senstivity / 500))
+
+    def row_metrics(row_pixels):
+        trimmed = row_pixels[ignorable_pixels:len(row_pixels) - ignorable_pixels]
+        if trimmed.size <= 1:
+            return 0.0, 0.0
+        if sample_stride > 1:
+            trimmed = trimmed[::sample_stride]
+        diffs = np.abs(np.diff(trimmed.astype(np.int16)))
+        avg_diff = float(diffs.mean()) if diffs.size > 0 else 0.0
+        dark_ratio = float(np.count_nonzero(trimmed < 180)) / float(trimmed.size)
+        return avg_diff, dark_ratio
+
+    best_row = target_row
+    best_score = float('inf')
+    for row_idx in range(search_start, search_end + 1):
+        avg_diff, dark_ratio = row_metrics(combined_pixels[row_idx])
+        if dark_ratio > max_dark_ratio and avg_diff > edge_limit:
+            continue
+        distance_penalty = abs(row_idx - target_row) * 0.2
+        combined_score = avg_diff + distance_penalty
+        if combined_score < best_score:
+            best_score = combined_score
+            best_row = row_idx
+
+    if best_score == float('inf'):
+        print(f"adjust_split_location: {time.time() - st}")
+        return split_height
+
+    adjusted_height = best_row - split_offset
+    if adjusted_height <= 0:
+        adjusted_height = split_height
+    else:
+        minimum_height = max(1, int(split_height * 0.4))
+        if adjusted_height < minimum_height:
+            adjusted_height = minimum_height
+
     print(f"adjust_split_location: {time.time() - st}")
-    return new_split_height
+    return int(adjusted_height)
 
 
 def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step):
