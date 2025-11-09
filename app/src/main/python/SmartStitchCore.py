@@ -123,7 +123,17 @@ def combine_images(images):
     return new_image
 
 
-def adjust_split_location(combined_pixels, split_height, split_offset, senstivity, ignorable_pixels, scan_step):
+def _row_in_protected(split_row, protected_zones):
+    if not protected_zones:
+        return False
+    for start, end in protected_zones:
+        if start <= split_row <= end:
+            return True
+    return False
+
+
+def adjust_split_location(combined_pixels, split_height, split_offset, senstivity, ignorable_pixels, scan_step,
+                          protected_zones=None):
     """Where the smart magic happens, compares pixels of each row, to decide if it's okay to cut there."""
     st = time.time()
     threshold = int(255 * (1 - (senstivity / 100)))
@@ -136,6 +146,13 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
         split_row = split_offset + new_split_height
         if split_row > last_row:
             break
+        if _row_in_protected(split_row, protected_zones):
+            adjust_in_progress = True
+            if countdown:
+                new_split_height = max(scan_step, new_split_height - scan_step)
+            else:
+                new_split_height += scan_step
+            continue
         pixel_row = combined_pixels[split_row]
         prev_pixel = int(pixel_row[ignorable_pixels])
         for x in range((ignorable_pixels + 1), len(pixel_row) - (ignorable_pixels)):
@@ -143,7 +160,7 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
             pixel_value_diff = current_pixel - prev_pixel
             if pixel_value_diff < -threshold or pixel_value_diff > threshold:
                 if countdown:
-                    new_split_height -= scan_step
+                    new_split_height = max(scan_step, new_split_height - scan_step)
                 else:
                     new_split_height += scan_step
                 adjust_in_progress = True
@@ -157,7 +174,7 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
     return new_split_height
 
 
-def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step):
+def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step, protected_zones=None):
     """Splits the gaint combined img into small images passed on desired height."""
     st = time.time()
     split_height = int(split_height)
@@ -171,8 +188,22 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     # The spliting starts here (calls another function to decide where to slice)
     split_offset = 0
     while (split_offset + split_height) < max_height:
-        new_split_height = adjust_split_location(combined_pixels, split_height, split_offset, senstivity,
-                                                 ignorable_pixels, scan_step)
+        new_split_height = adjust_split_location(
+            combined_pixels,
+            split_height,
+            split_offset,
+            senstivity,
+            ignorable_pixels,
+            scan_step,
+            protected_zones=protected_zones,
+        )
+        split_row = split_offset + new_split_height
+        if _row_in_protected(split_row, protected_zones):
+            split_offset += scan_step
+            continue
+        if new_split_height <= 0:
+            split_offset += scan_step
+            continue
         split_image = pil.new('RGB', (max_width, new_split_height))
         split_image.paste(combined_img, (0, -split_offset))
         split_offset += new_split_height

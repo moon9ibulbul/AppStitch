@@ -40,7 +40,9 @@ def run(input_folder,
         unit_images=20,
         output_folder=None,
         zip_output=False,
-        pdf_output=False):
+        pdf_output=False,
+        bubble_protect=False,
+        detector_padding=12):
     global PROGRESS_FILE
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
     PROGRESS_FILE = os.path.join(resolved_output_folder, "progress.json")
@@ -66,7 +68,9 @@ def run(input_folder,
         scan_line_step=scan_line_step,
         low_ram=low_ram,
         unit_images=unit_images,
-        output_folder=resolved_output_folder
+        output_folder=resolved_output_folder,
+        bubble_protect=bubble_protect,
+        detector_padding=detector_padding,
     )
 
     ssc.save_data = _orig_save
