@@ -3,8 +3,6 @@ package com.astral.stitchapp
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -18,16 +16,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.documentfile.provider.DocumentFile
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -360,36 +358,9 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
             val targetDir = if (isRoot) base else java.io.File(base, doc.name ?: "dir").also { it.mkdirs() }
             for (child in doc.listFiles()) copy(child, targetDir, false)
         } else {
-            val originalName = doc.name ?: "file.bin"
-            val lower = originalName.lowercase(Locale.ROOT)
-            if (lower.endsWith(".webp")) {
-                val baseName = originalName.dropLast(5)
-                val targetName = "$baseName.png"
-                var targetFile = java.io.File(base, targetName)
-                var index = 1
-                while (targetFile.exists()) {
-                    targetFile = java.io.File(base, "${baseName}_webp$index.png")
-                    index += 1
-                }
-                val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                    BitmapFactory.decodeStream(ins)
-                }
-                if (converted != null) {
-                    targetFile.outputStream().use { outs ->
-                        converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                    }
-                    converted.recycle()
-                } else {
-                    val fallbackFile = java.io.File(base, originalName)
-                    ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                        fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
-                    }
-                }
-            } else {
-                val outFile = java.io.File(base, originalName)
-                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                    outFile.outputStream().use { outs -> ins.copyTo(outs) }
-                }
+            val outFile = java.io.File(base, doc.name ?: "file.bin")
+            ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                outFile.outputStream().use { outs -> ins.copyTo(outs) }
             }
         }
     }
