@@ -10,6 +10,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -30,6 +32,7 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import java.util.Locale
+import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
 enum class PackagingOption {
@@ -65,10 +68,22 @@ fun StitchScreen() {
 
     var logText by remember { mutableStateOf("") }
     var isRunning by remember { mutableStateOf(false) }
-    var progress by remember { mutableFloatStateOf(0f) }
+    var progressTarget by remember { mutableFloatStateOf(0f) }
     var progressVisible by remember { mutableStateOf(false) }
 
+    val animatedProgress = remember { Animatable(0f) }
+
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(progressTarget) {
+        val clampedTarget = progressTarget.coerceIn(0f, 1f)
+        val distance = (clampedTarget - animatedProgress.value).absoluteValue
+        val duration = (distance * 800).roundToInt().coerceIn(120, 900)
+        animatedProgress.animateTo(
+            clampedTarget,
+            animationSpec = tween(durationMillis = duration)
+        )
+    }
 
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -218,7 +233,7 @@ fun StitchScreen() {
                 onClick = {
                     isRunning = true
                     logText = ""
-                    progress = 0f
+                    progressTarget = 0f
                     progressVisible = true
                     val progressFile = java.io.File(context.cacheDir, "progress.json")
                     var progressJob: Job? = null
@@ -229,6 +244,27 @@ fun StitchScreen() {
                     val inUri = inputUri
                     scope.launch {
                         try {
+                            suspend fun writeProgressSafe(done: Boolean = false) {
+                                withContext(Dispatchers.IO) {
+                                    writeProgress(progressFile, processedSteps, totalSteps, done)
+                                }
+                            }
+
+                            suspend fun readProgressCounts(): Pair<Int, Int>? {
+                                return withContext(Dispatchers.IO) {
+                                    if (progressFile.exists()) runCatching {
+                                        val json = org.json.JSONObject(progressFile.readText())
+                                        json.optInt("processed") to json.optInt("total")
+                                    }.getOrNull() else null
+                                }
+                            }
+
+                            suspend fun stepProgress(delta: Int = 1, done: Boolean = false) {
+                                processedSteps += delta
+                                totalSteps = maxOf(totalSteps, processedSteps)
+                                writeProgressSafe(done)
+                            }
+
                             if (!useBato && inUri == null) {
                                 logText += "\nERROR: Folder input belum dipilih"
                                 isRunning = false
@@ -241,8 +277,8 @@ fun StitchScreen() {
                             withContext(Dispatchers.IO) {
                                 progressFile.parentFile?.mkdirs()
                                 if (progressFile.exists()) progressFile.delete()
-                                writeProgress(progressFile, processedSteps, totalSteps, done = false)
                             }
+                            writeProgressSafe(done = false)
                             if (useBato) {
                                 val inputDirParent = preferredBatoDownloadDir(context)
                                 withContext(Dispatchers.IO) { inputDirParent.deleteRecursively(); inputDirParent.mkdirs() }
@@ -265,24 +301,24 @@ fun StitchScreen() {
                                 val downloadedCount = downloadJson.optInt("count", 0)
                                 processedSteps += downloadedCount
                                 totalSteps = maxOf(totalSteps, processedSteps)
-                                writeProgress(progressFile, processedSteps, totalSteps, done = false)
+                                writeProgressSafe(done = false)
                                 cacheIn = downloadJson.getString("path")
-                                withContext(Dispatchers.IO) {
-                                    val webpCount = countWebpFiles(java.io.File(cacheIn))
-                                    if (webpCount > 0) {
-                                        totalSteps = processedSteps + webpCount
-                                        writeProgress(progressFile, processedSteps, totalSteps, done = false)
-                                    }
-                                    val converted = convertWebpToPng(
+                                val webpCount = withContext(Dispatchers.IO) { countWebpFiles(java.io.File(cacheIn)) }
+                                if (webpCount > 0) {
+                                    totalSteps = processedSteps + webpCount
+                                    writeProgressSafe(done = false)
+                                }
+                                val converted = withContext(Dispatchers.IO) {
+                                    convertWebpToPng(
                                         java.io.File(cacheIn),
                                         progressFile,
                                         processedSteps,
                                         totalSteps
                                     )
-                                    processedSteps += converted
-                                    totalSteps = maxOf(totalSteps, processedSteps)
-                                    writeProgress(progressFile, processedSteps, totalSteps, done = false)
                                 }
+                                processedSteps += converted
+                                totalSteps = maxOf(totalSteps, processedSteps)
+                                writeProgressSafe(done = false)
                                 outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             } else {
                                 val resolvedInputUri = requireNotNull(inUri) { "Folder input belum dipilih" }
@@ -317,7 +353,7 @@ fun StitchScreen() {
                                             runCatching { org.json.JSONObject(snapshot) }.getOrNull()?.let { json ->
                                                 when {
                                                     json.optBoolean("done", false) -> {
-                                                        progress = 1f
+                                                        progressTarget = 1f
                                                         return@let
                                                     }
                                                     json.has("processed") && json.has("total") -> {
@@ -325,14 +361,13 @@ fun StitchScreen() {
                                                         val total = json.optInt("total")
                                                         if (total > 0) {
                                                             val ratio = (processed.toFloat() / total).coerceIn(0f, 1f)
-                                                            progress = ratio
+                                                            progressTarget = ratio
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                        if (progress >= 1f) break
-                                        delay(300)
+                                        delay(150)
                                     }
                                 }
 
@@ -359,18 +394,28 @@ fun StitchScreen() {
                                         packagingOption == PackagingOption.ZIP,
                                         packagingOption == PackagingOption.PDF,
                                         progressFile.absolutePath,
-                                        processedSteps
+                                        processedSteps,
+                                        false
                                     )
                                 }
-                                progress = 1f
                             } finally {
-                                progressJob?.cancelAndJoin()
-                                progress = progress.coerceIn(0f, 1f)
                             }
 
-                            // 3) Salin hasil balik → IO dispatcher
-                            withContext(Dispatchers.IO) {
-                                val destinationTree = when {
+                            readProgressCounts()?.let { (p, t) ->
+                                processedSteps = p
+                                totalSteps = maxOf(t, processedSteps)
+                            }
+                            val packagingSteps = when (packagingOption) {
+                                PackagingOption.FOLDER -> 2
+                                PackagingOption.ZIP, PackagingOption.PDF -> 3
+                            }
+                            totalSteps = maxOf(totalSteps, processedSteps + packagingSteps)
+                            writeProgressSafe(done = false)
+                            stepProgress()
+
+                        // 3) Salin hasil balik → IO dispatcher
+                        withContext(Dispatchers.IO) {
+                            val destinationTree = when {
                                     outputUri != null -> outputUri?.let { DocumentFile.fromTreeUri(context, it) }
                                     useBato -> null
                                     else -> DocumentFile.fromTreeUri(context, requireNotNull(inUri))
@@ -420,10 +465,16 @@ fun StitchScreen() {
                                 cacheOutParent.deleteRecursively()
                             }
 
+                            stepProgress(packagingSteps - 1, done = true)
+                            progressTarget = 1f
+
+                            progressJob?.cancelAndJoin()
+
                             logText += "\nSelesai."
                         } catch (e: Exception) {
                             logText += "\nERROR: ${e.message}"
                         } finally {
+                            progressJob?.cancelAndJoin()
                             isRunning = false
                             progressVisible = false
                         }
@@ -433,8 +484,8 @@ fun StitchScreen() {
 
             if (progressVisible) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
-                    Text("${(progress * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                    LinearProgressIndicator(progress = animatedProgress.value, modifier = Modifier.fillMaxWidth())
+                    Text("${(animatedProgress.value * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
                 }
             }
 

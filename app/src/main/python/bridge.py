@@ -48,9 +48,9 @@ class ProgressWriter:
 
         return cb
 
-    def finish(self):
+    def finish(self, mark_done=True):
         self.processed = max(self.processed, self.total)
-        self._write(done=True)
+        self._write(done=mark_done)
 
 
 def _resolve_output_folder(input_folder, output_folder):
@@ -77,7 +77,8 @@ def run(input_folder,
         zip_output=False,
         pdf_output=False,
         progress_path=None,
-        progress_offset=0):
+        progress_offset=0,
+        mark_done=True):
     global PROGRESS_FILE, PROGRESS_OFFSET
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
     PROGRESS_FILE = progress_path or os.path.join(resolved_output_folder, "progress.json")
@@ -112,7 +113,7 @@ def run(input_folder,
     ssc.save_data = _orig_save
     PROGRESS_OFFSET = 0
 
-    writer.finish()
+    writer.finish(mark_done)
     PROGRESS_FILE = None
 
     if zip_output:
