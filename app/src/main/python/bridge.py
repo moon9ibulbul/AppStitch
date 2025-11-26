@@ -3,6 +3,7 @@ import SmartStitchCore as ssc
 import main as stitch
 
 PROGRESS_FILE = None
+PROGRESS_OFFSET = 0
 
 
 def _resolve_output_folder(input_folder, output_folder):
@@ -20,8 +21,9 @@ def _progress_cb_factory(total_images):
         count["n"] += 1
         if PROGRESS_FILE:
             try:
+                total = PROGRESS_OFFSET + total_images
                 with open(PROGRESS_FILE, "w") as f:
-                    json.dump({"processed": count["n"], "total": total_images}, f)
+                    json.dump({"processed": PROGRESS_OFFSET + count["n"], "total": total}, f)
             except Exception:
                 pass
     return cb
@@ -39,10 +41,13 @@ def run(input_folder,
         unit_images=20,
         output_folder=None,
         zip_output=False,
-        pdf_output=False):
-    global PROGRESS_FILE
+        pdf_output=False,
+        progress_path=None,
+        progress_offset=0):
+    global PROGRESS_FILE, PROGRESS_OFFSET
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
-    PROGRESS_FILE = os.path.join(resolved_output_folder, "progress.json")
+    PROGRESS_FILE = progress_path or os.path.join(resolved_output_folder, "progress.json")
+    PROGRESS_OFFSET = progress_offset
 
     _orig_save = ssc.save_data
 
@@ -69,6 +74,7 @@ def run(input_folder,
     )
 
     ssc.save_data = _orig_save
+    PROGRESS_OFFSET = 0
 
     if PROGRESS_FILE:
         with open(PROGRESS_FILE, "w") as f:
