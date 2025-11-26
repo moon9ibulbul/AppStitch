@@ -235,7 +235,7 @@ fun StitchScreen() {
                             val cacheIn: String
                             val outputFolderName: String
                             if (useBato) {
-                                val inputDirParent = java.io.File(context.cacheDir, "bato_input")
+                                val inputDirParent = preferredBatoDownloadDir(context)
                                 withContext(Dispatchers.IO) { inputDirParent.deleteRecursively(); inputDirParent.mkdirs() }
                                 cacheIn = withContext(Dispatchers.Default) {
                                     if (!Python.isStarted()) {
@@ -244,6 +244,9 @@ fun StitchScreen() {
                                     val py = Python.getInstance()
                                     val bato = py.getModule("bato")
                                     bato.callAttr("download_bato", trimmedBato, inputDirParent.absolutePath).toString()
+                                }
+                                withContext(Dispatchers.IO) {
+                                    convertWebpToPng(java.io.File(cacheIn))
                                 }
                                 outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             } else {
@@ -409,6 +412,41 @@ fun StitchScreen() {
             )
         }
     }
+}
+
+fun preferredBatoDownloadDir(context: android.content.Context): java.io.File {
+    val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+    val target = java.io.File(documentsDir, "AstralStitch/BatoCache")
+    return try {
+        target.mkdirs()
+        if (target.exists() && target.canWrite()) target else java.io.File(context.cacheDir, "bato_input")
+    } catch (_: Exception) {
+        java.io.File(context.cacheDir, "bato_input")
+    }
+}
+
+fun convertWebpToPng(root: java.io.File) {
+    if (!root.exists()) return
+    root.walkTopDown()
+        .filter { it.isFile && it.extension.equals("webp", ignoreCase = true) }
+        .forEach { webpFile ->
+            val baseName = webpFile.nameWithoutExtension
+            var target = java.io.File(webpFile.parentFile, "$baseName.png")
+            var index = 1
+            while (target.exists()) {
+                target = java.io.File(webpFile.parentFile, "${baseName}_webp$index.png")
+                index += 1
+            }
+
+            val bitmap = BitmapFactory.decodeFile(webpFile.absolutePath)
+            if (bitmap != null) {
+                target.outputStream().use { outs ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                }
+                bitmap.recycle()
+                webpFile.delete()
+            }
+        }
 }
 
 // ===== SAF helpers =====
