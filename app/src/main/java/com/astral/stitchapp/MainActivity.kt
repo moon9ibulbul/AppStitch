@@ -1,6 +1,8 @@
 package com.astral.stitchapp
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -428,9 +430,35 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         )
         if (!isImage) return
 
-        val outFile = java.io.File(base, name)
-        ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-            outFile.outputStream().use { outs -> ins.copyTo(outs) }
+        val lower = name.lowercase(Locale.ROOT)
+        if (lower.endsWith(".webp")) {
+            val baseName = name.dropLast(5)
+            val targetName = "$baseName.png"
+            var targetFile = java.io.File(base, targetName)
+            var index = 1
+            while (targetFile.exists()) {
+                targetFile = java.io.File(base, "${baseName}_webp$index.png")
+                index += 1
+            }
+            val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                BitmapFactory.decodeStream(ins)
+            }
+            if (converted != null) {
+                targetFile.outputStream().use { outs ->
+                    converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                }
+                converted.recycle()
+            } else {
+                val fallbackFile = java.io.File(base, name)
+                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                    fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
+                }
+            }
+        } else {
+            val outFile = java.io.File(base, name)
+            ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                outFile.outputStream().use { outs -> ins.copyTo(outs) }
+            }
         }
     }
 
