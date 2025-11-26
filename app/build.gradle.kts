@@ -68,15 +68,17 @@ chaquopy {
             options("--extra-index-url", "https://chaquo.com/pypi-16.1")
 
             // Build Pillow dengan encoder/decoder WebP aktif.
-            install(
-                "pillow==9.2.0",
-                options = listOf(
-                    "--global-option=build_ext",
-                    "--global-option=--enable-webp",
-                    "--global-option=--enable-jpeg",
-                    "--global-option=--enable-zlib"
-                )
+            options(
+                "--extra-index-url", "https://chaquo.com/pypi-16.1",
+                "--global-option=build_ext",
+                "--global-option=--enable-webp",
+                "--global-option=--enable-jpeg",
+                "--global-option=--enable-zlib"
             )
+            install("pillow==9.2.0")
+
+            // Reset ke opsi default untuk paket lain.
+            options("--extra-index-url", "https://chaquo.com/pypi-16.1")
 
             // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
             install("numpy<2")
