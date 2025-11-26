@@ -1,5 +1,6 @@
 from PIL import ImageFile, Image as pil
 from PIL import UnidentifiedImageError
+import imageio.v2 as imageio
 from natsort import natsorted
 import numpy as np
 import os
@@ -268,8 +269,8 @@ def _convert_webp_to_jpg(path):
     try:
         with pil.open(path) as image:
             image.convert("RGB").save(jpg_path, format="JPEG", quality=100)
-    except UnidentifiedImageError as exc:
-        raise RuntimeError(f"Tidak dapat membaca file gambar: {os.path.basename(path)}") from exc
+    except UnidentifiedImageError:
+        jpg_path = _convert_webp_with_imageio(path, jpg_path)
     return jpg_path
 
 
@@ -280,6 +281,19 @@ def _is_webp_file(path):
         return header[:4] == b"RIFF" and header[8:] == b"WEBP"
     except OSError:
         return False
+
+
+def _convert_webp_with_imageio(path, jpg_path):
+    try:
+        image = imageio.imread(path)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Tidak dapat membaca file gambar: {os.path.basename(path)}") from exc
+
+    try:
+        pil.fromarray(image).convert("RGB").save(jpg_path, format="JPEG", quality=100)
+        return jpg_path
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Tidak dapat membaca file gambar: {os.path.basename(path)}") from exc
 
 
 def call_external_func(cmd, display_output, processed_path):
