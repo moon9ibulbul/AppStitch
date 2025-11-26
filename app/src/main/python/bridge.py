@@ -6,6 +6,53 @@ PROGRESS_FILE = None
 PROGRESS_OFFSET = 0
 
 
+class ProgressWriter:
+    def __init__(self, path, offset=0):
+        self.path = path
+        self.processed = offset
+        # Keep the denominator non-zero so the UI has something to read immediately
+        self.total = max(offset + 1, 1)
+        self._write()
+
+    def _write(self, done=False):
+        if not self.path:
+            return
+        try:
+            with open(self.path, "w") as f:
+                payload = {"processed": self.processed, "total": self.total}
+                if done:
+                    payload["done"] = True
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def ensure_total(self, desired_total):
+        if desired_total > self.total:
+            self.total = desired_total
+            self._write()
+
+    def add_total(self, delta):
+        self.ensure_total(self.total + delta)
+
+    def step(self, inc=1):
+        self.processed += inc
+        if self.processed > self.total:
+            self.total = self.processed
+        self._write()
+
+    def wrap_saver(self, total_images):
+        self.add_total(total_images)
+
+        def cb(*_):
+            self.step()
+
+        return cb
+
+    def finish(self):
+        self.processed = max(self.processed, self.total)
+        self._write(done=True)
+
+
 def _resolve_output_folder(input_folder, output_folder):
     input_abs = os.path.abspath(input_folder)
     if output_folder:
@@ -14,19 +61,6 @@ def _resolve_output_folder(input_folder, output_folder):
     parent_dir = os.path.dirname(input_abs)
     folder_name = os.path.basename(input_abs.rstrip(os.sep)) or os.path.basename(parent_dir)
     return os.path.join(parent_dir, f"{folder_name} [Stitched]")
-
-def _progress_cb_factory(total_images):
-    count = {"n": 0}
-    def cb(_n=None):
-        count["n"] += 1
-        if PROGRESS_FILE:
-            try:
-                total = PROGRESS_OFFSET + total_images
-                with open(PROGRESS_FILE, "w") as f:
-                    json.dump({"processed": PROGRESS_OFFSET + count["n"], "total": total}, f)
-            except Exception:
-                pass
-    return cb
 
 def run(input_folder,
         split_height=5000,
@@ -49,11 +83,12 @@ def run(input_folder,
     PROGRESS_FILE = progress_path or os.path.join(resolved_output_folder, "progress.json")
     PROGRESS_OFFSET = progress_offset
 
+    writer = ProgressWriter(PROGRESS_FILE, PROGRESS_OFFSET)
+
     _orig_save = ssc.save_data
 
     def save_data_with_progress(data, foldername, outputformat, offset=0, progress_func=None):
-        total = len(data)
-        cb = _progress_cb_factory(total)
+        cb = writer.wrap_saver(len(data))
         return _orig_save(data, foldername, outputformat, offset=offset, progress_func=cb)
 
     ssc.save_data = save_data_with_progress
@@ -70,20 +105,15 @@ def run(input_folder,
         scan_line_step=scan_line_step,
         low_ram=low_ram,
         unit_images=unit_images,
-        output_folder=resolved_output_folder
+        output_folder=resolved_output_folder,
+        progress_writer=writer
     )
 
     ssc.save_data = _orig_save
     PROGRESS_OFFSET = 0
 
-    if PROGRESS_FILE:
-        with open(PROGRESS_FILE, "w") as f:
-            json.dump({"done": True}, f)
-        try:
-            os.remove(PROGRESS_FILE)
-        except OSError:
-            pass
-        PROGRESS_FILE = None
+    writer.finish()
+    PROGRESS_FILE = None
 
     if zip_output:
         zip_path = shutil.make_archive(
