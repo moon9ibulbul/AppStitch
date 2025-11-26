@@ -1,9 +1,11 @@
-from PIL import ImageFile, Image as pil
+from PIL import ImageFile, Image as pil, UnidentifiedImageError
 from natsort import natsorted
 import numpy as np
 import os
 import subprocess
 import time
+import tempfile
+import shutil
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -40,8 +42,12 @@ def load_images(foldername):
     for imgFile in files:
         if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
             imgPath = os.path.join(folder, imgFile)
-            image = pil.open(imgPath)
-            images.append(image)
+            try:
+                image = _open_image_with_webp_fallback(imgPath)
+                if image is not None:
+                    images.append(image)
+            except UnidentifiedImageError as exc:
+                print(f"Skipping unsupported or invalid image {imgPath}: {exc}")
     print(f"load_images: {time.time() - st}")
     return images
 
@@ -58,6 +64,7 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
     files = natsorted(os.listdir(folder))
     if len(files) == 0:
         return images
+    last = False
     loop_count = 0
     img_count = 0
     for imgFile in files:
@@ -65,9 +72,13 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
         if img_count < unit_limit and loop_count > offset:
             if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
                 imgPath = os.path.join(folder, imgFile)
-                image = pil.open(imgPath)
-                images.append(image)
-                img_count += 1
+                try:
+                    image = _open_image_with_webp_fallback(imgPath)
+                    if image is not None:
+                        images.append(image)
+                        img_count += 1
+                except UnidentifiedImageError as exc:
+                    print(f"Skipping unsupported or invalid image {imgPath}: {exc}")
             last = True
         else:
             last = False
@@ -202,6 +213,48 @@ def save_data(data, foldername, outputformat, offset=0, progress_func=None):
         imageIndex += 1
     print(f"save_data: {time.time() - st}")
     return imageIndex - 1
+
+
+def _open_image_with_webp_fallback(img_path):
+    try:
+        return pil.open(img_path)
+    except UnidentifiedImageError:
+        if img_path.lower().endswith(".webp"):
+            converted_path = None
+            try:
+                converted_path = _convert_webp_to_png(img_path)
+                fallback_image = pil.open(converted_path)
+                fallback_image.load()
+                return fallback_image
+            except Exception as exc:
+                print(f"Failed to convert WEBP {img_path} to PNG: {exc}")
+            finally:
+                if converted_path and os.path.exists(converted_path):
+                    try:
+                        os.remove(converted_path)
+                    except OSError:
+                        pass
+        raise
+
+
+def _convert_webp_to_png(img_path):
+    tmp_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp_png.close()
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("ffmpeg tidak tersedia untuk konversi WEBP")
+
+    result = subprocess.run(
+        [ffmpeg_path, "-loglevel", "error", "-y", "-i", img_path, tmp_png.name],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace") if isinstance(result.stderr, (bytes, bytearray)) else str(result.stderr)
+        raise RuntimeError(f"ffmpeg gagal mengonversi WEBP: {stderr}")
+
+    return tmp_png.name
 
 
 def call_external_func(cmd, display_output, processed_path):

@@ -1,7 +1,6 @@
 import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
-from PIL import Image
 
 PROGRESS_FILE = None
 
@@ -104,8 +103,21 @@ def run(input_folder,
         images = []
         try:
             for path in image_paths:
-                with Image.open(path) as img:
-                    images.append(img.convert("RGB"))
+                image = None
+                try:
+                    image = ssc._open_image_with_webp_fallback(path)
+                    converted = image.convert("RGB")
+                    images.append(converted)
+                except Exception as exc:
+                    print(f"Skipping invalid image {path}: {exc}")
+                finally:
+                    try:
+                        image.close()
+                    except Exception:
+                        pass
+
+            if not images:
+                raise RuntimeError("Tidak ada gambar valid untuk dikonversi ke PDF")
 
             first, *rest = images
             pdf_path = f"{resolved_output_folder}.pdf"
