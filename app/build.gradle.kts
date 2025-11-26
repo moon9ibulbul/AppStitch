@@ -69,7 +69,13 @@ chaquopy {
 
             // Build Pillow dengan encoder/decoder WebP aktif.
             install(
-                "pillow==9.2.0 --global-option=build_ext --global-option=--enable-webp --global-option=--enable-jpeg --global-option=--enable-zlib"
+                "pillow==9.2.0",
+                options = listOf(
+                    "--global-option=build_ext",
+                    "--global-option=--enable-webp",
+                    "--global-option=--enable-jpeg",
+                    "--global-option=--enable-zlib"
+                )
             )
 
             // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
