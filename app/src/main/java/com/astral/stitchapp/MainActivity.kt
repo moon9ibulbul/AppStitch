@@ -58,6 +58,7 @@ fun StitchScreen() {
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
+    var batoUrl by remember { mutableStateOf("") }
 
     var logText by remember { mutableStateOf("") }
     var isRunning by remember { mutableStateOf(false) }
@@ -91,7 +92,7 @@ fun StitchScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Pilih folder sumber (INPUT) & tujuan (OUTPUT). App menyalin dari SAF ke cache agar Python bisa memproses.",
+                "Pilih folder sumber (INPUT) & tujuan (OUTPUT), atau masukkan URL chapter Bato.to untuk diunduh otomatis.",
                 style = MaterialTheme.typography.bodySmall
             )
 
@@ -102,6 +103,13 @@ fun StitchScreen() {
                 Spacer(Modifier.width(8.dp))
                 Text(inputUri?.lastPathSegment ?: "Belum dipilih")
             }
+            OutlinedTextField(
+                value = batoUrl,
+                onValueChange = { batoUrl = it },
+                label = { Text("URL Bato.to (opsional)") },
+                supportingText = { Text("Jika terisi, aplikasi akan mengunduh gambar dari URL tersebut (pilih folder OUTPUT untuk menyimpan hasil).") },
+                modifier = Modifier.fillMaxWidth()
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = { pickOutput.launch(null) }) {
                     Text(if (outputUri == null) "Pilih Folder OUTPUT" else "Ganti Folder OUTPUT")
@@ -203,24 +211,48 @@ fun StitchScreen() {
             // ----------------------------------------
 
             Button(
-                enabled = !isRunning && inputUri != null,
+                enabled = !isRunning && (inputUri != null || batoUrl.isNotBlank()),
                 onClick = {
                     isRunning = true
                     logText = ""
                     progress = 0f
                     progressVisible = true
-                    val inUri = inputUri!!
+                    val useBato = batoUrl.isNotBlank()
+                    val trimmedBato = batoUrl.trim()
+                    val inUri = inputUri
                     scope.launch {
                         try {
-                            // 1) File I/O → IO dispatcher
-                            val cacheIn = withContext(Dispatchers.IO) {
-                                val dir = java.io.File(context.cacheDir, "input")
-                                dir.deleteRecursively(); dir.mkdirs()
-                                copyFromTree(context, inUri, dir)
-                                dir.absolutePath
+                            if (!useBato && inUri == null) {
+                                logText += "\nERROR: Folder input belum dipilih"
+                                isRunning = false
+                                progressVisible = false
+                                return@launch
                             }
-                            val inputDoc = DocumentFile.fromTreeUri(context, inUri)
-                            val outputFolderName = ((inputDoc?.name ?: "output").trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
+                            // 1) File I/O → IO dispatcher
+                            val cacheIn: String
+                            val outputFolderName: String
+                            if (useBato) {
+                                val inputDirParent = java.io.File(context.cacheDir, "bato_input")
+                                withContext(Dispatchers.IO) { inputDirParent.deleteRecursively(); inputDirParent.mkdirs() }
+                                cacheIn = withContext(Dispatchers.Default) {
+                                    if (!Python.isStarted()) {
+                                        Python.start(AndroidPlatform(context))
+                                    }
+                                    val py = Python.getInstance()
+                                    val bato = py.getModule("bato")
+                                    bato.callAttr("download_bato", trimmedBato, inputDirParent.absolutePath).toString()
+                                }
+                                outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
+                            } else {
+                                cacheIn = withContext(Dispatchers.IO) {
+                                    val dir = java.io.File(context.cacheDir, "input")
+                                    dir.deleteRecursively(); dir.mkdirs()
+                                    copyFromTree(context, inUri, dir)
+                                    dir.absolutePath
+                                }
+                                val inputDoc = DocumentFile.fromTreeUri(context, inUri)
+                                outputFolderName = ((inputDoc?.name ?: "output").trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
+                            }
                             val cacheOutParent = java.io.File(context.cacheDir, "output")
                             val cacheOut = withContext(Dispatchers.IO) {
                                 cacheOutParent.deleteRecursively()
@@ -296,8 +328,11 @@ fun StitchScreen() {
 
                             // 3) Salin hasil balik → IO dispatcher
                             withContext(Dispatchers.IO) {
-                                val destinationTree = outputUri?.let { DocumentFile.fromTreeUri(context, it) }
-                                    ?: DocumentFile.fromTreeUri(context, inUri)
+                                val destinationTree = when {
+                                    outputUri != null -> DocumentFile.fromTreeUri(context, outputUri)
+                                    useBato -> null
+                                    else -> DocumentFile.fromTreeUri(context, inUri)
+                                }
                                 val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
                                 when (packagingOption) {
                                     PackagingOption.ZIP -> {
