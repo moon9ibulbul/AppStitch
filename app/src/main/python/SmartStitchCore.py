@@ -1,5 +1,5 @@
 from PIL import ImageFile, Image as pil
-from PIL import UnidentifiedImageError, WebPImagePlugin
+from PIL import UnidentifiedImageError, WebPImagePlugin, features
 from natsort import natsorted
 import numpy as np
 import os
@@ -41,6 +41,8 @@ def load_images(foldername):
     for imgFile in files:
         if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
             imgPath = os.path.join(folder, imgFile)
+            if not os.path.isfile(imgPath):
+                continue
             images.append(_open_image_safe(imgPath))
     print(f"load_images: {time.time() - st}")
     return images
@@ -65,6 +67,8 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
         if img_count < unit_limit and loop_count > offset:
             if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
                 imgPath = os.path.join(folder, imgFile)
+                if not os.path.isfile(imgPath):
+                    continue
                 images.append(_open_image_safe(imgPath))
                 img_count += 1
             last = True
@@ -211,6 +215,8 @@ def save_data(data, foldername, outputformat, offset=0, progress_func=None):
 
 
 def _open_image_safe(path):
+    if path.lower().endswith(".webp"):
+        _ensure_webp_support()
     try:
         return pil.open(path).convert("RGBA")
     except UnidentifiedImageError as exc:
@@ -218,6 +224,8 @@ def _open_image_safe(path):
 
 
 def _resolve_output_format(extension):
+    if extension == ".webp":
+        _ensure_webp_support()
     mapping = {
         ".png": ("PNG", {"optimize": True}),
         ".jpg": ("JPEG", {"quality": 100}),
@@ -243,6 +251,14 @@ def _prepare_image_for_save(image, extension):
     if image.mode == "P":
         return image.convert("RGBA")
     return image
+
+
+def _ensure_webp_support():
+    if not features.check("webp"):
+        raise RuntimeError("Dukungan format WEBP tidak tersedia di lingkungan ini.")
+    # Importing the plugin explicitly ensures the encoder/decoder is registered
+    # even when Pillow is lazily initialized.
+    WebPImagePlugin.__file__
 
 
 def call_external_func(cmd, display_output, processed_path):
