@@ -11,6 +11,7 @@ import shutil
 import time
 from html import unescape
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -125,7 +126,18 @@ def normalize_bato_url(url: str) -> str:
     return url
 
 
-def download_bato(url: str, output_dir: str) -> str:
+def _write_progress(progress_path: Optional[str], processed: int, total: int):
+    if not progress_path:
+        return
+    try:
+        with open(progress_path, "w") as f:
+            json.dump({"processed": processed, "total": total}, f)
+    except Exception:
+        pass
+
+
+def download_bato(url: str, output_dir: str, progress_path: Optional[str] = None,
+                  start: int = 0, extra_total: int = 0) -> str:
     """Unduh gambar-gambar dari URL Bato dan simpan di folder judul halaman."""
 
     normalized_url = normalize_bato_url(url)
@@ -142,12 +154,16 @@ def download_bato(url: str, output_dir: str) -> str:
         shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    start = time.time()
+    total_steps = start + len(images) + max(0, extra_total)
+    _write_progress(progress_path, start, total_steps)
+
+    start_time = time.time()
     for idx, img_url in enumerate(images, start=1):
         download_image(img_url, target_dir, idx, normalized_url)
-    duration = time.time() - start
+        _write_progress(progress_path, start + idx, total_steps)
+    duration = time.time() - start_time
     print(f"[bato] Mengunduh {len(images)} gambar selesai dalam {duration:.2f}s")
-    return str(target_dir)
+    return json.dumps({"path": str(target_dir), "count": len(images)})
 
 
 __all__ = [

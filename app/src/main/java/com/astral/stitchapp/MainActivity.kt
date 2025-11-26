@@ -220,6 +220,10 @@ fun StitchScreen() {
                     logText = ""
                     progress = 0f
                     progressVisible = true
+                    val progressFile = java.io.File(context.cacheDir, "progress.json")
+                    var progressJob: Job? = null
+                    var processedSteps = 0
+                    var totalSteps = 1
                     val useBato = batoUrl.isNotBlank()
                     val trimmedBato = batoUrl.trim()
                     val inUri = inputUri
@@ -234,19 +238,50 @@ fun StitchScreen() {
                             // 1) File I/O → IO dispatcher
                             val cacheIn: String
                             val outputFolderName: String
+                            withContext(Dispatchers.IO) {
+                                progressFile.parentFile?.mkdirs()
+                                if (progressFile.exists()) progressFile.delete()
+                                writeProgress(progressFile, processedSteps, totalSteps, done = false)
+                            }
                             if (useBato) {
                                 val inputDirParent = preferredBatoDownloadDir(context)
                                 withContext(Dispatchers.IO) { inputDirParent.deleteRecursively(); inputDirParent.mkdirs() }
-                                cacheIn = withContext(Dispatchers.Default) {
+                                val downloadResult = withContext(Dispatchers.Default) {
                                     if (!Python.isStarted()) {
                                         Python.start(AndroidPlatform(context))
                                     }
                                     val py = Python.getInstance()
                                     val bato = py.getModule("bato")
-                                    bato.callAttr("download_bato", trimmedBato, inputDirParent.absolutePath).toString()
+                                    bato.callAttr(
+                                        "download_bato",
+                                        trimmedBato,
+                                        inputDirParent.absolutePath,
+                                        progressFile.absolutePath,
+                                        processedSteps,
+                                        0
+                                    ).toString()
                                 }
+                                val downloadJson = org.json.JSONObject(downloadResult)
+                                val downloadedCount = downloadJson.optInt("count", 0)
+                                processedSteps += downloadedCount
+                                totalSteps = maxOf(totalSteps, processedSteps)
+                                writeProgress(progressFile, processedSteps, totalSteps, done = false)
+                                cacheIn = downloadJson.getString("path")
                                 withContext(Dispatchers.IO) {
-                                    convertWebpToPng(java.io.File(cacheIn))
+                                    val webpCount = countWebpFiles(java.io.File(cacheIn))
+                                    if (webpCount > 0) {
+                                        totalSteps = processedSteps + webpCount
+                                        writeProgress(progressFile, processedSteps, totalSteps, done = false)
+                                    }
+                                    val converted = convertWebpToPng(
+                                        java.io.File(cacheIn),
+                                        progressFile,
+                                        processedSteps,
+                                        totalSteps
+                                    )
+                                    processedSteps += converted
+                                    totalSteps = maxOf(totalSteps, processedSteps)
+                                    writeProgress(progressFile, processedSteps, totalSteps, done = false)
                                 }
                                 outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             } else {
@@ -270,8 +305,6 @@ fun StitchScreen() {
                             }
 
                             // 2) Python init + run → worker thread (Default) agar UI tidak beku
-                            val progressFile = java.io.File(cacheOut, "progress.json")
-                            var progressJob: Job? = null
                             try {
                                 progressJob = launch {
                                     while (isActive) {
@@ -324,7 +357,9 @@ fun StitchScreen() {
                                         (unitImages.toIntOrNull() ?: 20),
                                         cacheOut,
                                         packagingOption == PackagingOption.ZIP,
-                                        packagingOption == PackagingOption.PDF
+                                        packagingOption == PackagingOption.PDF,
+                                        progressFile.absolutePath,
+                                        processedSteps
                                     )
                                 }
                                 progress = 1f
@@ -425,8 +460,32 @@ fun preferredBatoDownloadDir(context: android.content.Context): java.io.File {
     }
 }
 
-fun convertWebpToPng(root: java.io.File) {
-    if (!root.exists()) return
+fun writeProgress(progressFile: java.io.File, processed: Int, total: Int, done: Boolean = false) {
+    runCatching {
+        val payload = org.json.JSONObject().apply {
+            put("processed", processed)
+            put("total", total)
+            if (done) put("done", true)
+        }
+        progressFile.writeText(payload.toString())
+    }
+}
+
+fun countWebpFiles(root: java.io.File): Int {
+    if (!root.exists()) return 0
+    return root.walkTopDown()
+        .count { it.isFile && it.extension.equals("webp", ignoreCase = true) }
+}
+
+fun convertWebpToPng(
+    root: java.io.File,
+    progressFile: java.io.File? = null,
+    processedOffset: Int = 0,
+    totalSteps: Int? = null
+): Int {
+    if (!root.exists()) return 0
+    var convertedCount = 0
+    val total = totalSteps ?: countWebpFiles(root)
     root.walkTopDown()
         .filter { it.isFile && it.extension.equals("webp", ignoreCase = true) }
         .forEach { webpFile ->
@@ -445,8 +504,13 @@ fun convertWebpToPng(root: java.io.File) {
                 }
                 bitmap.recycle()
                 webpFile.delete()
+                convertedCount += 1
+                progressFile?.let {
+                    writeProgress(it, processedOffset + convertedCount, processedOffset + total)
+                }
             }
         }
+    return convertedCount
 }
 
 // ===== SAF helpers =====
