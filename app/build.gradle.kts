@@ -73,6 +73,9 @@ chaquopy {
             install("numpy<2")
 
             install("natsort==8.4.0")
+
+            // Fallback decoder untuk WebP jika Pillow tidak bisa membukanya
+            install("imageio==2.34.1")
         }
     }
 }
