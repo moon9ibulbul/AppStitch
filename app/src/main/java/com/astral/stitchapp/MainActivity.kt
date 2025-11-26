@@ -129,7 +129,7 @@ fun StitchScreen() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Output Type")
                 Spacer(Modifier.width(8.dp))
-                listOf(".png", ".jpg", ".webp", ".bmp", ".tiff", ".tga").forEach { t ->
+                listOf(".png", ".jpg", ".bmp", ".tiff", ".tga").forEach { t ->
                     FilterChip(selected = outputType == t, onClick = { outputType = t }, label = { Text(t) })
                     Spacer(Modifier.width(8.dp))
                 }

@@ -1,5 +1,5 @@
 from PIL import ImageFile, Image as pil
-from PIL import UnidentifiedImageError, WebPImagePlugin, features
+from PIL import UnidentifiedImageError
 from natsort import natsorted
 import numpy as np
 import os
@@ -41,9 +41,10 @@ def load_images(foldername):
     for imgFile in files:
         if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
             imgPath = os.path.join(folder, imgFile)
-            if not os.path.isfile(imgPath):
+            normalized_path = _normalize_input_image(imgPath)
+            if normalized_path is None or not os.path.isfile(normalized_path):
                 continue
-            images.append(_open_image_safe(imgPath))
+            images.append(_open_image_safe(normalized_path))
     print(f"load_images: {time.time() - st}")
     return images
 
@@ -67,9 +68,10 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
         if img_count < unit_limit and loop_count > offset:
             if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
                 imgPath = os.path.join(folder, imgFile)
-                if not os.path.isfile(imgPath):
+                normalized_path = _normalize_input_image(imgPath)
+                if normalized_path is None or not os.path.isfile(normalized_path):
                     continue
-                images.append(_open_image_safe(imgPath))
+                images.append(_open_image_safe(normalized_path))
                 img_count += 1
             last = True
         else:
@@ -215,8 +217,6 @@ def save_data(data, foldername, outputformat, offset=0, progress_func=None):
 
 
 def _open_image_safe(path):
-    if path.lower().endswith(".webp"):
-        _ensure_webp_support()
     try:
         return pil.open(path).convert("RGBA")
     except UnidentifiedImageError as exc:
@@ -224,13 +224,10 @@ def _open_image_safe(path):
 
 
 def _resolve_output_format(extension):
-    if extension == ".webp":
-        _ensure_webp_support()
     mapping = {
         ".png": ("PNG", {"optimize": True}),
         ".jpg": ("JPEG", {"quality": 100}),
         ".jpeg": ("JPEG", {"quality": 100}),
-        ".webp": ("WEBP", {"quality": 100}),
         ".bmp": ("BMP", {}),
         ".tiff": ("TIFF", {}),
         ".tif": ("TIFF", {}),
@@ -244,21 +241,45 @@ def _resolve_output_format(extension):
 def _prepare_image_for_save(image, extension):
     if extension in (".jpg", ".jpeg"):
         return image.convert("RGB")
-    if extension == ".webp":
-        if image.mode not in ("RGB", "RGBA"):
-            return image.convert("RGBA")
-        return image
     if image.mode == "P":
         return image.convert("RGBA")
     return image
 
 
-def _ensure_webp_support():
-    if not features.check("webp"):
-        raise RuntimeError("Dukungan format WEBP tidak tersedia di lingkungan ini.")
-    # Importing the plugin explicitly ensures the encoder/decoder is registered
-    # even when Pillow is lazily initialized.
-    WebPImagePlugin.__file__
+def _normalize_input_image(path):
+    extension = os.path.splitext(path)[1].lower()
+    if not os.path.isfile(path):
+        return None
+    if _is_webp_file(path):
+        if extension in (".jpg", ".jpeg"):
+            new_path = os.path.splitext(path)[0] + ".webp"
+            if not os.path.exists(new_path):
+                os.rename(path, new_path)
+            path = new_path
+        if path.lower().endswith(".webp"):
+            return _convert_webp_to_jpg(path)
+    return path
+
+
+def _convert_webp_to_jpg(path):
+    jpg_path = os.path.splitext(path)[0] + ".jpg"
+    if os.path.exists(jpg_path):
+        return jpg_path
+    try:
+        with pil.open(path) as image:
+            image.convert("RGB").save(jpg_path, format="JPEG", quality=100)
+    except UnidentifiedImageError as exc:
+        raise RuntimeError(f"Tidak dapat membaca file gambar: {os.path.basename(path)}") from exc
+    return jpg_path
+
+
+def _is_webp_file(path):
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+        return header[:4] == b"RIFF" and header[8:] == b"WEBP"
+    except OSError:
+        return False
 
 
 def call_external_func(cmd, display_output, processed_path):
