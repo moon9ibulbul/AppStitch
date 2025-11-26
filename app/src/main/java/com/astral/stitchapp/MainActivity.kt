@@ -331,7 +331,7 @@ fun StitchScreen() {
                             // 3) Salin hasil balik → IO dispatcher
                             withContext(Dispatchers.IO) {
                                 val destinationTree = when {
-                                    outputUri != null -> DocumentFile.fromTreeUri(context, outputUri)
+                                    outputUri != null -> outputUri?.let { DocumentFile.fromTreeUri(context, it) }
                                     useBato -> null
                                     else -> DocumentFile.fromTreeUri(context, requireNotNull(inUri))
                                 }
