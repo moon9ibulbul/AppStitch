@@ -4,7 +4,7 @@
 
     <application
         android:name="com.chaquo.python.android.PyApplication"
-        android:label="StitchApp"
+        android:label="AstralStitch"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
         android:supportsRtl="true"

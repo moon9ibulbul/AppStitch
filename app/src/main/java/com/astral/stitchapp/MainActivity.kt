@@ -3,6 +3,7 @@ package com.astral.stitchapp
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -82,7 +83,7 @@ fun StitchScreen() {
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Smart Stitch (Android)") }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("AstralStitch") }) }) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -244,13 +245,14 @@ fun StitchScreen() {
                                 }
                                 outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             } else {
+                                val requiredInputUri = requireNotNull(inUri) { "Folder input belum dipilih" }
                                 cacheIn = withContext(Dispatchers.IO) {
                                     val dir = java.io.File(context.cacheDir, "input")
                                     dir.deleteRecursively(); dir.mkdirs()
-                                    copyFromTree(context, inUri, dir)
+                                    copyFromTree(context, requiredInputUri, dir)
                                     dir.absolutePath
                                 }
-                                val inputDoc = DocumentFile.fromTreeUri(context, inUri)
+                                val inputDoc = DocumentFile.fromTreeUri(context, requiredInputUri)
                                 outputFolderName = ((inputDoc?.name ?: "output").trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             }
                             val cacheOutParent = java.io.File(context.cacheDir, "output")
@@ -328,10 +330,15 @@ fun StitchScreen() {
 
                             // 3) Salin hasil balik → IO dispatcher
                             withContext(Dispatchers.IO) {
+                                val selectedOutputUri = outputUri
                                 val destinationTree = when {
-                                    outputUri != null -> DocumentFile.fromTreeUri(context, outputUri)
-                                    useBato -> null
-                                    else -> DocumentFile.fromTreeUri(context, inUri)
+                                    selectedOutputUri != null -> DocumentFile.fromTreeUri(context, selectedOutputUri)
+                                    useBato -> {
+                                        val documentsRoot = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).also { it.mkdirs() }
+                                        val documentsOut = java.io.File(documentsRoot, outputFolderName).also { it.mkdirs() }
+                                        DocumentFile.fromFile(documentsOut)
+                                    }
+                                    else -> DocumentFile.fromTreeUri(context, requireNotNull(inUri))
                                 }
                                 val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
                                 when (packagingOption) {

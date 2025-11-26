@@ -1,4 +1,5 @@
 from PIL import ImageFile, Image as pil
+from PIL import UnidentifiedImageError, WebPImagePlugin
 from natsort import natsorted
 import numpy as np
 import os
@@ -40,8 +41,7 @@ def load_images(foldername):
     for imgFile in files:
         if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
             imgPath = os.path.join(folder, imgFile)
-            image = pil.open(imgPath)
-            images.append(image)
+            images.append(_open_image_safe(imgPath))
     print(f"load_images: {time.time() - st}")
     return images
 
@@ -65,8 +65,7 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
         if img_count < unit_limit and loop_count > offset:
             if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
                 imgPath = os.path.join(folder, imgFile)
-                image = pil.open(imgPath)
-                images.append(image)
+                images.append(_open_image_safe(imgPath))
                 img_count += 1
             last = True
         else:
@@ -195,13 +194,55 @@ def save_data(data, foldername, outputformat, offset=0, progress_func=None):
     if not os.path.exists(new_folder):
         os.makedirs(new_folder)
     imageIndex = offset + 1
+    extension = outputformat.lower()
+    target_format, save_kwargs = _resolve_output_format(extension)
     for image in data:
         if progress_func is not None:
             progress_func(len(data))
-        image.save(new_folder + '/' + str(f'{imageIndex:02}') + outputformat, quality=100)
+        processed_image = _prepare_image_for_save(image, extension)
+        target_path = os.path.join(new_folder, f"{imageIndex:02}{outputformat}")
+        processed_image.save(target_path, format=target_format, **save_kwargs)
+        processed_image.close()
+        if processed_image is not image:
+            image.close()
         imageIndex += 1
     print(f"save_data: {time.time() - st}")
     return imageIndex - 1
+
+
+def _open_image_safe(path):
+    try:
+        return pil.open(path).convert("RGBA")
+    except UnidentifiedImageError as exc:
+        raise RuntimeError(f"Tidak dapat membaca file gambar: {os.path.basename(path)}") from exc
+
+
+def _resolve_output_format(extension):
+    mapping = {
+        ".png": ("PNG", {"optimize": True}),
+        ".jpg": ("JPEG", {"quality": 100}),
+        ".jpeg": ("JPEG", {"quality": 100}),
+        ".webp": ("WEBP", {"quality": 100}),
+        ".bmp": ("BMP", {}),
+        ".tiff": ("TIFF", {}),
+        ".tif": ("TIFF", {}),
+        ".tga": ("TGA", {}),
+    }
+    if extension not in mapping:
+        raise ValueError(f"Unknown file extension: {extension}")
+    return mapping[extension]
+
+
+def _prepare_image_for_save(image, extension):
+    if extension in (".jpg", ".jpeg"):
+        return image.convert("RGB")
+    if extension == ".webp":
+        if image.mode not in ("RGB", "RGBA"):
+            return image.convert("RGBA")
+        return image
+    if image.mode == "P":
+        return image.convert("RGBA")
+    return image
 
 
 def call_external_func(cmd, display_output, processed_path):
