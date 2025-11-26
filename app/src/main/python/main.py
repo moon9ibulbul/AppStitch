@@ -81,7 +81,7 @@ def main():
     parser.add_argument("--input_folder", "-i", type=str, required=True, help='Sets the path of Input Folder')
     parser.add_argument("--split_height", "-H", type=int, default=5000, help='Sets the value of the Rough Panel Height')
     parser.add_argument("--output_files_type", "-t", type=str, default=".png",
-                        choices=['.png', '.jpg', '.webp', '.bmp', '.tiff', '.tga'],
+                        choices=['.png', '.jpg', '.bmp', '.tiff', '.tga'],
                         help='Sets the type/format of the Output Image Files')
     parser.add_argument("--batch_mode", "-b", dest='batch_mode', action='store_true', help='Enables Batch Mode')
     parser.add_argument("--low_ram", "-l", dest='low_ram', action='store_true', help='Enables Low RAM Mode')

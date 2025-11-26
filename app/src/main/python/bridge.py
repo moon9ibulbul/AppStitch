@@ -95,7 +95,7 @@ def run(input_folder,
             os.path.join(resolved_output_folder, name)
             for name in sorted(os.listdir(resolved_output_folder))
             if name.lower().endswith((
-                ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga"
+                ".png", ".jpg", ".jpeg", ".jfif", ".bmp", ".tiff", ".tif", ".tga"
             ))
         ]
         if not image_paths:
