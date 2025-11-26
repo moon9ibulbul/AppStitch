@@ -1,0 +1,155 @@
+"""Downloader untuk sumber Bato.to berbasis konstanta `imgHttps`.
+
+Mengunduh daftar gambar dari halaman chapter dan menyimpannya ke folder bernama
+sesuai judul halaman (disanitasi untuk nama folder yang aman).
+"""
+
+import json
+import os
+import re
+import shutil
+import time
+from html import unescape
+from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/118.0.0.0 Safari/537.36"
+)
+
+
+def fetch_html(url: str) -> str:
+    req = Request(url, headers={"User-Agent": USER_AGENT, "Referer": url})
+    with urlopen(req) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        data = resp.read()
+    return data.decode(charset, errors="replace")
+
+
+def extract_title(html: str) -> str:
+    match = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return "bato_chapter"
+    title = unescape(match.group(1)).strip()
+    title = re.sub(r"\s+", " ", title)
+    return title or "bato_chapter"
+
+
+def sanitize_folder_name(title: str) -> str:
+    sanitized = re.sub(r"[\\/:*?\"<>|]", "_", title).strip(" .")
+    return sanitized or "bato_chapter"
+
+
+def extract_images(html: str):
+    pattern = re.compile(r"const\s+imgHttps\s*=\s*(\[[^;]*\])", re.IGNORECASE | re.DOTALL)
+    match = pattern.search(html)
+    if match:
+        array_text = match.group(1)
+        try:
+            data = json.loads(array_text)
+        except json.JSONDecodeError:
+            normalized = array_text.replace("'", '"')
+            data = json.loads(normalized)
+        if not isinstance(data, list):
+            raise ValueError("imgHttps bukan list")
+        return [str(item) for item in data if isinstance(item, str) and item.strip()]
+
+    astro_images = extract_images_from_astro(html)
+    if astro_images:
+        return astro_images
+    raise ValueError("Tidak menemukan konstanta imgHttps maupun data astro-island")
+
+
+def extract_images_from_astro(html: str):
+    pattern = re.compile(r"<astro-island[^>]+props=\"([^\"]+)\"", re.IGNORECASE)
+    urls = []
+    for match in pattern.finditer(html):
+        props_raw = match.group(1)
+        props_text = unescape(props_raw)
+        try:
+            props = json.loads(props_text)
+        except json.JSONDecodeError:
+            continue
+        image_files = props.get("imageFiles")
+        if not image_files or len(image_files) < 2:
+            continue
+        encoded = image_files[1]
+        if not isinstance(encoded, str):
+            continue
+        try:
+            decoded = json.loads(encoded)
+        except json.JSONDecodeError:
+            continue
+        for item in decoded:
+            if isinstance(item, list) and len(item) >= 2 and isinstance(item[1], str) and item[1].strip():
+                urls.append(item[1])
+    return urls
+
+
+def sanitize_ext(url: str) -> str:
+    path = urlparse(url).path
+    ext = os.path.splitext(path)[1]
+    if not ext:
+        return ".jpg"
+    return ext if ext.startswith('.') else f".{ext}"
+
+
+def download_image(url: str, dest: Path, idx: int, referer: str):
+    ext = sanitize_ext(url)
+    filename = f"img_{idx:04d}{ext}"
+    target = dest / filename
+    req = Request(url, headers={"User-Agent": USER_AGENT, "Referer": referer})
+    with urlopen(req) as resp:
+        chunk = resp.read()
+    target.write_bytes(chunk)
+    return target
+
+
+def normalize_bato_url(url: str) -> str:
+    """Konversi domain alternatif Bato ke domain utama bato.to."""
+
+    parsed = urlparse(url)
+    domain = parsed.netloc.split(":", 1)[0].lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+
+    if domain.startswith("bato.si") or domain.startswith("bato.ing"):
+        match = re.search(r"/(\d+)(?:-[^/]*)?/?$", parsed.path)
+        if not match:
+            raise ValueError("Tidak dapat menemukan chapter id dari URL yang diberikan")
+        chapter_id = match.group(1)
+        return f"https://bato.to/chapter/{chapter_id}"
+
+    return url
+
+
+def download_bato(url: str, output_dir: str) -> str:
+    """Unduh gambar-gambar dari URL Bato dan simpan di folder judul halaman."""
+
+    normalized_url = normalize_bato_url(url)
+    html = fetch_html(normalized_url)
+    images = extract_images(html)
+    if not images:
+        raise RuntimeError("Tidak ada gambar ditemukan pada halaman Bato")
+
+    title = sanitize_folder_name(extract_title(html))
+    base_dir = Path(output_dir)
+    base_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = base_dir / title
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    start = time.time()
+    for idx, img_url in enumerate(images, start=1):
+        download_image(img_url, target_dir, idx, normalized_url)
+    duration = time.time() - start
+    print(f"[bato] Mengunduh {len(images)} gambar selesai dalam {duration:.2f}s")
+    return str(target_dir)
+
+
+__all__ = [
+    "download_bato",
+]
