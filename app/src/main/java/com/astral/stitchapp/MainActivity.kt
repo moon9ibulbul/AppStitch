@@ -279,9 +279,39 @@ fun StitchScreen() {
                                 if (progressFile.exists()) progressFile.delete()
                             }
                             writeProgressSafe(done = false)
+                            logText += "\n[Log] Menyiapkan input..."
+                            progressJob = launch {
+                                while (isActive) {
+                                    val snapshot = withContext(Dispatchers.IO) {
+                                        if (progressFile.exists()) runCatching {
+                                            progressFile.readText()
+                                        }.getOrNull() else null
+                                    }
+                                    if (snapshot != null) {
+                                        runCatching { org.json.JSONObject(snapshot) }.getOrNull()?.let { json ->
+                                            when {
+                                                json.optBoolean("done", false) -> {
+                                                    progressTarget = 1f
+                                                    return@let
+                                                }
+                                                json.has("processed") && json.has("total") -> {
+                                                    val processed = json.optInt("processed")
+                                                    val total = json.optInt("total")
+                                                    if (total > 0) {
+                                                        val ratio = (processed.toFloat() / total).coerceIn(0f, 1f)
+                                                        progressTarget = ratio
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    delay(150)
+                                }
+                            }
                             if (useBato) {
                                 val inputDirParent = preferredBatoDownloadDir(context)
                                 withContext(Dispatchers.IO) { inputDirParent.deleteRecursively(); inputDirParent.mkdirs() }
+                                logText += "\n[Log] Downloading dari Bato..."
                                 val downloadResult = withContext(Dispatchers.Default) {
                                     if (!Python.isStarted()) {
                                         Python.start(AndroidPlatform(context))
@@ -302,12 +332,14 @@ fun StitchScreen() {
                                 processedSteps += downloadedCount
                                 totalSteps = maxOf(totalSteps, processedSteps)
                                 writeProgressSafe(done = false)
+                                logText += "\n[Log] Download selesai ($downloadedCount gambar)."
                                 cacheIn = downloadJson.getString("path")
                                 val webpCount = withContext(Dispatchers.IO) { countWebpFiles(java.io.File(cacheIn)) }
                                 if (webpCount > 0) {
                                     totalSteps = processedSteps + webpCount
                                     writeProgressSafe(done = false)
                                 }
+                                logText += "\n[Log] Mengonversi ${webpCount.takeIf { it > 0 } ?: 0} file .webp ke .png..."
                                 val converted = withContext(Dispatchers.IO) {
                                     convertWebpToPng(
                                         java.io.File(cacheIn),
@@ -319,8 +351,10 @@ fun StitchScreen() {
                                 processedSteps += converted
                                 totalSteps = maxOf(totalSteps, processedSteps)
                                 writeProgressSafe(done = false)
+                                logText += "\n[Log] Konversi selesai ($converted file)."
                                 outputFolderName = (java.io.File(cacheIn).name.trimEnd() + " [Stitched]").ifBlank { "output [Stitched]" }
                             } else {
+                                logText += "\n[Log] Menyalin input dari penyimpanan..."
                                 val resolvedInputUri = requireNotNull(inUri) { "Folder input belum dipilih" }
                                 cacheIn = withContext(Dispatchers.IO) {
                                     val dir = java.io.File(context.cacheDir, "input")
@@ -342,41 +376,13 @@ fun StitchScreen() {
 
                             // 2) Python init + run → worker thread (Default) agar UI tidak beku
                             try {
-                                progressJob = launch {
-                                    while (isActive) {
-                                        val snapshot = withContext(Dispatchers.IO) {
-                                            if (progressFile.exists()) runCatching {
-                                                progressFile.readText()
-                                            }.getOrNull() else null
-                                        }
-                                        if (snapshot != null) {
-                                            runCatching { org.json.JSONObject(snapshot) }.getOrNull()?.let { json ->
-                                                when {
-                                                    json.optBoolean("done", false) -> {
-                                                        progressTarget = 1f
-                                                        return@let
-                                                    }
-                                                    json.has("processed") && json.has("total") -> {
-                                                        val processed = json.optInt("processed")
-                                                        val total = json.optInt("total")
-                                                        if (total > 0) {
-                                                            val ratio = (processed.toFloat() / total).coerceIn(0f, 1f)
-                                                            progressTarget = ratio
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        delay(150)
-                                    }
-                                }
-
                                 withContext(Dispatchers.Default) {
                                     if (!Python.isStarted()) {
                                         Python.start(AndroidPlatform(context))
                                     }
                                     val py = Python.getInstance()
                                     val bridge = py.getModule("bridge")
+                                    logText += "\n[Log] Stitching dimulai..."
                                     bridge.callAttr(
                                         "run",
                                         cacheIn,
@@ -398,6 +404,7 @@ fun StitchScreen() {
                                         false
                                     )
                                 }
+                                logText += "\n[Log] Stitching selesai."
                             } finally {
                             }
 
