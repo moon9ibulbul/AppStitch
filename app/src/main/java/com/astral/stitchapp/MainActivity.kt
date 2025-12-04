@@ -55,6 +55,7 @@ fun StitchScreen() {
     var outputUri by remember { mutableStateOf<Uri?>(null) }
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
+    var customFileName by remember { mutableStateOf("") }
     var batchMode by remember { mutableStateOf(false) }
     var lowRam by remember { mutableStateOf(false) }
     var unitImages by remember { mutableStateOf("20") }
@@ -151,6 +152,14 @@ fun StitchScreen() {
                     Spacer(Modifier.width(8.dp))
                 }
             }
+
+            OutlinedTextField(
+                value = customFileName,
+                onValueChange = { customFileName = it },
+                label = { Text("Custom File Name") },
+                placeholder = { Text("{num}.{ext}") },
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(label = { Text("Batch Mode") }, onClick = { batchMode = !batchMode })
@@ -393,13 +402,14 @@ fun StitchScreen() {
                                         (customWidth.toIntOrNull() ?: 720),
                                         (sensitivity.toIntOrNull() ?: 90),
                                         (ignorable.toIntOrNull() ?: 0),
-                                        (scanStep.toIntOrNull() ?: 5),
-                                        lowRam,
-                                        (unitImages.toIntOrNull() ?: 20),
-                                        cacheOut,
-                                        packagingOption == PackagingOption.ZIP,
-                                        packagingOption == PackagingOption.PDF,
-                                        progressFile.absolutePath,
+                                    (scanStep.toIntOrNull() ?: 5),
+                                    lowRam,
+                                    (unitImages.toIntOrNull() ?: 20),
+                                    cacheOut,
+                                    customFileName.takeIf { it.isNotBlank() },
+                                    packagingOption == PackagingOption.ZIP,
+                                    packagingOption == PackagingOption.PDF,
+                                    progressFile.absolutePath,
                                         processedSteps,
                                         false
                                     )
