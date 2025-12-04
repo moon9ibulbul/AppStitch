@@ -74,6 +74,7 @@ def run(input_folder,
         low_ram=False,
         unit_images=20,
         output_folder=None,
+        filename_template=None,
         zip_output=False,
         pdf_output=False,
         progress_path=None,
@@ -88,9 +89,17 @@ def run(input_folder,
 
     _orig_save = ssc.save_data
 
-    def save_data_with_progress(data, foldername, outputformat, offset=0, progress_func=None):
+    def save_data_with_progress(data, foldername, outputformat, offset=0, progress_func=None, filename_template=None, parent_name=None):
         cb = writer.wrap_saver(len(data))
-        return _orig_save(data, foldername, outputformat, offset=offset, progress_func=cb)
+        return _orig_save(
+            data,
+            foldername,
+            outputformat,
+            offset=offset,
+            progress_func=cb,
+            filename_template=filename_template,
+            parent_name=parent_name,
+        )
 
     ssc.save_data = save_data_with_progress
 
@@ -107,6 +116,7 @@ def run(input_folder,
         low_ram=low_ram,
         unit_images=unit_images,
         output_folder=resolved_output_folder,
+        filename_template=filename_template,
         progress_writer=writer
     )
 
