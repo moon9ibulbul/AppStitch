@@ -12,6 +12,7 @@ import time
 from html import unescape
 from pathlib import Path
 from typing import Optional
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -97,15 +98,47 @@ def sanitize_ext(url: str) -> str:
     return ext if ext.startswith('.') else f".{ext}"
 
 
+def _fallback_n10_url(url: str) -> Optional[str]:
+    """Ganti prefix domain kXX.*.* menjadi n10.*.* untuk URL Bato."""
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return None
+
+    match = re.match(r"k\d{2}(\..+)$", host)
+    if not match:
+        return None
+
+    new_host = f"n10{match.group(1)}"
+    netloc = new_host
+    if parsed.port:
+        netloc = f"{new_host}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
 def download_image(url: str, dest: Path, idx: int, referer: str):
     ext = sanitize_ext(url)
     filename = f"img_{idx:04d}{ext}"
     target = dest / filename
-    req = Request(url, headers={"User-Agent": USER_AGENT, "Referer": referer})
-    with urlopen(req) as resp:
-        chunk = resp.read()
-    target.write_bytes(chunk)
-    return target
+    current_url = url
+
+    for attempt in range(2):
+        req = Request(current_url, headers={"User-Agent": USER_AGENT, "Referer": referer})
+        try:
+            with urlopen(req) as resp:
+                chunk = resp.read()
+            target.write_bytes(chunk)
+            return target
+        except HTTPError as err:
+            if err.code != 503:
+                raise
+            fallback_url = _fallback_n10_url(current_url)
+            if not fallback_url or fallback_url == current_url:
+                raise
+            current_url = fallback_url
+
+    raise RuntimeError("Gagal mengunduh gambar setelah mencoba fallback domain n10")
 
 
 def normalize_bato_url(url: str) -> str:
