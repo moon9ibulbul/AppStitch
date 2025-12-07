@@ -199,17 +199,49 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     return images
 
 
-def save_data(data, foldername, outputformat, offset=0, progress_func=None):
+def _index_to_letters(idx):
+    letters = []
+    num = idx
+    while num > 0:
+        num -= 1
+        num, rem = divmod(num, 26)
+        letters.append(chr(ord('a') + rem))
+    return ''.join(reversed(letters)) or 'a'
+
+
+def save_data(data, foldername, outputformat, offset=0, progress_func=None, filename_template=None, parent_name=None):
     """Saves the given images/date in the output folder."""
     st = time.time()
     new_folder = str(foldername)
     if not os.path.exists(new_folder):
         os.makedirs(new_folder)
+
+    ext = outputformat.lstrip('.')
+    template = filename_template or "{num}.{ext}"
+    date_str = time.strftime("%Y%m%d")
+    time_str = time.strftime("%H%M%S")
+    resolved_parent = parent_name or os.path.basename(os.path.abspath(new_folder).rstrip(os.sep))
+
+    def build_name(idx):
+        replacements = {
+            "num": f"{idx:02}",
+            "ext": ext,
+            "parent": resolved_parent,
+            "time": time_str,
+            "date": date_str,
+            "char": _index_to_letters(idx),
+        }
+        name = template
+        for key, value in replacements.items():
+            name = name.replace(f"{{{key}}}", str(value))
+        return name
+
     imageIndex = offset + 1
     for image in data:
         if progress_func is not None:
             progress_func(len(data))
-        image.save(new_folder + '/' + str(f'{imageIndex:02}') + outputformat, quality=100)
+        filename = build_name(imageIndex)
+        image.save(os.path.join(new_folder, filename), quality=100)
         imageIndex += 1
     print(f"save_data: {time.time() - st}")
     return imageIndex - 1

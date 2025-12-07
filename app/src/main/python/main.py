@@ -7,7 +7,7 @@ import time
 
 def run_stitch_process(input_folder, split_height=5000, output_files_type=".png", batch_mode=False,
                        width_enforce_type=0, custom_width=720, senstivity=90, ignorable_pixels=0, scan_line_step=5,
-                       low_ram=False, unit_images=20, output_folder=None, progress_writer=None):
+                       low_ram=False, unit_images=20, output_folder=None, filename_template=None, progress_writer=None):
     """Runs the stitch process using the SS core functions, and updates the progress on the UI."""
 
     def helper_func(images, width_enforce_type, num_of_inputs, unit=False):
@@ -50,6 +50,7 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
         print("Batch Mode Enabled, No Suitable Input Folders Found!")
         return
     for path in folder_paths:
+        parent_folder_name = os.path.basename(os.path.abspath(path[0]).rstrip(os.sep))
         if low_ram:
             save_offset = 0
             next_offset = 0
@@ -68,11 +69,15 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
                 elif len(final_images) > 1 and next_offset is not None:
                     first_image = final_images[-1]
                     save_offset = ssc.save_data(final_images[:-1], path[1], output_files_type, offset=save_offset,
-                                                progress_func=progress_writer.wrap_saver(len(final_images) - 1) if progress_writer else None)
+                                                progress_func=progress_writer.wrap_saver(len(final_images) - 1) if progress_writer else None,
+                                                filename_template=filename_template,
+                                                parent_name=parent_folder_name)
                 else:
                     first_image = None
                     save_offset = ssc.save_data(final_images, path[1], output_files_type, offset=save_offset,
-                                                progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None)
+                                                progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None,
+                                                filename_template=filename_template,
+                                                parent_name=parent_folder_name)
                 del final_images
                 if next_offset is None:
                     print("Done!")
@@ -93,7 +98,9 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
                     final_images,
                     path[1],
                     output_files_type,
-                    progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None
+                    progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None,
+                    filename_template=filename_template,
+                    parent_name=parent_folder_name
                 )
                 print(path[1] + " Has Been Successfully Complete.")
                 print("Process Ended")
