@@ -32,6 +32,8 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -368,7 +370,12 @@ fun StitchScreen() {
                                 cacheIn = withContext(Dispatchers.IO) {
                                     val dir = java.io.File(context.cacheDir, "input")
                                     dir.deleteRecursively(); dir.mkdirs()
-                                    copyFromTree(context, resolvedInputUri, dir)
+                                    copyFromTree(
+                                        context,
+                                        resolvedInputUri,
+                                        dir,
+                                        flattenRootChildren = !batchMode
+                                    )
                                     dir.absolutePath
                                 }
                                 val inputDoc = DocumentFile.fromTreeUri(context, resolvedInputUri)
@@ -413,77 +420,112 @@ fun StitchScreen() {
                                         processedSteps,
                                         false
                                     )
-                                }
-                                logText += "\n[Log] Stitching selesai."
-                            } finally {
                             }
+                            logText += "\n[Log] Stitching selesai."
+                        } finally {
+                        }
 
-                            readProgressCounts()?.let { (p, t) ->
-                                processedSteps = p
-                                totalSteps = maxOf(t, processedSteps)
-                            }
-                            val packagingSteps = when (packagingOption) {
-                                PackagingOption.FOLDER -> 2
-                                PackagingOption.ZIP, PackagingOption.PDF -> 3
-                            }
-                            totalSteps = maxOf(totalSteps, processedSteps + packagingSteps)
-                            writeProgressSafe(done = false)
-                            stepProgress()
+                        readProgressCounts()?.let { (p, t) ->
+                            processedSteps = p
+                            totalSteps = maxOf(t, processedSteps)
+                        }
+                        val outputRoot = java.io.File(cacheOut)
+                        val stitchedFolders = if (batchMode) {
+                            outputRoot.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name } ?: emptyList()
+                        } else emptyList()
+                        if (batchMode) {
+                            logText += "\n[Log] Batch mode: ${stitchedFolders.size} folder ditemukan untuk diproses."
+                        }
+                        val zipTargets = if (packagingOption == PackagingOption.ZIP) {
+                            if (batchMode) stitchedFolders.size else 1
+                        } else 0
+                        val packagingSteps = when (packagingOption) {
+                            PackagingOption.ZIP -> (zipTargets * 2).coerceAtLeast(2)
+                            PackagingOption.PDF, PackagingOption.FOLDER -> 1
+                        }
+                        totalSteps = maxOf(totalSteps, processedSteps + packagingSteps)
+                        writeProgressSafe(done = false)
 
                         // 3) Salin hasil balik → IO dispatcher
                         withContext(Dispatchers.IO) {
                             val destinationTree = when {
-                                    outputUri != null -> outputUri?.let { DocumentFile.fromTreeUri(context, it) }
-                                    useBato -> null
-                                    else -> DocumentFile.fromTreeUri(context, requireNotNull(inUri))
-                                }
-                                if (useBato && destinationTree == null) {
-                                    val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                                    val targetRoot = java.io.File(documentsDir, "AstralStitch").apply { mkdirs() }
-                                    when (packagingOption) {
-                                        PackagingOption.ZIP -> {
-                                            val zipFile = java.io.File("$cacheOut.zip")
-                                            require(zipFile.exists()) { "File ZIP tidak ditemukan" }
-                                            zipFile.copyTo(java.io.File(targetRoot, zipFile.name), overwrite = true)
-                                        }
-                                        PackagingOption.PDF -> {
-                                            val pdfFile = java.io.File("$cacheOut.pdf")
-                                            require(pdfFile.exists()) { "File PDF tidak ditemukan" }
-                                            pdfFile.copyTo(java.io.File(targetRoot, pdfFile.name), overwrite = true)
-                                        }
-                                        PackagingOption.FOLDER -> {
-                                            val src = java.io.File(cacheOut)
-                                            require(src.exists()) { "Folder output tidak ditemukan" }
-                                            val destDir = java.io.File(targetRoot, src.name)
-                                            if (destDir.exists()) destDir.deleteRecursively()
-                                            src.copyRecursively(destDir, overwrite = true)
-                                        }
-                                    }
-                                } else {
-                                    val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
-                                    when (packagingOption) {
-                                        PackagingOption.ZIP -> {
-                                            val zipFile = java.io.File("$cacheOut.zip")
-                                            require(zipFile.exists()) { "File ZIP tidak ditemukan" }
-                                            copyToTree(context, zipFile, targetTree, "application/zip")
-                                        }
-                                        PackagingOption.PDF -> {
-                                            val pdfFile = java.io.File("$cacheOut.pdf")
-                                            require(pdfFile.exists()) { "File PDF tidak ditemukan" }
-                                            copyToTree(context, pdfFile, targetTree, "application/pdf")
-                                        }
-                                        PackagingOption.FOLDER -> {
-                                            val src = java.io.File(cacheOut)
-                                            require(src.exists()) { "Folder output tidak ditemukan" }
-                                            copyToTree(context, src, targetTree)
-                                        }
-                                    }
-                                }
-                                cacheOutParent.deleteRecursively()
+                                outputUri != null -> outputUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                useBato -> null
+                                else -> DocumentFile.fromTreeUri(context, requireNotNull(inUri))
                             }
 
-                            stepProgress(packagingSteps - 1, done = true)
-                            progressTarget = 1f
+                            val archives = mutableListOf<java.io.File>()
+                            when (packagingOption) {
+                                PackagingOption.ZIP -> {
+                                    val foldersToZip = if (batchMode) stitchedFolders else listOf(outputRoot)
+                                    require(foldersToZip.isNotEmpty()) { "Tidak ada folder hasil batch untuk dikemas" }
+                                    if (batchMode) {
+                                        logText += "\n[Log] Mengarsipkan hasil setiap folder batch..."
+                                    } else {
+                                        logText += "\n[Log] Mengarsipkan output menjadi ZIP..."
+                                    }
+                                    foldersToZip.forEach { folder ->
+                                        val zipFile = java.io.File(folder.parentFile ?: cacheOutParent, "${folder.name}.zip")
+                                        require(folder.exists()) { "Folder output tidak ditemukan" }
+                                        zipFolder(folder, zipFile)
+                                        folder.deleteRecursively()
+                                        archives += zipFile
+                                        stepProgress()
+                                    }
+
+                                    val targets = archives.ifEmpty { listOf(java.io.File("$cacheOut.zip")) }
+                                    if (useBato && destinationTree == null) {
+                                        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                                        val targetRoot = java.io.File(documentsDir, "AstralStitch").apply { mkdirs() }
+                                        targets.forEachIndexed { index, zipFile ->
+                                            require(zipFile.exists()) { "File ZIP tidak ditemukan" }
+                                            zipFile.copyTo(java.io.File(targetRoot, zipFile.name), overwrite = true)
+                                            stepProgress(done = index == targets.lastIndex)
+                                        }
+                                    } else {
+                                        val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
+                                        targets.forEachIndexed { index, zipFile ->
+                                            require(zipFile.exists()) { "File ZIP tidak ditemukan" }
+                                            copyToTree(context, zipFile, targetTree, "application/zip")
+                                            stepProgress(done = index == targets.lastIndex)
+                                        }
+                                    }
+                                }
+
+                                PackagingOption.PDF -> {
+                                    val pdfFile = java.io.File("$cacheOut.pdf")
+                                    require(pdfFile.exists()) { "File PDF tidak ditemukan" }
+                                    if (useBato && destinationTree == null) {
+                                        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                                        val targetRoot = java.io.File(documentsDir, "AstralStitch").apply { mkdirs() }
+                                        pdfFile.copyTo(java.io.File(targetRoot, pdfFile.name), overwrite = true)
+                                    } else {
+                                        val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
+                                        copyToTree(context, pdfFile, targetTree, "application/pdf")
+                                    }
+                                    stepProgress(done = true)
+                                }
+
+                                PackagingOption.FOLDER -> {
+                                    val src = java.io.File(cacheOut)
+                                    require(src.exists()) { "Folder output tidak ditemukan" }
+                                    if (useBato && destinationTree == null) {
+                                        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                                        val targetRoot = java.io.File(documentsDir, "AstralStitch").apply { mkdirs() }
+                                        val destDir = java.io.File(targetRoot, src.name)
+                                        if (destDir.exists()) destDir.deleteRecursively()
+                                        src.copyRecursively(destDir, overwrite = true)
+                                    } else {
+                                        val targetTree = requireNotNull(destinationTree) { "Tidak bisa mengakses folder tujuan" }
+                                        copyToTree(context, src, targetTree)
+                                    }
+                                    stepProgress(done = true)
+                                }
+                            }
+                            cacheOutParent.deleteRecursively()
+                        }
+
+                        progressTarget = 1f
 
                             progressJob?.cancelAndJoin()
 
@@ -583,18 +625,26 @@ fun convertWebpToPng(
 
 // ===== SAF helpers =====
 
-fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File) {
+fun copyFromTree(
+    ctx: android.content.Context,
+    treeUri: Uri,
+    dest: java.io.File,
+    flattenRootChildren: Boolean = true
+) {
     val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return
 
     fun copy(doc: DocumentFile, base: java.io.File, isRoot: Boolean) {
+        val name = doc.name ?: return
         if (doc.isDirectory) {
-            if (isRoot) {
-                for (child in doc.listFiles()) copy(child, base, false)
+            if (flattenRootChildren && !isRoot) return
+            val nextBase = if (isRoot) base else java.io.File(base, name).apply { mkdirs() }
+            val targetBase = if (isRoot && flattenRootChildren) base else nextBase
+            doc.listFiles().forEach { child ->
+                copy(child, targetBase, false)
             }
             return
         }
 
-        val name = doc.name ?: return
         val isImage = name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf(
             "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga"
         )
@@ -675,4 +725,20 @@ fun copyToTree(
     }
 
     upload(src, destTree, mimeOverride)
+}
+
+fun zipFolder(sourceDir: java.io.File, targetZip: java.io.File) {
+    require(sourceDir.exists()) { "Folder sumber tidak ditemukan" }
+    targetZip.parentFile?.mkdirs()
+
+    ZipOutputStream(targetZip.outputStream()).use { zos ->
+        sourceDir.walkTopDown()
+            .filter { it.isFile }
+            .forEach { file ->
+                val entryName = sourceDir.toPath().relativize(file.toPath()).toString()
+                zos.putNextEntry(ZipEntry(entryName))
+                file.inputStream().use { ins -> ins.copyTo(zos) }
+                zos.closeEntry()
+            }
+    }
 }
