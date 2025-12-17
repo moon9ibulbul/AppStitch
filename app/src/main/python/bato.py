@@ -154,7 +154,7 @@ def normalize_bato_url(url: str) -> str:
         if not match:
             raise ValueError("Tidak dapat menemukan chapter id dari URL yang diberikan")
         chapter_id = match.group(1)
-        return f"https://bato.to/chapter/{chapter_id}"
+        return f"https://mangatoto.com/chapter/{chapter_id}"
 
     return url
 
