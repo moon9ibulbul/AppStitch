@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from urllib.request import Request, urlopen
 from typing import List, Dict, Optional, Tuple
+from PIL import Image
 
 import SmartStitchCore as ssc
 import bridge
@@ -336,6 +337,17 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         downloaded_files = list(dl_dir.iterdir())
         if len(downloaded_files) < len(images):
              raise RuntimeError(f"Download incomplete: {len(downloaded_files)}/{len(images)}")
+
+        # Convert WebP to PNG
+        for f in downloaded_files:
+            if f.suffix.lower() == ".webp":
+                try:
+                    with Image.open(f) as img:
+                        png_path = f.with_suffix(".png")
+                        img.save(png_path, "PNG")
+                    f.unlink() # Delete webp
+                except Exception as e:
+                    print(f"Failed to convert {f}: {e}")
 
         queue_mgr.update_status(item_id, "stitching", 0.0)
 

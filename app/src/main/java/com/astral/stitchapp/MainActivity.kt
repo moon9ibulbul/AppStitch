@@ -193,9 +193,11 @@ fun StitchTab() {
 
                         // 2. Prepare Output Cache
                         val cacheOutParent = File(context.cacheDir, "stitch_out")
+                        val inputName = DocumentFile.fromTreeUri(context, inputUri!!)?.name ?: "output"
+                        val outputName = "$inputName [Stitched]"
                         val cacheOut = withContext(Dispatchers.IO) {
                             cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
-                            val dir = File(cacheOutParent, "output")
+                            val dir = File(cacheOutParent, outputName)
                             dir.mkdirs()
                             dir.absolutePath
                         }
