@@ -41,6 +41,30 @@ enum class PackagingOption {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        @JvmStatic
+        fun convertWebpToPng(path: String): Boolean {
+            val file = File(path)
+            if (!file.exists()) return false
+            return try {
+                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                if (bitmap != null) {
+                    val pngFile = File(file.parent, file.nameWithoutExtension + ".png")
+                    pngFile.outputStream().use { outs ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                    }
+                    bitmap.recycle()
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!Python.isStarted()) {
@@ -59,7 +83,7 @@ fun MainScreen() {
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(title = { Text("AstralStitch") })
+                TopAppBar(title = { Text("AstralStitch v1.1.5") })
                 TabRow(selectedTabIndex = selectedTab) {
                     titles.forEachIndexed { index, title ->
                         Tab(
@@ -298,6 +322,8 @@ fun BatoTab() {
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
     var outputUri by remember { mutableStateOf<Uri?>(null) }
+    var concurrencyCount by remember { mutableIntStateOf(1) }
+    var expandedConcurrency by remember { mutableStateOf(false) }
 
     // Stitch Settings (Duplicated State)
     var splitHeight by remember { mutableStateOf("5000") }
@@ -345,75 +371,76 @@ fun BatoTab() {
         }
     }
 
-    // Queue Processor Background Worker
-    LaunchedEffect(isProcessorRunning) {
+    // Queue Processor Background Worker(s)
+    LaunchedEffect(isProcessorRunning, concurrencyCount) {
         if (!isProcessorRunning) return@LaunchedEffect
 
         withContext(Dispatchers.IO) {
-            while (isActive && isProcessorRunning) {
-                // Check if we have an output destination
-                if (outputUri == null) {
-                    // Pause if no output selected
-                    delay(1000)
-                    continue
-                }
-
-                try {
-                    val py = Python.getInstance()
-                    val bato = py.getModule("bato")
-
-                    // Prepare params
-                    val params = JSONObject().apply {
-                        put("splitHeight", splitHeight)
-                        put("outputType", outputType)
-                        put("packaging", packagingOption.name)
-                        put("widthEnforce", widthEnforce)
-                        put("customWidth", customWidth)
-                        put("sensitivity", sensitivity)
-                        put("ignorable", ignorable)
-                        put("scanStep", scanStep)
-                        put("lowRam", lowRam)
-                        put("unitImages", unitImages)
-                        // defaults for others
-                    }
-
-                    val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
-                    val result = JSONObject(resultStr)
-
-                    if (result.has("status")) {
-                        val status = result.getString("status")
-                        if (status == "empty") {
-                            // Queue empty
-                            delay(2000)
-                        } else if (status == "success") {
-                            // Copy to SAF
-                            val path = result.getString("path")
-                            val file = File(path)
-                            val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
-                            if (targetTree != null && file.exists()) {
-                                if (file.isDirectory) {
-                                    copyToTree(context, file, targetTree)
-                                } else {
-                                    // zip or pdf
-                                    val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
-                                    copyToTree(context, file, targetTree, mime)
-                                }
-                                // Cleanup handled by python? or here?
-                                // Python handles temp dir cleanup. We just copied.
-                            }
-                        } else {
-                            // failed
+            // Launch N workers
+            val jobs = List(concurrencyCount) {
+                launch {
+                    while (isActive && isProcessorRunning) {
+                        // Check if we have an output destination
+                        if (outputUri == null) {
                             delay(1000)
+                            continue
                         }
-                    } else if (result.has("error")) {
-                         delay(1000)
-                    }
 
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    delay(2000)
+                        try {
+                            val py = Python.getInstance()
+                            val bato = py.getModule("bato")
+
+                            // Prepare params
+                            val params = JSONObject().apply {
+                                put("splitHeight", splitHeight)
+                                put("outputType", outputType)
+                                put("packaging", packagingOption.name)
+                                put("widthEnforce", widthEnforce)
+                                put("customWidth", customWidth)
+                                put("sensitivity", sensitivity)
+                                put("ignorable", ignorable)
+                                put("scanStep", scanStep)
+                                put("lowRam", lowRam)
+                                put("unitImages", unitImages)
+                            }
+
+                            val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
+                            val result = JSONObject(resultStr)
+
+                            if (result.has("status")) {
+                                val status = result.getString("status")
+                                if (status == "empty") {
+                                    delay(2000)
+                                } else if (status == "success") {
+                                    // Copy to SAF
+                                    val path = result.getString("path")
+                                    val file = File(path)
+                                    val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
+                                    if (targetTree != null && file.exists()) {
+                                        if (file.isDirectory) {
+                                            copyToTree(context, file, targetTree)
+                                        } else {
+                                            // zip or pdf
+                                            val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
+                                            copyToTree(context, file, targetTree, mime)
+                                        }
+                                    }
+                                } else {
+                                    delay(1000)
+                                }
+                            } else if (result.has("error")) {
+                                 delay(1000)
+                            }
+
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            delay(2000)
+                        }
+                    }
                 }
             }
+            // Wait for all jobs to complete (which happens when cancelled)
+            jobs.joinAll()
         }
     }
 
@@ -474,7 +501,22 @@ fun BatoTab() {
 
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Queue (${queueItems.size})")
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Concurrency Dropdown
+                Box {
+                    OutlinedButton(onClick = { expandedConcurrency = true }) {
+                        Text("Workers: $concurrencyCount")
+                    }
+                    DropdownMenu(expanded = expandedConcurrency, onDismissRequest = { expandedConcurrency = false }) {
+                        (1..5).forEach { num ->
+                            DropdownMenuItem(
+                                text = { Text("$num") },
+                                onClick = { concurrencyCount = num; expandedConcurrency = false }
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
                  Button(
                     onClick = {
                         scope.launch(Dispatchers.IO) {
@@ -482,13 +524,14 @@ fun BatoTab() {
                         }
                     }
                 ) { Text("Clear Done") }
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = { isProcessorRunning = !isProcessorRunning },
-                    colors = ButtonDefaults.buttonColors(containerColor = if(isProcessorRunning) Color.Red else Color(0xFF4CAF50))
-                ) { Text(if (isProcessorRunning) "STOP QUEUE" else "START QUEUE") }
             }
         }
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { isProcessorRunning = !isProcessorRunning },
+            colors = ButtonDefaults.buttonColors(containerColor = if(isProcessorRunning) Color.Red else Color(0xFF4CAF50))
+        ) { Text(if (isProcessorRunning) "STOP QUEUE" else "START QUEUE") }
 
         if (isProcessorRunning && outputUri == null) {
             Text("Please select Output Folder to start processing!", color = Color.Red)
