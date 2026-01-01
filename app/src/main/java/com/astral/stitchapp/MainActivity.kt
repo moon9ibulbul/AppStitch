@@ -308,7 +308,7 @@ data class QueueItem(
     val id: String,
     val url: String,
     val title: String,
-    val status: String, // pending, downloading, stitching, done, failed
+    val status: String, // pending, downloading, stitching, done, failed, paused
     val progress: Double
 )
 
@@ -324,6 +324,7 @@ fun BatoTab() {
     var outputUri by remember { mutableStateOf<Uri?>(null) }
     var concurrencyCount by remember { mutableIntStateOf(1) }
     var expandedConcurrency by remember { mutableStateOf(false) }
+    var isAddingToQueue by remember { mutableStateOf(false) }
 
     // Stitch Settings (Duplicated State)
     var splitHeight by remember { mutableStateOf("5000") }
@@ -348,26 +349,34 @@ fun BatoTab() {
 
     // Load Queue Poller
     LaunchedEffect(Unit) {
-        while(isActive) {
-            val py = Python.getInstance()
-            val bato = py.getModule("bato")
-            try {
-                val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
-                val jsonArr = JSONArray(jsonStr)
-                val list = mutableListOf<QueueItem>()
-                for (i in 0 until jsonArr.length()) {
-                    val obj = jsonArr.getJSONObject(i)
-                    list.add(QueueItem(
-                        id = obj.getString("id"),
-                        url = obj.getString("url"),
-                        title = obj.getString("title"),
-                        status = obj.getString("status"),
-                        progress = obj.optDouble("progress", 0.0)
-                    ))
+        withContext(Dispatchers.IO) {
+            while(isActive) {
+                if (!Python.isStarted()) {
+                    delay(500)
+                    continue
                 }
-                queueItems = list
-            } catch (e: Exception) { e.printStackTrace() }
-            delay(1000)
+                val py = Python.getInstance()
+                val bato = py.getModule("bato")
+                try {
+                    val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
+                    val jsonArr = JSONArray(jsonStr)
+                    val list = mutableListOf<QueueItem>()
+                    for (i in 0 until jsonArr.length()) {
+                        val obj = jsonArr.getJSONObject(i)
+                        list.add(QueueItem(
+                            id = obj.getString("id"),
+                            url = obj.getString("url"),
+                            title = obj.getString("title"),
+                            status = obj.getString("status"),
+                            progress = obj.optDouble("progress", 0.0)
+                        ))
+                    }
+                    withContext(Dispatchers.Main) {
+                        queueItems = list
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+                delay(1000)
+            }
         }
     }
 
@@ -380,7 +389,6 @@ fun BatoTab() {
             val jobs = List(concurrencyCount) {
                 launch {
                     while (isActive && isProcessorRunning) {
-                        // Check if we have an output destination
                         if (outputUri == null) {
                             delay(1000)
                             continue
@@ -390,7 +398,6 @@ fun BatoTab() {
                             val py = Python.getInstance()
                             val bato = py.getModule("bato")
 
-                            // Prepare params
                             val params = JSONObject().apply {
                                 put("splitHeight", splitHeight)
                                 put("outputType", outputType)
@@ -412,7 +419,6 @@ fun BatoTab() {
                                 if (status == "empty") {
                                     delay(2000)
                                 } else if (status == "success") {
-                                    // Copy to SAF
                                     val path = result.getString("path")
                                     val file = File(path)
                                     val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
@@ -420,12 +426,12 @@ fun BatoTab() {
                                         if (file.isDirectory) {
                                             copyToTree(context, file, targetTree)
                                         } else {
-                                            // zip or pdf
                                             val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
                                             copyToTree(context, file, targetTree, mime)
                                         }
                                     }
                                 } else {
+                                    // paused, removed, etc.
                                     delay(1000)
                                 }
                             } else if (result.has("error")) {
@@ -439,7 +445,6 @@ fun BatoTab() {
                     }
                 }
             }
-            // Wait for all jobs to complete (which happens when cancelled)
             jobs.joinAll()
         }
     }
@@ -453,24 +458,39 @@ fun BatoTab() {
     ) {
         Text("Bato Bulk Downloader", style = MaterialTheme.typography.titleMedium)
 
-        OutlinedTextField(
-            value = urlInput,
-            onValueChange = { urlInput = it },
-            label = { Text("Url (Chapter or Series)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Button(
-            onClick = {
-                scope.launch(Dispatchers.IO) {
-                    val py = Python.getInstance()
-                    val bato = py.getModule("bato")
-                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, urlInput)
-                    urlInput = ""
-                }
-            },
-            enabled = urlInput.isNotBlank()
-        ) { Text("Add to Queue") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = urlInput,
+                onValueChange = { urlInput = it },
+                label = { Text("Url (Chapter or Series)") },
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            if (isAddingToQueue) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            } else {
+                Button(
+                    onClick = {
+                        isAddingToQueue = true
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val py = Python.getInstance()
+                                val bato = py.getModule("bato")
+                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, urlInput)
+                                withContext(Dispatchers.Main) {
+                                    urlInput = ""
+                                }
+                            } finally {
+                                withContext(Dispatchers.Main) {
+                                    isAddingToQueue = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = urlInput.isNotBlank()
+                ) { Text("Add") }
+            }
+        }
 
         HorizontalDivider()
 
@@ -502,7 +522,6 @@ fun BatoTab() {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Queue (${queueItems.size})")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Concurrency Dropdown
                 Box {
                     OutlinedButton(onClick = { expandedConcurrency = true }) {
                         Text("Workers: $concurrencyCount")
@@ -554,6 +573,11 @@ fun BatoTab() {
                         scope.launch(Dispatchers.IO) {
                             Python.getInstance().getModule("bato").callAttr("retry_item", context.cacheDir.absolutePath, id)
                         }
+                    },
+                    onPause = { id ->
+                        scope.launch(Dispatchers.IO) {
+                            Python.getInstance().getModule("bato").callAttr("pause_item", context.cacheDir.absolutePath, id)
+                        }
                     }
                 )
             }
@@ -562,7 +586,7 @@ fun BatoTab() {
 }
 
 @Composable
-fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit, onRetry: (String) -> Unit) {
+fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit, onRetry: (String) -> Unit, onPause: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(8.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyMedium)
@@ -571,16 +595,30 @@ fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit, onRetry: (String) 
                      color = if (item.status == "failed") Color.Red else Color.Unspecified)
 
                 Row {
+                    if (item.status == "downloading" || item.status == "stitching") {
+                        Button(onClick = { onPause(item.id) }, modifier = Modifier.height(32.dp)) {
+                            Text("Pause", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+
+                    if (item.status == "paused") {
+                        Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) {
+                            Text("Resume", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+
                     if (item.status == "failed") {
                         Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) {
                             Text("Retry", style = MaterialTheme.typography.labelSmall)
                         }
                         Spacer(Modifier.width(8.dp))
                     }
-                    if (item.status == "failed" || item.status == "pending" || item.status == "done") {
-                        IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
-                            Text("X")
-                        }
+
+                    // Always allow removing (which acts as Cancel for downloading items)
+                    IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
+                        Text("X")
                     }
                 }
             }
@@ -607,6 +645,10 @@ fun StitchSettingsUI(
     scanStep: String, onScan: (String)->Unit,
     packaging: PackagingOption, onPack: (PackagingOption)->Unit
 ) {
+    // ... (This function remains unchanged, just duplicated for brevity in this block if needed)
+    // Actually, I must include it or the overwrite will delete it.
+    // I'll assume the previous implementation of StitchSettingsUI and helpers is fine to keep.
+    // But since I am overwriting the file, I must include them.
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = splitHeight,
