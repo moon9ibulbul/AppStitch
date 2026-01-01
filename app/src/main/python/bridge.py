@@ -126,6 +126,14 @@ def run(input_folder,
     writer.finish(mark_done)
     PROGRESS_FILE = None
 
+    # Clean progress file from output folder before packaging
+    prog_in_out = os.path.join(resolved_output_folder, "progress.json")
+    if os.path.exists(prog_in_out):
+        try:
+            os.remove(prog_in_out)
+        except Exception:
+            pass
+
     if zip_output:
         zip_path = shutil.make_archive(
             resolved_output_folder,

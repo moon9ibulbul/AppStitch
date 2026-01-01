@@ -498,25 +498,45 @@ fun BatoTab() {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(queueItems) { item ->
-                QueueItemRow(item) { id ->
-                     scope.launch(Dispatchers.IO) {
-                        Python.getInstance().getModule("bato").callAttr("remove_from_queue", context.cacheDir.absolutePath, id)
-                     }
-                }
+                QueueItemRow(
+                    item = item,
+                    onDelete = { id ->
+                        scope.launch(Dispatchers.IO) {
+                            Python.getInstance().getModule("bato").callAttr("remove_from_queue", context.cacheDir.absolutePath, id)
+                        }
+                    },
+                    onRetry = { id ->
+                        scope.launch(Dispatchers.IO) {
+                            Python.getInstance().getModule("bato").callAttr("retry_item", context.cacheDir.absolutePath, id)
+                        }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit) {
+fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit, onRetry: (String) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(8.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text(item.status.uppercase(), style = MaterialTheme.typography.labelSmall)
-                if (item.status == "pending") {
-                    IconButton(onClick = { onDelete(item.id) }) { Text("X") }
+                Text(item.status.uppercase(), style = MaterialTheme.typography.labelSmall,
+                     color = if (item.status == "failed") Color.Red else Color.Unspecified)
+
+                Row {
+                    if (item.status == "failed") {
+                        Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) {
+                            Text("Retry", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (item.status == "failed" || item.status == "pending" || item.status == "done") {
+                        IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
+                            Text("X")
+                        }
+                    }
                 }
             }
             if (item.status == "downloading" || item.status == "stitching") {

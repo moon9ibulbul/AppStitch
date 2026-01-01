@@ -22,7 +22,7 @@ USER_AGENT = (
 )
 
 # ============================================================
-# CORE DOWNLOADER LOGIC (Adapted from bato-chapter.py)
+# CORE DOWNLOADER LOGIC
 # ============================================================
 
 def normalize_bato_url(url: str) -> str:
@@ -76,11 +76,20 @@ def normalize_image_host(url: str) -> str:
 def sanitize_filename(name: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", name).strip()
 
+def clean_title_text(text: str) -> str:
+    # Remove common suffixes
+    text = text.replace(" - Read Free Manga Online", "")
+    text = text.replace("Read Free Manga Online", "")
+    text = text.replace("Bato.to", "").replace("Bato.ing", "")
+    # Remove [Group] suffix if present at end
+    text = re.sub(r"\[.*?\]$", "", text)
+    return text.strip()
+
 def extract_title(html: str) -> str:
-    # Try <title>
-    m = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE)
+    # Match <title> or <title q:head>
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
     if m:
-        t = m.group(1).replace("Bato.to", "").replace("Bato.ing", "").strip()
+        t = clean_title_text(m.group(1))
         return sanitize_filename(t) or "bato_chapter"
     return "bato_chapter"
 
@@ -93,7 +102,7 @@ def download_image(url: str, dest: Path, idx: int):
     name = f"img_{idx:04d}{ext}"
     target = dest / name
 
-    # Simple retry loop
+    # Retry loop
     for attempt in range(3):
         try:
             req = Request(
@@ -101,10 +110,14 @@ def download_image(url: str, dest: Path, idx: int):
                 headers={"User-Agent": USER_AGENT, "Referer": "https://bato.ing/"},
             )
             with urlopen(req, timeout=30) as r:
-                target.write_bytes(r.read())
+                content = r.read()
+                if len(content) == 0:
+                    raise IOError("Empty content")
+                target.write_bytes(content)
             return
-        except Exception:
+        except Exception as e:
             if attempt == 2:
+                print(f"Failed to download {url}: {e}")
                 raise
 
 # ============================================================
@@ -112,32 +125,24 @@ def download_image(url: str, dest: Path, idx: int):
 # ============================================================
 
 def fetch_series_chapters(url: str) -> List[Dict[str, str]]:
-    """
-    Returns list of dicts: {"url": "...", "title": "..."}
-    """
     html = fetch_html(url)
 
     # Extract Series Title
     series_title = "Unknown Series"
-    m_title = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE)
+    m_title = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
     if m_title:
         # Format: "Title [Group] - Read Free Manga Online"
-        raw_t = m_title.group(1)
-        series_title = raw_t.split("- Read")[0].strip()
-        series_title = sanitize_filename(series_title)
+        series_title = clean_title_text(m_title.group(1))
 
     chapters = []
     seen_urls = set()
 
-    # Bato v3/v4 structure:
-    # Look for href="/title/..."
-
+    # Find all chapter links
     link_re = re.compile(r"href=\"(/title/[^\"]+)\"", re.IGNORECASE)
 
     for m in link_re.finditer(html):
         href = m.group(1)
 
-        # Filter: Must have at least 3 slashes? /title/series/chapter
         parts = [p for p in href.split("/") if p]
         if len(parts) < 3: continue
 
@@ -147,17 +152,18 @@ def fetch_series_chapters(url: str) -> List[Dict[str, str]]:
         full_url = "https://bato.ing" + href
 
         if full_url not in seen_urls:
-            # Simple extraction from slug: "3035895-vol_1-ch_1" -> "vol_1-ch_1"
+            # Fallback title from slug
             slug = parts[2]
             slug_parts = slug.split("-", 1)
             ch_name = slug_parts[1] if len(slug_parts) > 1 else slug
             ch_name = ch_name.replace("_", " ").title()
 
-            # Construct a specific regex for this href to find the link text
+            # Try to extract text from anchor
             safe_href = re.escape(href)
             text_re = re.search(fr"href=\"{safe_href}\"[^>]*>(.*?)</a>", html, re.DOTALL | re.IGNORECASE)
             if text_re:
                 raw_text = text_re.group(1)
+                # Remove tags
                 clean_text = re.sub(r"<[^>]+>", " ", raw_text)
                 clean_text = re.sub(r"\s+", " ", clean_text).strip()
                 if clean_text:
@@ -169,7 +175,6 @@ def fetch_series_chapters(url: str) -> List[Dict[str, str]]:
                 "title": f"{series_title} - {ch_name}"
             })
 
-    # Reverse to download from Ch 1 to Ch N (HTML usually lists newest first)
     return list(reversed(chapters))
 
 def is_series_url(url: str) -> bool:
@@ -179,7 +184,6 @@ def is_series_url(url: str) -> bool:
     # /title/ID-slug/ID-slug -> Chapter
     parts = [p for p in urlparse(url).path.split("/") if p]
     if len(parts) >= 3:
-        # title, series_id, chapter_id
         return False
     return True
 
@@ -210,10 +214,6 @@ class BatoQueue:
             json.dump(queue, f, indent=2)
 
     def add_url(self, url: str) -> Dict:
-        """
-        Analyzes URL. If series, adds all chapters. If chapter, adds one.
-        Returns summary dict.
-        """
         url = normalize_bato_url(url)
         queue = self._load()
         added = 0
@@ -222,7 +222,6 @@ class BatoQueue:
             if is_series_url(url):
                 chapters = fetch_series_chapters(url)
                 for ch in chapters:
-                    # Check duplicates
                     if not any(q['url'] == ch['url'] for q in queue):
                         queue.append({
                             "id": str(uuid.uuid4()),
@@ -233,7 +232,6 @@ class BatoQueue:
                         })
                         added += 1
             else:
-                # Single chapter
                 html = fetch_html(url)
                 title = extract_title(html)
                 if not any(q['url'] == url for q in queue):
@@ -275,6 +273,15 @@ class BatoQueue:
         queue = [q for q in queue if q["id"] != item_id]
         self._save(queue)
 
+    def retry_item(self, item_id: str):
+        queue = self._load()
+        for item in queue:
+            if item["id"] == item_id:
+                item["status"] = "pending"
+                item["progress"] = 0.0
+                break
+        self._save(queue)
+
     def clear_completed(self):
         queue = self._load()
         queue = [q for q in queue if q["status"] != "done"]
@@ -303,16 +310,19 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
     # 1. Download
     queue_mgr.update_status(item_id, "downloading", 0.0)
 
+    dl_dir = base_dir / "temp_dl" / item_id
+    output_dir = base_dir / "temp_out" / sanitize_filename(item["title"])
+
     try:
         normalized_url = normalize_bato_url(url)
         html = fetch_html(normalized_url)
-        title = extract_title(html)
+        # title = extract_title(html) # Use item title from queue to match what we showed user
+        title = item["title"]
         images = extract_images(html)
 
         if not images:
             raise RuntimeError("No images found")
 
-        dl_dir = base_dir / "temp_dl" / item_id
         if dl_dir.exists(): shutil.rmtree(dl_dir)
         dl_dir.mkdir(parents=True, exist_ok=True)
 
@@ -322,10 +332,14 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if i % 5 == 0:
                 queue_mgr.update_status(item_id, "downloading", i/total)
 
+        # Verification: Check file count
+        downloaded_files = list(dl_dir.iterdir())
+        if len(downloaded_files) < len(images):
+             raise RuntimeError(f"Download incomplete: {len(downloaded_files)}/{len(images)}")
+
         queue_mgr.update_status(item_id, "stitching", 0.0)
 
         # 2. Stitch
-        output_dir = base_dir / "temp_out" / sanitize_filename(title)
         if output_dir.exists(): shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -360,6 +374,9 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
     except Exception as e:
         queue_mgr.update_status(item_id, "failed", 0.0)
+        # Clean up partial download
+        if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
+        if output_dir.exists(): shutil.rmtree(output_dir, ignore_errors=True)
         return json.dumps({"error": str(e)})
 
 
@@ -376,6 +393,9 @@ def add_to_queue(cache_dir: str, url: str) -> str:
 def remove_from_queue(cache_dir: str, item_id: str):
     BatoQueue(cache_dir).remove_item(item_id)
 
+def retry_item(cache_dir: str, item_id: str):
+    BatoQueue(cache_dir).retry_item(item_id)
+
 def clear_completed(cache_dir: str):
     BatoQueue(cache_dir).clear_completed()
 
@@ -387,7 +407,7 @@ def process_next_item(cache_dir: str, stitch_params_json: str) -> str:
 
     return process_item(item["id"], cache_dir, stitch_params_json)
 
-# Legacy support for existing Stitch Tab (if needed)
+# Legacy support
 def download_bato(url: str, output_dir: str, progress_path: Optional[str] = None,
                   start: int = 0, extra_total: int = 0) -> str:
     try:
@@ -400,6 +420,8 @@ def download_bato(url: str, output_dir: str, progress_path: Optional[str] = None
         out.mkdir(parents=True, exist_ok=True)
 
         total = len(images)
+        if total == 0: raise RuntimeError("No images found")
+
         for i, img in enumerate(images, 1):
             download_image(img, out, i)
             if progress_path:
