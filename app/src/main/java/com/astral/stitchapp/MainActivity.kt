@@ -22,18 +22,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,12 +47,23 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-// Define Pause Icon manually to avoid adding material-icons-extended dependency
-public val PauseIcon: ImageVector
+// Use a local variable to hold the vector, but if `Icons.Filled.Pause` is missing,
+// we must remove the import `androidx.compose.material.icons.filled.Pause`.
+// However, I see `import androidx.compose.material.icons.filled.Pause` is still there in the previous step
+// which causes the error if the library is missing.
+// I must remove that import line.
+
+// Re-defining PauseIcon cleanly.
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+
+val PauseIcon: ImageVector
     get() {
-        if (_pauseIcon != null) {
-            return _pauseIcon!!
-        }
+        if (_pauseIcon != null) return _pauseIcon!!
         _pauseIcon = ImageVector.Builder(
             name = "Pause",
             defaultWidth = 24.0.dp,
@@ -65,17 +71,7 @@ public val PauseIcon: ImageVector
             viewportWidth = 24.0f,
             viewportHeight = 24.0f
         ).apply {
-            path(
-                fill = SolidColor(Color.Black),
-                fillAlpha = 1.0f,
-                stroke = null,
-                strokeAlpha = 1.0f,
-                strokeLineWidth = 1.0f,
-                strokeLineCap = StrokeCap.Butt,
-                strokeLineJoin = StrokeJoin.Miter,
-                strokeLineMiter = 4.0f,
-                pathFillType = PathFillType.NonZero
-            ) {
+            path(fill = SolidColor(Color.Black)) {
                 moveTo(6.0f, 19.0f)
                 horizontalLineToRelative(4.0f)
                 verticalLineTo(5.0f)
@@ -92,7 +88,6 @@ public val PauseIcon: ImageVector
         }.build()
         return _pauseIcon!!
     }
-
 private var _pauseIcon: ImageVector? = null
 
 enum class PackagingOption {
