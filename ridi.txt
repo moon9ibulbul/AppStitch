@@ -1,0 +1,392 @@
+// ==UserScript==
+// @name         Ridi Webtoon Grabber
+// @namespace    astralexpress-helper
+// @match        https://ridibooks.com/books/*/view
+// @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      ridibooks.com
+// @connect      webview-cache.ridibooks.com
+// @connect      webview-cache2.ridibooks.com
+// @require      https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js
+// @version      1.0.1
+// @author       Astral (Modified)
+// @description  Panggil API Ridi /api/web-viewer/generate untuk mengambil daftar gambar webtoon, unduh dengan cookie support (opsional), dan kemas jadi ZIP. Cocok untuk Android/Kiwi (tanpa tab baru).
+// ==/UserScript==
+
+(function(){
+  'use strict';
+
+  // ========= Konstanta =========
+  const API_URL = 'https://ridibooks.com/api/web-viewer/generate';
+  const STATE = {
+    items: new Map(),       // key: index (Number), val: {no, url, w, h}
+    order: [],
+    busy: false,
+    titleHint: null,
+    cookies: GM_getValue('ridi_cookies', '') || '',
+    lastBookId: GM_getValue('ridi_last_book_id', '') || '',
+    log: [],
+  };
+
+  // ========= UI =========
+  const ui = (() => {
+    const box = document.createElement('div');
+    box.id = 'ridi-grab-box';
+    box.innerHTML = `
+      <div class="rgb-head">Ridi Webtoon Grabber</div>
+      <div class="rgb-body">
+        <div class="rgb-row"><b>Status:</b> <span id="rgb-status">Menunggu…</span></div>
+        <div class="rgb-row"><b>Terdeteksi:</b> <span id="rgb-count">0</span> gambar</div>
+        <div class="rgb-progress"><div class="rgb-bar" id="rgb-bar"></div></div>
+
+        <div class="rgb-section">
+          <label for="rgb-bookid">Book ID (otomatis dari URL, bisa ganti manual):</label>
+          <div style="display:flex; gap:6px;">
+            <input id="rgb-bookid" class="rgb-input" placeholder="mis. 5946000015" style="flex:1;"/>
+            <button id="rgb-refresh" class="rgb-icon-btn" title="Refresh dari URL">🔄</button>
+          </div>
+          <button id="rgb-grab" class="rgb-small-btn">Grab via API</button>
+        </div>
+
+        <div class="rgb-section">
+          <label for="rgb-cookie">Cookie (opsional):</label>
+          <textarea id="rgb-cookie" class="rgb-textarea" placeholder="Paste seluruh cookie string (jika diperlukan)…"></textarea>
+          <button id="rgb-save-cookie" class="rgb-small-btn">Simpan Cookie</button>
+        </div>
+
+        <div class="rgb-actions">
+          <button id="rgb-dlzip" disabled>Download ZIP</button>
+          <button id="rgb-clear">Clear</button>
+        </div>
+        <div class="rgb-mini" id="rgb-mini"></div>
+      </div>
+    `;
+    document.documentElement.appendChild(box);
+
+    const css = `
+      #ridi-grab-box{
+        position:fixed; right:12px; bottom:12px; z-index:999999;
+        width: 280px; max-height: 600px; overflow-y:auto;
+        background:#151821; color:#e6e9ef; border:1px solid #2a2d39;
+        border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.35);
+        font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      }
+      #ridi-grab-box .rgb-head{
+        padding:10px 12px; font-weight:700; background:#10131b;
+        border-bottom:1px solid #2a2d39; border-radius:14px 14px 0 0;
+      }
+      #ridi-grab-box .rgb-body{ padding:10px 12px; }
+      #ridi-grab-box .rgb-row{ margin:6px 0; }
+      #ridi-grab-box .rgb-section{
+        background:#0f121a; border:1px solid #222636; border-radius:8px;
+        padding:8px; margin:8px 0;
+      }
+      #ridi-grab-box .rgb-section label{
+        display:block; font-weight:600; margin-bottom:4px; font-size:12px;
+      }
+      #ridi-grab-box .rgb-input{
+        width:100%; height:32px; border:1px solid #2a2d39; border-radius:6px;
+        background:#0e1118; color:#e6e9ef; padding:6px 8px; font-size:12px;
+        box-sizing:border-box;
+      }
+      #ridi-grab-box .rgb-textarea{
+        width:100%; height:60px; border:1px solid #2a2d39; border-radius:6px;
+        background:#0e1118; color:#e6e9ef; padding:6px; font-size:11px;
+        font-family: monospace; resize:vertical; box-sizing:border-box;
+      }
+      #ridi-grab-box .rgb-textarea:focus, #ridi-grab-box .rgb-input:focus{
+        outline:none; border-color:#67d34a;
+      }
+      #ridi-grab-box .rgb-small-btn{
+        width:100%; padding:6px 8px; margin-top:6px; border-radius:6px;
+        border:1px solid #2a2d39; background:#1b2030; color:#e6e9ef;
+        cursor:pointer; font-size:12px;
+      }
+      #ridi-grab-box .rgb-small-btn:hover{ background:#242a38; }
+      #ridi-grab-box .rgb-icon-btn{
+        width:36px; height:32px; padding:0; border-radius:6px;
+        border:1px solid #2a2d39; background:#1b2030; cursor:pointer; font-size:16px;
+      }
+      #ridi-grab-box .rgb-icon-btn:hover{ background:#242a38; }
+      #ridi-grab-box .rgb-actions{ display:flex; gap:8px; margin-top:10px; }
+      #ridi-grab-box button{
+        flex:1; padding:8px 10px; border-radius:10px; border:1px solid #2a2d39;
+        background:#1b2030; color:#e6e9ef; cursor:pointer; font-weight:600;
+      }
+      #ridi-grab-box button:hover:not([disabled]){ background:#242a38; }
+      #ridi-grab-box button[disabled]{ opacity:.5; cursor:not-allowed; }
+      #ridi-grab-box .rgb-progress{
+        height:8px; background:#0e1118; border:1px solid #2a2d39;
+        border-radius:999px; overflow:hidden; margin:8px 0 2px;
+      }
+      #ridi-grab-box .rgb-bar{
+        height:100%; width:0%; background:#67d34a; transition:width .2s ease;
+      }
+      #ridi-grab-box .rgb-mini{
+        max-height:150px; overflow:auto; background:#0f121a;
+        border:1px solid #222636; border-radius:8px; padding:6px;
+        margin-top:8px; font-size:12px;
+      }
+      #rgb-mini .line{ opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:2px 0; }
+      #rgb-mini .line.success{ color:#67d34a; }
+      #rgb-mini .line.error{ color:#f38ba8; }
+    `;
+    if (typeof GM_addStyle === 'function') GM_addStyle(css);
+    else { const s=document.createElement('style'); s.textContent = css; document.head.appendChild(s); }
+
+    const $status = box.querySelector('#rgb-status');
+    const $count  = box.querySelector('#rgb-count');
+    const $bar    = box.querySelector('#rgb-bar');
+    const $mini   = box.querySelector('#rgb-mini');
+    const $dlzip  = box.querySelector('#rgb-dlzip');
+    const $clear  = box.querySelector('#rgb-clear');
+    const $bookId = box.querySelector('#rgb-bookid');
+    const $grab   = box.querySelector('#rgb-grab');
+    const $refresh= box.querySelector('#rgb-refresh');
+    const $cookie = box.querySelector('#rgb-cookie');
+    const $saveCookie = box.querySelector('#rgb-save-cookie');
+
+    // load saved
+    $cookie.value = STATE.cookies;
+    $bookId.value = STATE.lastBookId || autoDetectBookId() || '';
+
+    $saveCookie.addEventListener('click', () => {
+      const c = $cookie.value.trim();
+      STATE.cookies = c;
+      GM_setValue('ridi_cookies', c);
+      setStatus(c ? '✓ Cookie disimpan' : 'Cookie dihapus');
+      log(c ? 'Cookie tersimpan' : 'Cookie dihapus');
+    });
+
+    $grab.addEventListener('click', () => {
+      const id = ($bookId.value || '').trim();
+      if (!id) { setStatus('Masukkan book_id dulu'); return; }
+      GM_setValue('ridi_last_book_id', id);
+      STATE.lastBookId = id;
+      setStatus('Meminta daftar halaman…');
+      grabViaApi(id);
+    });
+
+    $refresh.addEventListener('click', () => {
+      const auto = autoDetectBookId();
+      if (auto) {
+        $bookId.value = auto;
+        STATE.lastBookId = auto;
+        GM_setValue('ridi_last_book_id', auto);
+        setStatus('✓ Book ID di-refresh dari URL');
+        log(`📌 Book ID: ${auto}`, 'success');
+      } else {
+        setStatus('⚠️ Book ID tidak ditemukan di URL');
+        log('Book ID tidak terdeteksi di URL', 'error');
+      }
+    });
+
+    $dlzip.addEventListener('click', () => zipAndSave());
+    $clear.addEventListener('click', clearAll);
+
+    function setStatus(msg){ $status.textContent = msg; }
+    function updateCount(){ $count.textContent = String(STATE.items.size); $dlzip.disabled = STATE.items.size === 0; }
+    function progress(pct){ $bar.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+    function log(text, type=''){ const d=document.createElement('div'); d.className='line ' + type; d.textContent=text; $mini.appendChild(d); while($mini.childNodes.length>100) $mini.removeChild($mini.firstChild); $mini.scrollTop=$mini.scrollHeight; }
+
+    function clearAll(){
+      STATE.items.clear(); STATE.order.length = 0; updateCount(); progress(0);
+      setStatus('Dibersihkan. Menunggu…'); log('Clear selesai');
+    }
+
+    return { setStatus, updateCount, progress, log, $dlzip, $bookId };
+  })();
+
+  // ========= Util =========
+  function sanitizeFilename(name) {
+    return (name || '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'ridi';
+  }
+  function pad(num, width=4){ const s=String(num); return s.length>=width?s:('0'.repeat(width-s.length)+s); }
+
+  function autoDetectBookId(){
+    try{
+      // pola umum: /books/5946000015/..., atau /webtoon/5946000015/...
+      const m = location.pathname.match(/\/(?:books|webtoon)\/(\d{6,})/);
+      if (m) return m[1];
+    }catch{}
+    return '';
+  }
+
+  function addPages(pages){
+    let added=0;
+    for (let i=0;i<pages.length;i++){
+      const idx = i+1;
+      const p = pages[i];
+      if (!p?.src) continue;
+      if (!STATE.items.has(idx)){
+        STATE.items.set(idx, { no: idx, url: p.src, w: p.width||0, h: p.height||0 });
+        added++;
+      }
+    }
+    STATE.order = Array.from(STATE.items.keys()).sort((a,b)=>a-b);
+    ui.updateCount();
+    if (added) ui.log(`+${added} file terdeteksi (total ${STATE.items.size})`, 'success');
+  }
+
+  // ========= API Caller =========
+  function httpPostJson(url, body, extraHeaders={}){
+    return new Promise((resolve, reject)=>{
+      const headers = {
+        'Accept': 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        ...extraHeaders
+      };
+      // Kirim Cookie manual jika user isi (opsional)
+      if (STATE.cookies) headers['Cookie'] = STATE.cookies;
+
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url,
+        headers,
+        data: JSON.stringify(body||{}),
+        responseType: 'json',
+        timeout: 45000,
+        onload: (res) => {
+          if (res.status>=200 && res.status<300){
+            try{
+              const json = res.response ?? JSON.parse(res.responseText);
+              resolve(json);
+            }catch(e){ reject(new Error('Bad JSON')); }
+          } else reject(new Error('HTTP ' + res.status));
+        },
+        onerror: () => reject(new Error('Network error')),
+        ontimeout: () => reject(new Error('Timeout (45s)')),
+      });
+    });
+  }
+
+  async function grabViaApi(bookId){
+    if (!bookId) return;
+    try{
+      const payload = { book_id: String(bookId) };
+      const json = await httpPostJson(API_URL, payload);
+      // Struktur yang kamu berikan: { success: true, data: { type: "comic", pages: [{src,width,height}, ...] } }
+      if (!json || json.success !== true || !json.data?.pages?.length){
+        ui.setStatus('Gagal: respons tidak sesuai / kosong'); ui.log('Respons:', 'error'); return;
+      }
+      const pages = json.data.pages;
+      addPages(pages);
+      STATE.titleHint = STATE.titleHint || document.title;
+      ui.setStatus(`Data OK: ${pages.length} halaman. Siap unduh ZIP.`);
+    }catch(err){
+      ui.setStatus('Error meminta API'); ui.log(String(err && err.message || err), 'error');
+    }
+  }
+
+  // ========= Downloader & ZIP =========
+  function httpGetBinary(url){
+    return new Promise((resolve, reject)=>{
+      const headers = {};
+      if (STATE.cookies) headers['Cookie'] = STATE.cookies;
+
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        headers,
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        onload: (res)=>{
+          if (res.status>=200 && res.status<300){
+            resolve(new Uint8Array(res.response));
+          } else reject(new Error('HTTP ' + res.status));
+        },
+        onerror: ()=>reject(new Error('Network error')),
+        ontimeout: ()=>reject(new Error('Timeout (30s)')),
+      });
+    });
+  }
+
+  async function zipAndSave(){
+    if (STATE.busy || STATE.items.size===0) return;
+    STATE.busy = true; ui.$dlzip.disabled = true; ui.setStatus('Mengunduh gambar…'); ui.progress(0);
+
+    const files = {};
+    const list = STATE.order.slice();
+    let done=0, failed=0;
+    const concurrency = 3;
+    let cursor = 0;
+
+    async function worker(){
+      while (cursor < list.length){
+        const i = cursor++;
+        const no = list[i];
+        const it = STATE.items.get(no);
+        const extGuess = /\.jpe?g($|\?)/i.test(it.url) ? 'jpg' : (/\.png($|\?)/i.test(it.url) ? 'png' : 'jpg');
+        const fname = `i${pad(no)}.${extGuess}`;
+        try{
+          const bin = await httpGetBinary(it.url);
+          files[fname] = bin;
+          ui.log(`✓ ${fname} (${(bin.byteLength/1024).toFixed(1)}KB)`, 'success');
+        }catch(e){
+          ui.log(`✗ ${fname}: ${e.message || e}`, 'error'); failed++;
+        }finally{
+          done++; ui.progress(Math.round((done/list.length)*100));
+        }
+      }
+    }
+
+    await Promise.all(Array.from({length: concurrency}, ()=>worker()));
+
+    if (!Object.keys(files).length){
+      ui.setStatus('Gagal: tidak ada file berhasil'); STATE.busy=false; ui.$dlzip.disabled=false; return;
+    }
+
+    ui.setStatus('Membuat ZIP…');
+    const entries = {};
+    for (const name of Object.keys(files)) entries[name] = [files[name], { level: 0 }];
+    const zipped = fflate.zipSync(entries, { level: 0 });
+    const blob = new Blob([zipped], { type: 'application/zip' });
+
+    const title = sanitizeFilename(STATE.titleHint || document.title || ('ridi_' + (STATE.lastBookId||autoDetectBookId()||'book')));
+    const zipName = `${title}.zip`;
+
+    // Simpan via anchor (stabil untuk Android/Kiwi)
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url; a.download = zipName; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 2000);
+
+    ui.setStatus(`✓ Selesai: ${zipName}`);
+    STATE.busy = false; ui.$dlzip.disabled = false;
+  }
+
+  // ========= Title observer (untuk nama ZIP) =========
+  const tObs = new MutationObserver(()=>{ if (!STATE.titleHint) STATE.titleHint = document.title; });
+  tObs.observe(document.querySelector('title') || document.documentElement, { childList:true, subtree:true });
+
+  // ========= Auto-update book_id dari URL =========
+  function updateBookIdFromUrl(){
+    const auto = autoDetectBookId();
+    if (auto) {
+      ui.$bookId.value = auto;
+      STATE.lastBookId = auto;
+      GM_setValue('ridi_last_book_id', auto);
+      ui.log(`📌 Book ID terdeteksi: ${auto}`, 'success');
+    }
+  }
+
+  // Deteksi saat pertama load
+  document.addEventListener('DOMContentLoaded', ()=>{
+    updateBookIdFromUrl();
+    ui.setStatus('Siap. Book ID otomatis terdeteksi atau isi manual.');
+  });
+
+  // Monitor perubahan URL (untuk SPA navigation)
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    const currentUrl = location.href;
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl;
+      updateBookIdFromUrl();
+    }
+  }).observe(document, { subtree: true, childList: true });
+
+})();
