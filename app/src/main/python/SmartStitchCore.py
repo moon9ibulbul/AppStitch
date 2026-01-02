@@ -41,6 +41,8 @@ def load_images(foldername):
         return images
     for imgFile in files:
         if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+            if imgFile.lower().endswith('.webp'):
+                print("Processing .webp files...")
             imgPath = os.path.join(folder, imgFile)
             try:
                 image = _open_image_with_webp_fallback(imgPath)
@@ -71,6 +73,8 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
         loop_count += 1
         if img_count < unit_limit and loop_count > offset:
             if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+                if imgFile.lower().endswith('.webp'):
+                    print("Processing .webp files...")
                 imgPath = os.path.join(folder, imgFile)
                 try:
                     image = _open_image_with_webp_fallback(imgPath)
