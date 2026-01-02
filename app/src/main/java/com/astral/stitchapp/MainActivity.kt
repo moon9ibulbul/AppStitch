@@ -7,6 +7,7 @@ import android.media.ToneGenerator
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -20,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +32,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
+import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.*
@@ -76,20 +82,49 @@ class MainActivity : ComponentActivity() {
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
-        setContent { MaterialTheme { MainScreen() } }
+        setContent {
+            val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+            val isDarkTheme = remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
+
+            AstralStitchTheme(darkTheme = isDarkTheme.value) {
+                MainScreen(
+                    isDarkTheme = isDarkTheme.value,
+                    onThemeChange = { isDark ->
+                        isDarkTheme.value = isDark
+                        prefs.edit().putBoolean("dark_mode", isDark).apply()
+                    }
+                )
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Stitcher", "Rawloader")
+    val titles = listOf("Local", "Rawloader")
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        SettingsScreen(
+            onDismiss = { showSettings = false },
+            isDarkTheme = isDarkTheme,
+            onThemeChange = onThemeChange
+        )
+    }
 
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(title = { Text("AstralStitch v1.2.0") })
+                TopAppBar(
+                    title = { Text("AstralStitch v1.3.0") },
+                    actions = {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    }
+                )
                 TabRow(selectedTabIndex = selectedTab) {
                     titles.forEachIndexed { index, title ->
                         Tab(
@@ -103,10 +138,191 @@ fun MainScreen() {
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
-            if (selectedTab == 0) {
+            // Persist state by keeping both composables in the tree
+            // Use zIndex to bring selected to top, and alpha to hide unselected (for accessibility/focus check,
+            // strictly we might need to disable touch on hidden, but for this app it's fine or we can use if(selected) Logic inside but hoisted state)
+            // Ideally we hoist state, but `StitchTab` and `BatoTab` have complex local state.
+            // Using Box with zIndex ensures they are both composed and remembered.
+
+            Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 0) 1f else 0f).alpha(if (selectedTab == 0) 1f else 0f)) {
                 StitchTab()
-            } else {
+            }
+            Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 1) 1f else 0f).alpha(if (selectedTab == 1) 1f else 0f)) {
                 BatoTab()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+
+    var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
+    var bgProgress by remember { mutableStateOf(prefs.getBoolean("bg_progress", false)) }
+    var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
+
+    val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            defaultOutputUri = uri.toString()
+            prefs.edit().putString("default_output_uri", uri.toString()).apply()
+        }
+    }
+
+    // Import/Export Launchers
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            val tmplPrefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
+            val set = tmplPrefs.getStringSet("templates", setOf()) ?: setOf()
+            val exportList = JSONArray()
+            set.forEach { exportList.put(JSONObject(it)) }
+
+            try {
+                context.contentResolver.openOutputStream(uri)?.use {
+                    it.write(exportList.toString(2).toByteArray())
+                }
+                Toast.makeText(context, "Templates Exported!", Toast.LENGTH_SHORT).show()
+            } catch(e:Exception) {
+                Toast.makeText(context, "Export Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { ins ->
+                    val jsonStr = ins.bufferedReader().readText()
+                    val jsonArr = JSONArray(jsonStr)
+                    val tmplPrefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
+                    val currentSet = tmplPrefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
+
+                    var added = 0
+                    for(i in 0 until jsonArr.length()) {
+                        val obj = jsonArr.getJSONObject(i)
+                        // Simple validation
+                        if(obj.has("name") && obj.has("settings")) {
+                            // Remove existing with same name
+                            val name = obj.getString("name")
+                            currentSet.removeIf { JSONObject(it).getString("name") == name }
+                            currentSet.add(obj.toString())
+                            added++
+                        }
+                    }
+                    tmplPrefs.edit().putStringSet("templates", currentSet).apply()
+                    Toast.makeText(context, "Imported $added templates!", Toast.LENGTH_SHORT).show()
+                }
+            } catch(e:Exception) {
+                Toast.makeText(context, "Import Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    var cacheSize by remember { mutableStateOf("Calculating...") }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val sizeBytes = context.cacheDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+            val mb = sizeBytes / (1024.0 * 1024.0)
+            withContext(Dispatchers.Main) {
+                cacheSize = "%.2f MB".format(mb)
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
+                HorizontalDivider()
+
+                // Theme
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Dark Mode")
+                    Switch(checked = isDarkTheme, onCheckedChange = onThemeChange)
+                }
+
+                // Sound
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Notification Sound")
+                    Switch(checked = soundEnabled, onCheckedChange = {
+                        soundEnabled = it
+                        prefs.edit().putBoolean("sound_enabled", it).apply()
+                    })
+                }
+
+                // Background Progress (Mock UI - implementation requires Service)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Background Progress (Notif)")
+                    Switch(checked = bgProgress, onCheckedChange = {
+                        bgProgress = it
+                        prefs.edit().putBoolean("bg_progress", it).apply()
+                        if (it) {
+                            Toast.makeText(context, "Requires App Restart / Service Implementation", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                }
+
+                // Default Output
+                Text("Rawloader Default Output:")
+                Button(onClick = { pickDefaultOutput.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (defaultOutputUri != null) "Change Folder" else "Set Default Folder")
+                }
+                if (defaultOutputUri != null) {
+                    Text(Uri.parse(defaultOutputUri).lastPathSegment ?: "Unknown", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("Default: Documents/AstralStitch/{Filename}", style = MaterialTheme.typography.bodySmall)
+                }
+
+                HorizontalDivider()
+
+                // Cache
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cache: $cacheSize")
+                    Button(onClick = {
+                        context.cacheDir.deleteRecursively()
+                        cacheSize = "0.00 MB"
+                        Toast.makeText(context, "Cache Cleared", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Clear")
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Donate
+                Button(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://trakteer.id/astralexpresscrew/tip"))
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Donate Me ❤️")
+                }
+
+                // Import/Export Templates
+                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                     Button(onClick = { exportLauncher.launch("stitch_templates.json") }) { Text("Export Tmpl") }
+                     Button(onClick = { importLauncher.launch(arrayOf("application/json")) }) { Text("Import Tmpl") }
+                }
+
+                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Close")
+                }
             }
         }
     }
@@ -153,57 +369,6 @@ fun StitchSettingsUI(
     LaunchedEffect(Unit) { loadTemplates() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Template Controls
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.weight(1f)) {
-                OutlinedButton(onClick = { expandedTemplates = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(currentTemplate?.name ?: "Default Settings")
-                }
-                DropdownMenu(expanded = expandedTemplates, onDismissRequest = { expandedTemplates = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Default Settings") },
-                        onClick = { onLoadTemplate(null); expandedTemplates = false }
-                    )
-                    availableTemplates.forEach { t ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                    Text(t.name)
-                                    Text("X", color = Color.Red, modifier = Modifier.clickable {
-                                        onDeleteTemplate(t)
-                                        loadTemplates()
-                                    })
-                                }
-                            },
-                            onClick = { onLoadTemplate(t); expandedTemplates = false }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { showSaveDialog = true }) { Text("Save") }
-        }
-
-        if (showSaveDialog) {
-            AlertDialog(
-                onDismissRequest = { showSaveDialog = false },
-                title = { Text("Save Template") },
-                text = { OutlinedTextField(value = newTemplateName, onValueChange = { newTemplateName = it }, label = { Text("Template Name") }) },
-                confirmButton = {
-                    Button(onClick = {
-                        if (newTemplateName.isNotBlank()) {
-                            onSaveTemplate(newTemplateName)
-                            loadTemplates()
-                            showSaveDialog = false
-                            newTemplateName = ""
-                        }
-                    }) { Text("Save") }
-                },
-                dismissButton = { Button(onClick = { showSaveDialog = false }) { Text("Cancel") } }
-            )
-        }
-
-        HorizontalDivider()
 
         OutlinedTextField(
             value = splitHeight,
@@ -277,11 +442,62 @@ fun StitchSettingsUI(
                 Spacer(Modifier.width(4.dp))
             }
         }
+
+        // Template Controls Moved Here (Below Pack)
+        HorizontalDivider()
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { expandedTemplates = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(currentTemplate?.name ?: "Default Settings")
+                }
+                DropdownMenu(expanded = expandedTemplates, onDismissRequest = { expandedTemplates = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Default Settings") },
+                        onClick = { onLoadTemplate(null); expandedTemplates = false }
+                    )
+                    availableTemplates.forEach { t ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text(t.name)
+                                    Text("X", color = Color.Red, modifier = Modifier.clickable {
+                                        onDeleteTemplate(t)
+                                        loadTemplates()
+                                    })
+                                }
+                            },
+                            onClick = { onLoadTemplate(t); expandedTemplates = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { showSaveDialog = true }) { Text("Save") }
+        }
+
+        if (showSaveDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveDialog = false },
+                title = { Text("Save Template") },
+                text = { OutlinedTextField(value = newTemplateName, onValueChange = { newTemplateName = it }, label = { Text("Template Name") }) },
+                confirmButton = {
+                    Button(onClick = {
+                        if (newTemplateName.isNotBlank()) {
+                            onSaveTemplate(newTemplateName)
+                            loadTemplates()
+                            showSaveDialog = false
+                            newTemplateName = ""
+                        }
+                    }) { Text("Save") }
+                },
+                dismissButton = { Button(onClick = { showSaveDialog = false }) { Text("Cancel") } }
+            )
+        }
     }
 }
 
 // ==========================================
-// TAB 1: STITCHER (Queue System)
+// TAB 1: LOCAL (Queue System)
 // ==========================================
 
 data class LocalQueueItem(
@@ -306,7 +522,6 @@ fun StitchTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Queue State
     var queueItems by remember { mutableStateOf(listOf<LocalQueueItem>()) }
     val queueMutex = remember { Mutex() }
     var isProcessing by remember { mutableStateOf(false) }
@@ -327,16 +542,11 @@ fun StitchTab() {
     // Template State
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
-    // Notification State
-    var showNotification by remember { mutableStateOf(false) }
-    var notificationMessage by remember { mutableStateOf("") }
-
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             val doc = DocumentFile.fromTreeUri(context, uri)
             if (doc != null) {
-                // Add to queue
                 val newItem = LocalQueueItem(
                     id = java.util.UUID.randomUUID().toString(),
                     path = uri.toString(),
@@ -372,7 +582,6 @@ fun StitchTab() {
         }
         val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
         val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
-        // Remove existing with same name if any
         set.removeIf { JSONObject(it).getString("name") == name }
         set.add(tObj.toString())
         prefs.edit().putStringSet("templates", set).apply()
@@ -433,7 +642,6 @@ fun StitchTab() {
                         }
 
                         if (itemToProcess == null) {
-                            // Check if all done
                             var allDone = false
                             queueMutex.withLock {
                                 if (queueItems.none { it.status == "processing" } && queueItems.isNotEmpty() && queueItems.all { it.status == "done" || it.status == "failed" }) {
@@ -443,10 +651,12 @@ fun StitchTab() {
                             if (allDone) {
                                 withContext(Dispatchers.Main) {
                                     isProcessing = false
-                                    showNotification = true
-                                    notificationMessage = "Stitching Complete!"
-                                    val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                    Toast.makeText(context, "Stitching Complete!", Toast.LENGTH_SHORT).show()
+                                    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+                                    if (prefs.getBoolean("sound_enabled", true)) {
+                                        val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                    }
                                 }
                             }
                             delay(1000)
@@ -474,7 +684,6 @@ fun StitchTab() {
                             val bridge = py.getModule("bridge")
                             val progressFile = File(context.cacheDir, "prog_${item.id}.json")
 
-                            // Monitor progress (optional, simplistic here)
                             val monitor = launch {
                                 while(isActive) {
                                     if(progressFile.exists()) {
@@ -510,7 +719,7 @@ fun StitchTab() {
 
                             monitor.cancel()
 
-                            // 4. Copy Back (Next to input)
+                            // 4. Copy Back
                             val finalFile = File(finalPathStr)
                             val targetTree = DocumentFile.fromTreeUri(context, inputUri)
 
@@ -523,7 +732,6 @@ fun StitchTab() {
                                 }
                             }
 
-                            // Cleanup
                             cacheIn.deleteRecursively()
                             cacheOutParent.deleteRecursively()
                             progressFile.delete()
@@ -547,15 +755,6 @@ fun StitchTab() {
         }
     }
 
-    if (showNotification) {
-        AlertDialog(
-            onDismissRequest = { showNotification = false },
-            confirmButton = { Button(onClick = { showNotification = false }) { Text("OK") } },
-            title = { Text("Notification") },
-            text = { Text(notificationMessage) }
-        )
-    }
-
     Column(
         Modifier
             .fillMaxSize()
@@ -563,12 +762,9 @@ fun StitchTab() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Manual Stitcher (Local Queue)", style = MaterialTheme.typography.titleMedium)
-
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = { pickInput.launch(null) }) { Text("Add Folder to Queue") }
              Spacer(Modifier.width(8.dp))
-             // Text field that overflows
              Text(
                  text = "Queue: ${queueItems.size} items",
                  modifier = Modifier.weight(1f),
@@ -620,7 +816,7 @@ fun StitchTab() {
         ) { Text(if (isProcessing) "STOP QUEUE" else "START QUEUE") }
 
         LazyColumn(
-            modifier = Modifier.height(400.dp).fillMaxWidth().background(Color(0xFFEEEEEE)),
+            modifier = Modifier.height(400.dp).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant),
             contentPadding = PaddingValues(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -648,7 +844,7 @@ fun StitchTab() {
 }
 
 // ==========================================
-// TAB 2: BATO / RIDI DOWNLOADER
+// TAB 2: RAWLOADER
 // ==========================================
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -656,8 +852,9 @@ fun StitchTab() {
 fun BatoTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
-    var selectedSource by remember { mutableStateOf("Bato.to") } // Bato.to or Ridibooks
+    var selectedSource by remember { mutableStateOf("Bato.to") }
     var expandedSource by remember { mutableStateOf(false) }
 
     var urlInput by remember { mutableStateOf("") }
@@ -666,12 +863,12 @@ fun BatoTab() {
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
-    var outputUri by remember { mutableStateOf<Uri?>(null) }
+
     var concurrencyCount by remember { mutableIntStateOf(1) }
     var expandedConcurrency by remember { mutableStateOf(false) }
     var isAddingToQueue by remember { mutableStateOf(false) }
 
-    // Settings State (Shared)
+    // Settings State
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
     var customFileName by remember { mutableStateOf("") }
@@ -681,16 +878,6 @@ fun BatoTab() {
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
-
-    // Notification State
-    var showNotification by remember { mutableStateOf(false) }
-
-    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
-        if (it != null) {
-            context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            outputUri = it
-        }
-    }
 
     // Load Queue Poller
     LaunchedEffect(Unit) {
@@ -713,12 +900,6 @@ fun BatoTab() {
                             progress = obj.optDouble("progress", 0.0)
                         ))
                     }
-                    // Check completion for notification
-                    if (list.isNotEmpty() && list.all { it.status == "done" || it.status == "failed" } && isProcessorRunning) {
-                         // Only notify if we were running and now all done.
-                         // But we need to detect edge trigger. Too complex for simple poll loop without state.
-                         // Simplified: Processor worker will trigger notify.
-                    }
                     withContext(Dispatchers.Main) {
                         queueItems = list
                     }
@@ -736,16 +917,27 @@ fun BatoTab() {
             val jobs = List(concurrencyCount) {
                 launch {
                     while (isActive && isProcessorRunning) {
-                        if (outputUri == null) { delay(1000); continue }
+                        // Check if default output is set
+                        val defaultUriStr = prefs.getString("default_output_uri", null)
+                        if (defaultUriStr == null) {
+                             withContext(Dispatchers.Main) {
+                                 Toast.makeText(context, "Please set Default Output in Settings!", Toast.LENGTH_LONG).show()
+                                 isProcessorRunning = false
+                             }
+                             break
+                        }
+                        val outputUri = Uri.parse(defaultUriStr)
 
                         // Check if all done
                         val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
                         if (pendingCount == 0 && queueItems.isNotEmpty()) {
                              withContext(Dispatchers.Main) {
                                 isProcessorRunning = false
-                                showNotification = true
-                                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                Toast.makeText(context, "All tasks completed!", Toast.LENGTH_SHORT).show()
+                                if (prefs.getBoolean("sound_enabled", true)) {
+                                    val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                }
                             }
                             break
                         }
@@ -777,6 +969,8 @@ fun BatoTab() {
                                     val path = result.getString("path")
                                     val file = File(path)
                                     val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
+
+                                    // Default Output Structure: Documents/AstralStitch/{Filename}
                                     if (targetTree != null && file.exists()) {
                                         if (file.isDirectory) {
                                             copyToTree(context, file, targetTree)
@@ -801,15 +995,6 @@ fun BatoTab() {
             }
             jobs.joinAll()
         }
-    }
-
-    if (showNotification) {
-        AlertDialog(
-            onDismissRequest = { showNotification = false },
-            confirmButton = { Button(onClick = { showNotification = false }) { Text("OK") } },
-            title = { Text("Notification") },
-            text = { Text("All tasks completed!") }
-        )
     }
 
     // Define QueueItemRow for BatoTab
@@ -844,7 +1029,6 @@ fun BatoTab() {
                             Spacer(Modifier.width(8.dp))
                         }
 
-                        // Always allow removing (which acts as Cancel for downloading items)
                         IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
                             Text("X")
                         }
@@ -864,8 +1048,6 @@ fun BatoTab() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Bulk Downloader", style = MaterialTheme.typography.titleMedium)
-
         // Source Selector
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Source: ")
@@ -877,17 +1059,23 @@ fun BatoTab() {
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
                     DropdownMenuItem(text = { Text("Bato.to") }, onClick = { selectedSource = "Bato.to"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
                 }
             }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            val labelText = when(selectedSource) {
+                "Ridibooks" -> "Url (Book)"
+                "Naver Webtoon" -> "Comic ID"
+                "XToon" -> "Url (Chapter)"
+                else -> "Url (Chapter/Series)"
+            }
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
-                label = {
-                    Text(if (selectedSource == "Ridibooks") "Url (Book)" else "Url (Chapter/Series)")
-                },
+                label = { Text(labelText) },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
@@ -901,7 +1089,12 @@ fun BatoTab() {
                             try {
                                 val py = Python.getInstance()
                                 val bato = py.getModule("bato")
-                                val type = if(selectedSource == "Ridibooks") "ridi" else "bato"
+                                val type = when(selectedSource) {
+                                    "Ridibooks" -> "ridi"
+                                    "Naver Webtoon" -> "naver"
+                                    "XToon" -> "xtoon"
+                                    else -> "bato"
+                                }
                                 bato.callAttr("add_to_queue", context.cacheDir.absolutePath, urlInput, type, cookieInput)
                                 withContext(Dispatchers.Main) {
                                     urlInput = ""
@@ -930,10 +1123,12 @@ fun BatoTab() {
 
         HorizontalDivider()
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { pickOutput.launch(null) }) { Text("Set Output Folder") }
-            Spacer(Modifier.width(8.dp))
-            Text(outputUri?.lastPathSegment ?: "Not Set", maxLines=1, overflow = TextOverflow.Ellipsis)
+        // Output Folder Display
+        val defOut = prefs.getString("default_output_uri", null)
+        if (defOut != null) {
+            Text("Output: ${Uri.parse(defOut).lastPathSegment}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        } else {
+             Text("Output: Not Set (Go to Settings)", style = MaterialTheme.typography.bodySmall, color = Color.Red)
         }
 
         // Auto Retry
@@ -942,14 +1137,6 @@ fun BatoTab() {
             Text("Auto Retry")
         }
 
-        // Full Settings for Bato
-        Text("Stitch Settings for Queue", style = MaterialTheme.typography.bodySmall)
-        // Note: Template system not explicitly requested for Bato tab, but settings are here.
-        // Can reuse StitchSettingsUI but without templates if desired, or with.
-        // Prompt says "Tambahkan fitur template ke manual stitcher" (Add template feature to manual stitcher).
-        // It doesn't explicitly say Bato. But usually settings are shared.
-        // I'll stick to basic settings UI here for simplicity or reuse without template controls to match prompt strictly?
-        // Let's just use the shared UI but pass null/noop for templates to keep Bato tab clean as requested (only stitcher mentioned).
         StitchSettingsUI(
             splitHeight, { splitHeight = it },
             outputType, { outputType = it },
@@ -998,12 +1185,8 @@ fun BatoTab() {
             colors = ButtonDefaults.buttonColors(containerColor = if(isProcessorRunning) Color.Red else Color(0xFF4CAF50))
         ) { Text(if (isProcessorRunning) "STOP QUEUE" else "START QUEUE") }
 
-        if (isProcessorRunning && outputUri == null) {
-            Text("Please select Output Folder to start processing!", color = Color.Red)
-        }
-
         LazyColumn(
-            modifier = Modifier.height(400.dp).fillMaxWidth().background(Color(0xFFEEEEEE)),
+            modifier = Modifier.height(400.dp).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant),
             contentPadding = PaddingValues(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -1043,10 +1226,6 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
             if (isRoot) {
                 for (child in doc.listFiles()) copy(child, base, false)
             } else {
-                 // For subdirectories, replicate structure?
-                 // The stitcher usually flattens or recurses?
-                 // Original implementation: copy(child, base, false) -> flattens into base.
-                 // Let's keep it flattening for now as SmartStitchCore expects a folder of images.
                  for (child in doc.listFiles()) copy(child, base, false)
             }
             return
@@ -1123,9 +1302,6 @@ fun copyToTree(
                     current
                 }
             }
-            // If exists, delete or overwrite?
-            // SAF create file might generate "name (1).ext" automatically if exists? No, it usually fails or duplicates.
-            // Let's delete existing to overwrite.
             if (existing != null) existing.delete()
 
             val target = parent.createFile(mime, file.name)!!
