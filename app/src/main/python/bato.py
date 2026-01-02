@@ -76,8 +76,14 @@ def normalize_bato_url(url: str) -> str:
         return f"https://bato.ing{path}"
     return f"https://bato.ing{path}"
 
-def fetch_html(url: str) -> str:
-    req = Request(url, headers={"User-Agent": USER_AGENT, "Referer": "https://bato.ing/"})
+def fetch_html(url: str, cookie: str = None) -> str:
+    headers = {"User-Agent": USER_AGENT}
+    if "bato.ing" in url:
+        headers["Referer"] = "https://bato.ing/"
+    if cookie:
+        headers["Cookie"] = cookie
+
+    req = Request(url, headers=headers)
     with safe_urlopen(req, timeout=30) as r:
         charset = r.headers.get_content_charset() or "utf-8"
         return r.read().decode(charset, errors="replace")
@@ -104,15 +110,16 @@ def clean_title_text(text: str) -> str:
     text = text.replace(" - Read Free Manga Online", "")
     text = text.replace("Read Free Manga Online", "")
     text = text.replace("Bato.to", "").replace("Bato.ing", "")
+    text = text.replace(" - Ridibooks", "")
     text = re.sub(r"\[.*?\]$", "", text)
     return text.strip()
 
-def extract_bato_title(html: str) -> str:
+def extract_title_from_html(html: str) -> str:
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
     if m:
         t = clean_title_text(m.group(1))
-        return sanitize_filename(t) or "bato_chapter"
-    return "bato_chapter"
+        return sanitize_filename(t)
+    return ""
 
 def download_image(url: str, dest: Path, idx: int, cookie: str = None, referer: str = None):
     url = normalize_image_host(url)
@@ -146,10 +153,7 @@ def download_image(url: str, dest: Path, idx: int, cookie: str = None, referer: 
 
 def fetch_bato_series_chapters(url: str) -> List[Dict[str, str]]:
     html = fetch_html(url)
-    series_title = "Unknown Series"
-    m_title = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE)
-    if m_title:
-        series_title = clean_title_text(m_title.group(1))
+    series_title = extract_title_from_html(html) or "Unknown Series"
 
     chapters = []
     seen_urls = set()
@@ -208,7 +212,8 @@ def fetch_ridi_data(book_id: str, cookie: str) -> Dict:
     headers = {
         "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
-        "Referer": f"https://ridibooks.com/books/{book_id}"
+        "Accept": "application/json",
+        "Referer": f"https://ridibooks.com/books/{book_id}/view"
     }
     if cookie:
         headers["Cookie"] = cookie
@@ -223,7 +228,7 @@ def process_ridi_item(book_id: str, cookie: str) -> Tuple[str, List[str]]:
     # Returns (Title, List of Image URLs)
     data = fetch_ridi_data(book_id, cookie)
     if not data.get("success"):
-        raise RuntimeError("Ridi API returned success=False")
+        raise RuntimeError(f"Ridi API returned success=False. Msg: {data.get('message', 'Unknown')}")
 
     pages = data.get("data", {}).get("pages", [])
     if not pages:
@@ -231,11 +236,7 @@ def process_ridi_item(book_id: str, cookie: str) -> Tuple[str, List[str]]:
 
     images = [p["src"] for p in pages if "src" in p]
 
-    # We don't get the title from this API, so we might need to fetch the book page or just use Book ID
-    # For now, let's use "Ridi_{book_id}" or let the caller provide a hint if possible.
-    # The queue item should already have a title.
-
-    return f"Ridi_{book_id}", images
+    return "", images
 
 # ============================================================
 # QUEUE SYSTEM
@@ -291,7 +292,7 @@ class BatoQueue:
                                 added += 1
                     else:
                         html = fetch_html(url)
-                        title = extract_bato_title(html)
+                        title = extract_title_from_html(html) or "bato_chapter"
                         if not any(q['url'] == url for q in queue):
                             queue.append({
                                 "id": str(uuid.uuid4()),
@@ -308,9 +309,15 @@ class BatoQueue:
                     if not book_id:
                         return {"error": "Invalid Ridi URL (No Book ID found)"}
 
-                    # For Ridi, we can't easily fetch title without page load.
-                    # Use a placeholder, it will be updated later? Or just use ID.
+                    # Fetch Title from WebPage
                     title = f"Ridi Book {book_id}"
+                    try:
+                        html = fetch_html(url, cookie=cookie)
+                        extracted = extract_title_from_html(html)
+                        if extracted:
+                            title = extracted
+                    except Exception as e:
+                        print(f"Failed to fetch Ridi title: {e}")
 
                     if not any(q['url'] == url for q in queue):
                         queue.append({
@@ -396,7 +403,6 @@ class BatoQueue:
             self._save(queue)
 
     def set_auto_retry(self, enabled: bool):
-        # We can store this in a separate config file or just passed by UI
         pass
 
 # ============================================================
@@ -435,8 +441,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         if source_type == "bato":
             normalized_url = normalize_bato_url(url)
             html = fetch_html(normalized_url)
-            # Update title if it was placeholder? Bato usually has title from add time.
-            # But Series adding might be good.
             images = extract_bato_images(html)
             referer = "https://bato.ing/"
 
@@ -445,10 +449,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             cookie = item.get("cookie", "")
             title_prefix, imgs = process_ridi_item(book_id, cookie)
             images = imgs
-            referer = f"https://ridibooks.com/books/{book_id}"
-
-            # If title is generic, maybe we can fetch better one from HTML if we cared,
-            # but Ridi API assumes we know.
+            referer = f"https://ridibooks.com/books/{book_id}/view"
 
         if not images:
             raise RuntimeError("No images found")
@@ -496,8 +497,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             senstivity=int(params.get("sensitivity", 90)),
             ignorable_pixels=int(params.get("ignorable", 0)),
             scan_line_step=int(params.get("scanStep", 5)),
-            low_ram=False, # Hardcoded false as requested
-            unit_images=20, # Default since low ram is removed
+            low_ram=False,
+            unit_images=20,
             zip_output=params.get("packaging") == "ZIP",
             pdf_output=params.get("packaging") == "PDF",
             mark_done=False
@@ -513,39 +514,23 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         })
 
     except Exception as e:
-        # Auto retry logic?
-        # If auto_retry is ON, we might want to schedule a retry or just keep it pending?
-        # For now, just mark failed. The UI can handle auto-retry by checking 'failed' + autoRetry settings?
-        # Or we can simply reset it to pending if auto_retry is True.
-
-        # But if we reset to pending immediately, it will loop forever if error is persistent.
-        # Maybe we should have a retry count?
-
         print(f"Error processing {item_id}: {e}")
 
         new_status = "failed"
         if auto_retry:
-             # Basic auto-retry: checking if we have a retry count in item
-             # For this task, "Defaultnya aktif" implies we should try to retry.
-             # I'll implement a simple retry count (max 3)
-
-             # Need to read item again to check retry_count
              with FileLock(queue_mgr.lock_path):
                 queue = queue_mgr._load()
-                # Find item again
                 for q in queue:
                     if q["id"] == item_id:
                         retries = q.get("retry_count", 0)
                         if retries < 3:
                             q["retry_count"] = retries + 1
-                            q["status"] = "pending" # Reset to pending
+                            q["status"] = "pending"
                             new_status = "pending"
-                            # q["progress"] = 0.0 # Optional
                         else:
                             q["status"] = "failed"
                         break
                 queue_mgr._save(queue)
-
         else:
             queue_mgr.update_status(item_id, "failed", 0.0)
 

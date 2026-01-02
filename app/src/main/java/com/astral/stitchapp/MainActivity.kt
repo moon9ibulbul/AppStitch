@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Stitcher", "Bato Downloader")
+    val titles = listOf("Stitcher", "Rawloader")
 
     Scaffold(
         topBar = {
@@ -867,13 +867,17 @@ fun BatoTab() {
         Text("Bulk Downloader", style = MaterialTheme.typography.titleMedium)
 
         // Source Selector
-        Box {
-            OutlinedButton(onClick = { expandedSource = true }) {
-                Text(selectedSource)
-            }
-            DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
-                DropdownMenuItem(text = { Text("Bato.to") }, onClick = { selectedSource = "Bato.to"; expandedSource = false })
-                DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Source: ")
+            Spacer(Modifier.width(8.dp))
+            Box {
+                OutlinedButton(onClick = { expandedSource = true }) {
+                    Text(selectedSource)
+                }
+                DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
+                    DropdownMenuItem(text = { Text("Bato.to") }, onClick = { selectedSource = "Bato.to"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
+                }
             }
         }
 
@@ -881,7 +885,9 @@ fun BatoTab() {
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
-                label = { Text("Url (Chapter/Series/Book)") },
+                label = {
+                    Text(if (selectedSource == "Ridibooks") "Url (Book)" else "Url (Chapter/Series)")
+                },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
@@ -917,7 +923,8 @@ fun BatoTab() {
                 value = cookieInput,
                 onValueChange = { cookieInput = it },
                 label = { Text("Cookie (Optional)") },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 3
             )
         }
 
