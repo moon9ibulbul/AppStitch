@@ -311,9 +311,6 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
     }
 }
 
-// ... Shared Settings & StitchTab code remains the same as previous submit ...
-// I will copy them for completeness to overwrite the file correctly.
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StitchSettingsUI(
@@ -474,14 +471,7 @@ fun StitchSettingsUI(
     }
 }
 
-data class LocalQueueItem(
-    val id: String,
-    val path: String,
-    val name: String,
-    val status: String,
-    val progress: Double
-)
-
+// Queue data classes removed for Stitcher, kept for Rawloader
 data class QueueItem(
     val id: String,
     val url: String,
@@ -496,12 +486,13 @@ fun StitchTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var queueItems by remember { mutableStateOf(listOf<LocalQueueItem>()) }
-    val queueMutex = remember { Mutex() }
+    // Single item state
+    var inputUri by remember { mutableStateOf<Uri?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
-    var concurrencyCount by remember { mutableIntStateOf(1) }
-    var expandedConcurrency by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var statusText by remember { mutableStateOf("Ready") }
 
+    // Settings State
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
     var customFileName by remember { mutableStateOf("") }
@@ -517,21 +508,9 @@ fun StitchTab() {
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            inputUri = uri
             val doc = DocumentFile.fromTreeUri(context, uri)
-            if (doc != null) {
-                val newItem = LocalQueueItem(
-                    id = java.util.UUID.randomUUID().toString(),
-                    path = uri.toString(),
-                    name = doc.name ?: "Unknown",
-                    status = "pending",
-                    progress = 0.0
-                )
-                scope.launch {
-                    queueMutex.withLock {
-                        queueItems = queueItems + newItem
-                    }
-                }
-            }
+            statusText = "Selected: ${doc?.name ?: "Unknown"}"
         }
     }
 
@@ -593,130 +572,6 @@ fun StitchTab() {
         }
     }
 
-    LaunchedEffect(isProcessing, concurrencyCount) {
-        if (!isProcessing) return@LaunchedEffect
-
-        withContext(Dispatchers.IO) {
-            val jobs = List(concurrencyCount) {
-                launch {
-                    while (isActive && isProcessing) {
-                        var itemToProcess: LocalQueueItem? = null
-                        queueMutex.withLock {
-                             val pending = queueItems.find { it.status == "pending" }
-                             if (pending != null) {
-                                 itemToProcess = pending
-                                 queueItems = queueItems.map { if (it.id == pending.id) it.copy(status = "processing") else it }
-                             }
-                        }
-
-                        if (itemToProcess == null) {
-                            var allDone = false
-                            queueMutex.withLock {
-                                if (queueItems.none { it.status == "processing" } && queueItems.isNotEmpty() && queueItems.all { it.status == "done" || it.status == "failed" }) {
-                                    allDone = true
-                                }
-                            }
-                            if (allDone) {
-                                withContext(Dispatchers.Main) {
-                                    isProcessing = false
-                                    Toast.makeText(context, "Stitching Complete!", Toast.LENGTH_SHORT).show()
-                                    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
-                                    if (prefs.getBoolean("sound_enabled", true)) {
-                                        val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
-                                    }
-                                }
-                            }
-                            delay(1000)
-                            continue
-                        }
-
-                        val item = itemToProcess!!
-                        try {
-                            val inputUri = Uri.parse(item.path)
-                            val cacheIn = File(context.cacheDir, "stitch_in_${item.id}")
-                            cacheIn.deleteRecursively(); cacheIn.mkdirs()
-                            copyFromTree(context, inputUri, cacheIn)
-
-                            val cacheOutParent = File(context.cacheDir, "stitch_out_${item.id}")
-                            val outputName = "${item.name} [Stitched]"
-                            cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
-                            val dir = File(cacheOutParent, outputName)
-                            dir.mkdirs()
-
-                            val py = Python.getInstance()
-                            val bridge = py.getModule("bridge")
-                            val progressFile = File(context.cacheDir, "prog_${item.id}.json")
-
-                            val monitor = launch {
-                                while(isActive) {
-                                    if(progressFile.exists()) {
-                                        try {
-                                            val j = JSONObject(progressFile.readText())
-                                            val p = j.optInt("processed", 0)
-                                            val t = j.optInt("total", 1)
-                                            val prog = if(t>0) p.toDouble()/t else 0.0
-                                             withContext(Dispatchers.Main) {
-                                                queueItems = queueItems.map { if (it.id == item.id) it.copy(progress = prog) else it }
-                                             }
-                                        } catch(_:Exception){}
-                                    }
-                                    delay(500)
-                                }
-                            }
-
-                            val finalPathStr = bridge.callAttr(
-                                "run", cacheIn.absolutePath,
-                                splitHeight.toIntOrNull()?:5000,
-                                outputType, false, widthEnforce,
-                                customWidth.toIntOrNull()?:720,
-                                sensitivity.toIntOrNull()?:90,
-                                ignorable.toIntOrNull()?:0,
-                                scanStep.toIntOrNull()?:5,
-                                false, 20,
-                                dir.absolutePath,
-                                customFileName.takeIf { it.isNotBlank() },
-                                packagingOption == PackagingOption.ZIP,
-                                packagingOption == PackagingOption.PDF,
-                                progressFile.absolutePath, 0, true
-                            ).toString()
-
-                            monitor.cancel()
-
-                            val finalFile = File(finalPathStr)
-                            val targetTree = DocumentFile.fromTreeUri(context, inputUri)
-
-                            if (targetTree != null && targetTree.canWrite()) {
-                                 if (finalFile.isDirectory) {
-                                    copyToTree(context, finalFile, targetTree)
-                                } else {
-                                    val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                    copyToTree(context, finalFile, targetTree, mime)
-                                }
-                            }
-
-                            cacheIn.deleteRecursively()
-                            cacheOutParent.deleteRecursively()
-                            progressFile.delete()
-
-                            withContext(Dispatchers.Main) {
-                                queueItems = queueItems.map { if (it.id == item.id) it.copy(status = "done", progress = 1.0) else it }
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                             withContext(Dispatchers.Main) {
-                                queueMutex.withLock {
-                                    queueItems = queueItems.map { if (it.id == item.id) it.copy(status = "failed", progress = 0.0) else it }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            jobs.joinAll()
-        }
-    }
-
     Column(
         Modifier
             .fillMaxSize()
@@ -725,16 +580,22 @@ fun StitchTab() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { pickInput.launch(null) }) { Text("Add Folder to Queue") }
+            Button(onClick = { pickInput.launch(null) }, enabled = !isProcessing) { Text("Select Input Folder") }
              Spacer(Modifier.width(8.dp))
              Text(
-                 text = "Queue: ${queueItems.size} items",
+                 text = statusText,
                  modifier = Modifier.weight(1f),
                  overflow = TextOverflow.Ellipsis,
                  maxLines = 2
              )
         }
+
+        if (isProcessing) {
+            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+        }
+
         HorizontalDivider()
+
         StitchSettingsUI(
             splitHeight, { splitHeight = it },
             outputType, { outputType = it },
@@ -747,56 +608,115 @@ fun StitchTab() {
             packagingOption, { packagingOption = it },
             currentTemplate, ::applyTemplate, ::saveTemplate, ::deleteTemplate
         )
+
         HorizontalDivider()
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    OutlinedButton(onClick = { expandedConcurrency = true }) {
-                        Text("Workers: $concurrencyCount")
-                    }
-                    DropdownMenu(expanded = expandedConcurrency, onDismissRequest = { expandedConcurrency = false }) {
-                        (1..5).forEach { num ->
-                            DropdownMenuItem(
-                                text = { Text("$num") },
-                                onClick = { concurrencyCount = num; expandedConcurrency = false }
-                            )
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                if (inputUri == null) {
+                    Toast.makeText(context, "Please select an input folder", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
+                isProcessing = true
+                progress = 0f
+                statusText = "Processing..."
+
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val uri = inputUri!!
+                        val doc = DocumentFile.fromTreeUri(context, uri)
+                        val name = doc?.name ?: "Unknown"
+
+                        val cacheIn = File(context.cacheDir, "stitch_single_in")
+                        cacheIn.deleteRecursively(); cacheIn.mkdirs()
+                        copyFromTree(context, uri, cacheIn)
+
+                        val cacheOutParent = File(context.cacheDir, "stitch_single_out")
+                        val outputName = "$name [Stitched]"
+                        cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
+                        val dir = File(cacheOutParent, outputName)
+                        dir.mkdirs()
+
+                        val py = Python.getInstance()
+                        val bridge = py.getModule("bridge")
+                        val progressFile = File(context.cacheDir, "prog_single.json")
+
+                        val monitor = launch {
+                            while(isActive) {
+                                if(progressFile.exists()) {
+                                    try {
+                                        val j = JSONObject(progressFile.readText())
+                                        val p = j.optInt("processed", 0)
+                                        val t = j.optInt("total", 1)
+                                        val prog = if(t>0) p.toFloat()/t else 0f
+                                        withContext(Dispatchers.Main) {
+                                            progress = prog
+                                        }
+                                    } catch(_:Exception){}
+                                }
+                                delay(500)
+                            }
+                        }
+
+                        val finalPathStr = bridge.callAttr(
+                            "run", cacheIn.absolutePath,
+                            splitHeight.toIntOrNull()?:5000,
+                            outputType, false, widthEnforce,
+                            customWidth.toIntOrNull()?:720,
+                            sensitivity.toIntOrNull()?:90,
+                            ignorable.toIntOrNull()?:0,
+                            scanStep.toIntOrNull()?:5,
+                            false, 20,
+                            dir.absolutePath,
+                            customFileName.takeIf { it.isNotBlank() },
+                            packagingOption == PackagingOption.ZIP,
+                            packagingOption == PackagingOption.PDF,
+                            progressFile.absolutePath, 0, true
+                        ).toString()
+
+                        monitor.cancel()
+
+                        val finalFile = File(finalPathStr)
+                        val targetTree = DocumentFile.fromTreeUri(context, uri)
+
+                        if (targetTree != null && targetTree.canWrite()) {
+                             if (finalFile.isDirectory) {
+                                copyToTree(context, finalFile, targetTree)
+                            } else {
+                                val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                copyToTree(context, finalFile, targetTree, mime)
+                            }
+                        }
+
+                        cacheIn.deleteRecursively()
+                        cacheOutParent.deleteRecursively()
+                        progressFile.delete()
+
+                        withContext(Dispatchers.Main) {
+                            isProcessing = false
+                            progress = 1f
+                            statusText = "Done! Output saved to source folder."
+                            Toast.makeText(context, "Stitching Complete!", Toast.LENGTH_SHORT).show()
+                            val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+                            if (prefs.getBoolean("sound_enabled", true)) {
+                                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        withContext(Dispatchers.Main) {
+                            isProcessing = false
+                            statusText = "Error: ${e.message}"
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 }
-            }
-             Button(onClick = { scope.launch { queueMutex.withLock { queueItems = listOf(); isProcessing = false } } }) { Text("Clear All") }
-        }
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { isProcessing = !isProcessing },
-            colors = ButtonDefaults.buttonColors(containerColor = if(isProcessing) Color.Red else Color(0xFF4CAF50))
-        ) { Text(if (isProcessing) "STOP QUEUE" else "START QUEUE") }
-
-        LazyColumn(
-            modifier = Modifier.height(400.dp).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant),
-            contentPadding = PaddingValues(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(queueItems) { item ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(8.dp)) {
-                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text(item.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines=1, overflow = TextOverflow.Ellipsis)
-                            IconButton(onClick = { scope.launch { queueMutex.withLock { queueItems = queueItems.filter { it.id != item.id } } } }) {
-                                Text("X")
-                            }
-                         }
-                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                             Text(item.status.uppercase(), style = MaterialTheme.typography.labelSmall,
-                                 color = if (item.status == "failed") Color.Red else if(item.status=="done") Color.Green else Color.Unspecified)
-                         }
-                         if (item.status == "processing") {
-                             LinearProgressIndicator(progress = item.progress.toFloat(), modifier = Modifier.fillMaxWidth())
-                         }
-                    }
-                }
-            }
-        }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = if(isProcessing) Color.Gray else Color(0xFF4CAF50)),
+            enabled = !isProcessing
+        ) { Text(if (isProcessing) "PROCESSING..." else "START STITCHING") }
     }
 }
 
@@ -918,14 +838,12 @@ fun BatoTab() {
                                             }
                                         }
                                     } else {
-                                        // Default: App Storage (External Files Dir)
-                                        // Usually Android/data/package/files/
                                         val destDir = context.getExternalFilesDir(null)
                                         if (destDir != null && file.exists()) {
                                             val destFile = File(destDir, file.name)
                                             file.copyTo(destFile, overwrite = true)
                                             if (file.isDirectory) {
-                                                file.deleteRecursively() // Cleanup after move
+                                                file.deleteRecursively()
                                             } else {
                                                 file.delete()
                                             }
@@ -958,7 +876,7 @@ fun BatoTab() {
                          color = if (item.status == "failed") Color.Red else Color.Unspecified)
                     Row {
                         if (item.status == "downloading" || item.status == "stitching") {
-                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Pause, contentDescription="Pause") }
+                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Pause, contentDescription="Pause") }
                             Spacer(Modifier.width(4.dp))
                         }
                         if (item.status == "paused") {
