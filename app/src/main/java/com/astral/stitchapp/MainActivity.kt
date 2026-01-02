@@ -310,9 +310,6 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
     }
 }
 
-// ... Shared Settings & StitchTab code remains the same as previous submit ...
-// I will copy them for completeness to overwrite the file correctly.
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StitchSettingsUI(
@@ -1124,4 +1121,98 @@ fun BatoTab() {
         }
     }
 }
-// Helper functions remain as is...
+
+fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File) {
+    val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return
+
+    fun copy(doc: DocumentFile, base: java.io.File, isRoot: Boolean) {
+        if (doc.isDirectory) {
+            if (isRoot) {
+                for (child in doc.listFiles()) copy(child, base, false)
+            } else {
+                 for (child in doc.listFiles()) copy(child, base, false)
+            }
+            return
+        }
+
+        val name = doc.name ?: return
+        val isImage = name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf(
+            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga"
+        )
+        if (!isImage) return
+
+        val lower = name.lowercase(Locale.ROOT)
+        if (lower.endsWith(".webp")) {
+            val baseName = name.dropLast(5)
+            val targetName = "$baseName.png"
+            var targetFile = java.io.File(base, targetName)
+            var index = 1
+            while (targetFile.exists()) {
+                targetFile = java.io.File(base, "${baseName}_webp$index.png")
+                index += 1
+            }
+            val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                BitmapFactory.decodeStream(ins)
+            }
+            if (converted != null) {
+                targetFile.outputStream().use { outs ->
+                    converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                }
+                converted.recycle()
+            } else {
+                 val fallbackFile = java.io.File(base, name)
+                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                    fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
+                }
+            }
+        } else {
+            val outFile = java.io.File(base, name)
+            ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                outFile.outputStream().use { outs -> ins.copyTo(outs) }
+            }
+        }
+    }
+    copy(root, dest, true)
+}
+
+fun copyToTree(
+    ctx: android.content.Context,
+    src: java.io.File,
+    destTree: DocumentFile?,
+    mimeOverride: String? = null
+) {
+    if (destTree == null) return
+
+    fun inferredMime(file: java.io.File): String {
+        return when (file.extension.lowercase(Locale.ROOT)) {
+            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga" -> "image/*"
+            "zip" -> "application/zip"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+    }
+
+    fun upload(file: java.io.File, parent: DocumentFile, overrideMime: String? = null) {
+        if (file.isDirectory) {
+            val dir = parent.findFile(file.name)?.takeIf { it.isDirectory } ?: parent.createDirectory(file.name)!!
+            file.listFiles()?.forEach { child -> upload(child, dir, null) }
+        } else {
+            val mime = overrideMime ?: inferredMime(file)
+            val existing = parent.findFile(file.name)?.let { current ->
+                if (current.isDirectory) {
+                    current.delete()
+                    null
+                } else {
+                    current
+                }
+            }
+            if (existing != null) existing.delete()
+
+            val target = parent.createFile(mime, file.name)!!
+            ctx.contentResolver.openOutputStream(target.uri, "w")?.use { outs ->
+                file.inputStream().use { ins -> ins.copyTo(outs) }
+            }
+        }
+    }
+    upload(src, destTree, mimeOverride)
+}
