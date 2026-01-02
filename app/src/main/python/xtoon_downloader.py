@@ -20,40 +20,21 @@ def fetch_html(url, headers=None):
 
 def get_xtoon_images(url):
     html = fetch_html(url)
-
-    # XToon usually lazy loads or puts images in data-src
-    # Based on `xtoon.py`:
-    # <div id="pic_..."> <img ... data-src="...">
-
-    # Simple regex approach matching common patterns
-
     images = []
 
-    # Pattern 1: lazy loaded
     p1 = r'(?:data-src|data-original|data-url)="([^"]+\.(?:jpg|png|webp|jpeg)[^"]*)"'
     matches = re.findall(p1, html)
 
-    # Pattern 2: src direct
-    # But be careful not to grab UI elements.
-    # Usually XToon images are in a specific container.
-
-    # Let's trust the regex from the original `xtoon.py` but simplified
-    # Original used bs4, we want to avoid extra deps if possible, but strict regex is okay.
-
-    # If regex fails, we return empty.
-
     for m in matches:
-        # unescape
         link = unescape(m)
         if link.startswith("//"):
             link = "https:" + link
         elif link.startswith("/"):
             link = urljoin(url, link)
 
-        if "xtoon" in link or "mangatoon" in link or "toon" in link: # Basic filtering
+        if "xtoon" in link or "mangatoon" in link or "toon" in link:
              images.append(link)
 
-    # If empty, try src
     if not images:
         p2 = r'src="([^"]+\.(?:jpg|png|webp|jpeg)[^"]*)"'
         matches = re.findall(p2, html)
@@ -63,11 +44,9 @@ def get_xtoon_images(url):
                 link = "https:" + link
             elif link.startswith("/"):
                 link = urljoin(url, link)
-            # Filter UI images
             if "logo" not in link and "icon" not in link:
                 images.append(link)
 
-    # Unique
     seen = set()
     unique = []
     for i in images:
@@ -81,5 +60,10 @@ def get_xtoon_title(url):
     html = fetch_html(url)
     m = re.search(r'<title>(.*?)</title>', html)
     if m:
-        return unescape(m.group(1)).split("-")[0].strip()
+        # User wants "98화 - 게임은 살인이다" from "98화 - 게임은 살인이다 - Xtoon"
+        # We split by " - Xtoon" or just take the first parts.
+        raw_title = unescape(m.group(1)).strip()
+        # Remove suffix
+        clean_title = re.sub(r'\s*-\s*Xtoon.*', '', raw_title, flags=re.IGNORECASE)
+        return clean_title
     return "XToon Chapter"

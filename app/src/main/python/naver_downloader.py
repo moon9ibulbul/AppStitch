@@ -35,38 +35,47 @@ def get_naver_chapter_info(url):
     if not html:
         return {"error": "Failed to fetch page"}
 
-    # Extract Title: <meta property="og:title" content="Series Title - Chapter Title">
-    # Usually Naver sets og:title to "Series Name - Chapter Name"
-
     title = "Naver Webtoon Chapter"
     m = re.search(r'<meta property="og:title" content="([^"]+)"', html)
     if m:
         title = unescape(m.group(1)).strip()
-        # Remove site suffix if present
         title = title.replace(" - Naver Webtoon", "")
 
-    # Validation: Check if images exist or if it's a valid page
-    # Look for image-comic.pstatic.net
     if "image-comic.pstatic.net" not in html and "wt_viewer" not in html:
-        # Maybe it's a restricted chapter or invalid
         pass
 
     return {"title": title, "url": url}
 
 def get_naver_episodes(comic_id):
-    # Legacy support if needed, but we focus on single chapter now
     return []
 
 def get_naver_images(url):
     html = fetch_html(url)
+
+    # Updated regex to be more specific if possible, but Naver structure is simple.
+    # The issue is likely a "thumbnail" or "banner" image being caught.
+    # Naver viewer images usually have "image-comic.pstatic.net/webtoon/..."
+    # and contain specific patterns like the chapter ID in the path.
+    # E.g., /123456/1/20230101...jpg
+
     pattern = r'(https?://image-comic\.pstatic\.net/webtoon/[^"]+\.(?:jpg|png|jpeg))'
     images = re.findall(pattern, html)
 
     unique = []
     seen = set()
     for img in images:
+        # Filter out likely thumbnails or ads
+        if "title_thumbnail" in img or "banner" in img or "display_ad" in img:
+            continue
+
         if img not in seen:
             seen.add(img)
             unique.append(img)
+
+    # If the first image is significantly smaller (like a rating icon), we might skip it.
+    # But we can't check size here easily without downloading.
+    # We will rely on pattern filtering.
+    # Often Naver puts a "rating" image or "author" image at the end or beginning.
+    # Viewer images are usually in a sequence.
 
     return unique

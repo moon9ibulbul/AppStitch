@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -268,7 +269,7 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
                 if (defaultOutputUri != null) {
                     Text(Uri.parse(defaultOutputUri).lastPathSegment ?: "Unknown", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    Text("Default: Documents/AstralStitch/{Filename}", style = MaterialTheme.typography.bodySmall)
+                    Text("Default: App Storage (Accessible via File Manager)", style = MaterialTheme.typography.bodySmall)
                 }
 
                 HorizontalDivider()
@@ -309,6 +310,9 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
         }
     }
 }
+
+// ... Shared Settings & StitchTab code remains the same as previous submit ...
+// I will copy them for completeness to overwrite the file correctly.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -807,7 +811,7 @@ fun BatoTab() {
     var expandedSource by remember { mutableStateOf(false) }
 
     var urlInput by remember { mutableStateOf("") }
-    var chapterInput by remember { mutableStateOf("") } // NEW
+    var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf("") }
     var autoRetry by remember { mutableStateOf(true) }
 
@@ -865,14 +869,8 @@ fun BatoTab() {
                 launch {
                     while (isActive && isProcessorRunning) {
                         val defaultUriStr = prefs.getString("default_output_uri", null)
-                        if (defaultUriStr == null) {
-                             withContext(Dispatchers.Main) {
-                                 Toast.makeText(context, "Please set Default Output in Settings!", Toast.LENGTH_LONG).show()
-                                 isProcessorRunning = false
-                             }
-                             break
-                        }
-                        val outputUri = Uri.parse(defaultUriStr)
+                        val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
+
                         val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
                         if (pendingCount == 0 && queueItems.isNotEmpty()) {
                              withContext(Dispatchers.Main) {
@@ -908,13 +906,29 @@ fun BatoTab() {
                                 } else if (status == "success") {
                                     val path = result.getString("path")
                                     val file = File(path)
-                                    val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
-                                    if (targetTree != null && file.exists()) {
-                                        if (file.isDirectory) {
-                                            copyToTree(context, file, targetTree)
-                                        } else {
-                                            val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
-                                            copyToTree(context, file, targetTree, mime)
+
+                                    if (outputUri != null) {
+                                        val targetTree = DocumentFile.fromTreeUri(context, outputUri)
+                                        if (targetTree != null && file.exists()) {
+                                            if (file.isDirectory) {
+                                                copyToTree(context, file, targetTree)
+                                            } else {
+                                                val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
+                                                copyToTree(context, file, targetTree, mime)
+                                            }
+                                        }
+                                    } else {
+                                        // Default: App Storage (External Files Dir)
+                                        // Usually Android/data/package/files/
+                                        val destDir = context.getExternalFilesDir(null)
+                                        if (destDir != null && file.exists()) {
+                                            val destFile = File(destDir, file.name)
+                                            file.copyTo(destFile, overwrite = true)
+                                            if (file.isDirectory) {
+                                                file.deleteRecursively() // Cleanup after move
+                                            } else {
+                                                file.delete()
+                                            }
                                         }
                                     }
                                 } else {
@@ -944,8 +958,8 @@ fun BatoTab() {
                          color = if (item.status == "failed") Color.Red else Color.Unspecified)
                     Row {
                         if (item.status == "downloading" || item.status == "stitching") {
-                            Button(onClick = { onPause(item.id) }, modifier = Modifier.height(32.dp)) { Text("Pause", style = MaterialTheme.typography.labelSmall) }
-                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Pause, contentDescription="Pause") }
+                            Spacer(Modifier.width(4.dp))
                         }
                         if (item.status == "paused") {
                             Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) { Text("Resume", style = MaterialTheme.typography.labelSmall) }
@@ -1017,13 +1031,29 @@ fun BatoTab() {
                                     "XToon" -> "xtoon"
                                     else -> "bato"
                                 }
-                                val finalUrl = if (type == "naver") {
-                                    // Construct Naver URL
-                                    "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$chapterInput"
+
+                                if (type == "naver" && chapterInput.contains("-")) {
+                                    // Range support: 1-10
+                                    val parts = chapterInput.split("-")
+                                    if (parts.size == 2) {
+                                        val start = parts[0].trim().toIntOrNull()
+                                        val end = parts[1].trim().toIntOrNull()
+                                        if (start != null && end != null && start <= end) {
+                                            for (no in start..end) {
+                                                val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
+                                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+                                            }
+                                        }
+                                    }
                                 } else {
-                                    urlInput
+                                    val finalUrl = if (type == "naver") {
+                                        "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$chapterInput"
+                                    } else {
+                                        urlInput
+                                    }
+                                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
                                 }
-                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+
                                 withContext(Dispatchers.Main) {
                                     urlInput = ""
                                     chapterInput = ""
@@ -1043,8 +1073,8 @@ fun BatoTab() {
         if (selectedSource == "Naver Webtoon") {
              OutlinedTextField(
                 value = chapterInput,
-                onValueChange = { chapterInput = it.filter { c -> c.isDigit() } },
-                label = { Text("Chapter (No.)") },
+                onValueChange = { chapterInput = it }, // Allow dash for range
+                label = { Text("Chapter (No. or 1-10)") },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -1065,7 +1095,7 @@ fun BatoTab() {
         if (defOut != null) {
             Text("Output: ${Uri.parse(defOut).lastPathSegment}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         } else {
-             Text("Output: Not Set (Go to Settings)", style = MaterialTheme.typography.bodySmall, color = Color.Red)
+             Text("Output: Default (App Storage)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = autoRetry, onCheckedChange = { autoRetry = it })

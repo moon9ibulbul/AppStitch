@@ -82,10 +82,8 @@ def run(input_folder,
 
     writer = ProgressWriter(progress_file, progress_offset)
 
-    # Note: We are NO LONGER monkey-patching ssc.save_data globally.
-    # Instead, main.run_stitch_process accepts progress_writer and passes it down.
-    # SmartStitchCore.save_data accepts progress_func.
-    # main.py's run_stitch_process correctly wraps the writer using wrap_saver.
+    # REMOVED GLOBAL MONKEY-PATCHING OF ssc.save_data
+    # We now pass the writer to main.run_stitch_process which handles it.
 
     stitch.run_stitch_process(
         input_folder=input_folder,
@@ -133,8 +131,6 @@ def run(input_folder,
             ))
         ]
         if not image_paths:
-            # If no images, maybe it failed or was empty. Just return folder.
-            # But raising error helps debugging.
             print("No images found for PDF conversion.")
             return resolved_output_folder
 
@@ -152,7 +148,6 @@ def run(input_folder,
                     print(f"Skipping invalid image {path}: {exc}")
                 finally:
                     try:
-                        # We keep the converted image open in list
                         if image: image.close()
                     except Exception:
                         pass
