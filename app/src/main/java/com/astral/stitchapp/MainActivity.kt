@@ -22,13 +22,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +51,49 @@ import java.io.File
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
+
+// Define Pause Icon manually to avoid adding material-icons-extended dependency
+public val PauseIcon: ImageVector
+    get() {
+        if (_pauseIcon != null) {
+            return _pauseIcon!!
+        }
+        _pauseIcon = ImageVector.Builder(
+            name = "Pause",
+            defaultWidth = 24.0.dp,
+            defaultHeight = 24.0.dp,
+            viewportWidth = 24.0f,
+            viewportHeight = 24.0f
+        ).apply {
+            path(
+                fill = SolidColor(Color.Black),
+                fillAlpha = 1.0f,
+                stroke = null,
+                strokeAlpha = 1.0f,
+                strokeLineWidth = 1.0f,
+                strokeLineCap = StrokeCap.Butt,
+                strokeLineJoin = StrokeJoin.Miter,
+                strokeLineMiter = 4.0f,
+                pathFillType = PathFillType.NonZero
+            ) {
+                moveTo(6.0f, 19.0f)
+                horizontalLineToRelative(4.0f)
+                verticalLineTo(5.0f)
+                horizontalLineTo(6.0f)
+                verticalLineToRelative(14.0f)
+                close()
+                moveTo(14.0f, 5.0f)
+                verticalLineToRelative(14.0f)
+                horizontalLineToRelative(4.0f)
+                verticalLineTo(5.0f)
+                horizontalLineToRelative(-4.0f)
+                close()
+            }
+        }.build()
+        return _pauseIcon!!
+    }
+
+private var _pauseIcon: ImageVector? = null
 
 enum class PackagingOption {
     FOLDER, ZIP, PDF
@@ -471,7 +519,14 @@ fun StitchSettingsUI(
     }
 }
 
-// Queue data classes removed for Stitcher, kept for Rawloader
+data class LocalQueueItem(
+    val id: String,
+    val path: String,
+    val name: String,
+    val status: String,
+    val progress: Double
+)
+
 data class QueueItem(
     val id: String,
     val url: String,
@@ -838,12 +893,14 @@ fun BatoTab() {
                                             }
                                         }
                                     } else {
+                                        // Default: App Storage (External Files Dir)
+                                        // Usually Android/data/package/files/
                                         val destDir = context.getExternalFilesDir(null)
                                         if (destDir != null && file.exists()) {
                                             val destFile = File(destDir, file.name)
                                             file.copyTo(destFile, overwrite = true)
                                             if (file.isDirectory) {
-                                                file.deleteRecursively()
+                                                file.deleteRecursively() // Cleanup after move
                                             } else {
                                                 file.delete()
                                             }
@@ -876,7 +933,7 @@ fun BatoTab() {
                          color = if (item.status == "failed") Color.Red else Color.Unspecified)
                     Row {
                         if (item.status == "downloading" || item.status == "stitching") {
-                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Filled.Pause, contentDescription="Pause") }
+                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(PauseIcon, contentDescription="Pause") }
                             Spacer(Modifier.width(4.dp))
                         }
                         if (item.status == "paused") {
