@@ -160,6 +160,8 @@ def run(input_folder,
             for path in image_paths:
                 image = None
                 try:
+                    if path.lower().endswith(".webp"):
+                         print("Processing .webp files...")
                     image = ssc._open_image_with_webp_fallback(path)
                     converted = image.convert("RGB")
                     images.append(converted)
