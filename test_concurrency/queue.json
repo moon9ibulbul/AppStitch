@@ -1,0 +1,40 @@
+[
+  {
+    "id": "359913ea-864f-4b1d-8843-cd0ee6234f2a",
+    "url": "http://url0",
+    "title": "Chapter 0",
+    "status": "failed",
+    "added_at": 1767252445.6370313,
+    "progress": 0.0
+  },
+  {
+    "id": "af854c03-55e3-4ec8-8637-1dd75786dc6d",
+    "url": "http://url1",
+    "title": "Chapter 1",
+    "status": "failed",
+    "added_at": 1767252445.6370492,
+    "progress": 0.0
+  },
+  {
+    "id": "e2346d9b-ec00-4294-ae46-ba6e63fdec3d",
+    "url": "http://url2",
+    "title": "Chapter 2",
+    "status": "failed",
+    "added_at": 1767252445.6370604,
+    "progress": 0.0
+  },
+  {
+    "id": "9f66eac5-92c0-4153-894c-48985f40099a",
+    "url": "http://url3",
+    "title": "Chapter 3",
+    "status": "pending",
+    "added_at": 1767252445.63707
+  },
+  {
+    "id": "5ea02770-fee6-467a-9db8-9abdc300d78e",
+    "url": "http://url4",
+    "title": "Chapter 4",
+    "status": "pending",
+    "added_at": 1767252445.637079
+  }
+]
