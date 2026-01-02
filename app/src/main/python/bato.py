@@ -310,7 +310,6 @@ class BatoQueue:
                     if not book_id:
                         return {"error": "Invalid Ridi URL (No Book ID found)"}
 
-                    # Fetch Title from WebPage
                     title = f"Ridi Book {book_id}"
                     try:
                         html = fetch_html(url, cookie=cookie)
@@ -333,26 +332,24 @@ class BatoQueue:
                         added = 1
 
                 elif source_type == "naver":
-                    # url here is the comic_id
-                    comic_id = url.strip()
-                    if not comic_id.isdigit():
-                         return {"error": "Invalid Comic ID (Must be numbers)"}
+                    # url is now the full URL (detail page with titleId and no)
+                    info = naver_downloader.get_naver_chapter_info(url)
+                    if "error" in info:
+                        return info
 
-                    chapters = naver_downloader.get_naver_episodes(comic_id)
-                    for ch in chapters:
-                        if not any(q['url'] == ch['url'] for q in queue):
-                             queue.append({
-                                "id": str(uuid.uuid4()),
-                                "url": ch['url'],
-                                "title": ch['title'],
-                                "status": "pending",
-                                "added_at": time.time(),
-                                "type": "naver"
-                             })
-                             added += 1
+                    title = info.get("title", "Naver Chapter")
+                    if not any(q['url'] == url for q in queue):
+                         queue.append({
+                            "id": str(uuid.uuid4()),
+                            "url": url,
+                            "title": title,
+                            "status": "pending",
+                            "added_at": time.time(),
+                            "type": "naver"
+                         })
+                         added = 1
 
                 elif source_type == "xtoon":
-                    # url is a chapter url
                     title = xtoon_downloader.get_xtoon_title(url)
                     if not any(q['url'] == url for q in queue):
                         queue.append({
