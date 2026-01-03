@@ -1,11 +1,17 @@
 package com.astral.stitchapp
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.ToneGenerator
 import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -27,38 +33,32 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.alpha
-import com.astral.stitchapp.ui.theme.AstralStitchTheme
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
-import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import androidx.documentfile.provider.DocumentFile
-import java.io.File
-import java.util.Locale
-import org.json.JSONArray
-import org.json.JSONObject
-
-// Use a local variable to hold the vector, but if `Icons.Filled.Pause` is missing,
-// we must remove the import `androidx.compose.material.icons.filled.Pause`.
-// However, I see `import androidx.compose.material.icons.filled.Pause` is still there in the previous step
-// which causes the error if the library is missing.
-// I must remove that import line.
-
-// Re-defining PauseIcon cleanly.
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
+import com.astral.stitchapp.ui.theme.AstralStitchTheme
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.util.Locale
 
 val PauseIcon: ImageVector
     get() {
@@ -95,6 +95,42 @@ enum class PackagingOption {
 
 data class Template(val name: String, val settings: JSONObject)
 
+object TemplateManager {
+    fun load(context: Context): List<Template> {
+        val prefs = context.getSharedPreferences("stitch_templates", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("templates", setOf()) ?: setOf()
+        return set.mapNotNull {
+            try {
+                val json = JSONObject(it)
+                Template(json.getString("name"), json.getJSONObject("settings"))
+            } catch (e: Exception) { null }
+        }.sortedBy { it.name }
+    }
+
+    fun save(context: Context, name: String, settings: JSONObject) {
+        val prefs = context.getSharedPreferences("stitch_templates", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
+        set.removeIf {
+            try { JSONObject(it).getString("name") == name } catch(e:Exception){false}
+        }
+        val tObj = JSONObject().apply {
+            put("name", name)
+            put("settings", settings)
+        }
+        set.add(tObj.toString())
+        prefs.edit().putStringSet("templates", set).apply()
+    }
+
+    fun delete(context: Context, name: String) {
+        val prefs = context.getSharedPreferences("stitch_templates", Context.MODE_PRIVATE)
+        val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
+        set.removeIf {
+            try { JSONObject(it).getString("name") == name } catch(e:Exception){false}
+        }
+        prefs.edit().putStringSet("templates", set).apply()
+    }
+}
+
 class MainActivity : ComponentActivity() {
     companion object {
         @JvmStatic
@@ -122,6 +158,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Create Notification Channel
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Background Progress"
+            val descriptionText = "Notifications for download and stitch progress"
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            val channel = NotificationChannel("progress_channel", name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        // Request Permission for Android 13+
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
@@ -149,11 +206,19 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     val titles = listOf("Local", "Rawloader")
     var showSettings by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    var availableTemplates by remember { mutableStateOf(TemplateManager.load(context)) }
+
+    fun refreshTemplates() {
+        availableTemplates = TemplateManager.load(context)
+    }
+
     if (showSettings) {
         SettingsScreen(
             onDismiss = { showSettings = false },
             isDarkTheme = isDarkTheme,
-            onThemeChange = onThemeChange
+            onThemeChange = onThemeChange,
+            onTemplatesImported = { refreshTemplates() }
         )
     }
 
@@ -182,10 +247,16 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 0) 1f else 0f).alpha(if (selectedTab == 0) 1f else 0f)) {
-                StitchTab()
+                StitchTab(
+                    availableTemplates = availableTemplates,
+                    onRefreshTemplates = { refreshTemplates() }
+                )
             }
             Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 1) 1f else 0f).alpha(if (selectedTab == 1) 1f else 0f)) {
-                BatoTab()
+                BatoTab(
+                    availableTemplates = availableTemplates,
+                    onRefreshTemplates = { refreshTemplates() }
+                )
             }
         }
     }
@@ -193,7 +264,12 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
+fun SettingsScreen(
+    onDismiss: () -> Unit,
+    isDarkTheme: Boolean,
+    onThemeChange: (Boolean) -> Unit,
+    onTemplatesImported: () -> Unit
+) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
@@ -246,6 +322,7 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
                     }
                     tmplPrefs.edit().putStringSet("templates", currentSet).apply()
                     Toast.makeText(context, "Imported $added templates!", Toast.LENGTH_SHORT).show()
+                    onTemplatesImported()
                 }
             } catch(e:Exception) {
                 Toast.makeText(context, "Import Failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -299,7 +376,11 @@ fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (
                         bgProgress = it
                         prefs.edit().putBoolean("bg_progress", it).apply()
                         if (it) {
-                            Toast.makeText(context, "Requires App Restart / Service Implementation", Toast.LENGTH_SHORT).show()
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                    Toast.makeText(context, "Please grant notification permission", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     })
                 }
@@ -366,26 +447,14 @@ fun StitchSettingsUI(
     scanStep: String, onScan: (String)->Unit,
     packaging: PackagingOption, onPack: (PackagingOption)->Unit,
     currentTemplate: Template?,
+    availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
     onSaveTemplate: (String) -> Unit,
     onDeleteTemplate: (Template) -> Unit
 ) {
-    val context = LocalContext.current
     var showSaveDialog by remember { mutableStateOf(false) }
     var newTemplateName by remember { mutableStateOf("") }
     var expandedTemplates by remember { mutableStateOf(false) }
-    var availableTemplates by remember { mutableStateOf(listOf<Template>()) }
-
-    fun loadTemplates() {
-        val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
-        val set = prefs.getStringSet("templates", setOf()) ?: setOf()
-        availableTemplates = set.map {
-            val json = JSONObject(it)
-            Template(json.getString("name"), json.getJSONObject("settings"))
-        }.sortedBy { it.name }
-    }
-
-    LaunchedEffect(Unit) { loadTemplates() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
@@ -479,7 +548,6 @@ fun StitchSettingsUI(
                                     Text(t.name)
                                     Text("X", color = Color.Red, modifier = Modifier.clickable {
                                         onDeleteTemplate(t)
-                                        loadTemplates()
                                     })
                                 }
                             },
@@ -501,7 +569,6 @@ fun StitchSettingsUI(
                     Button(onClick = {
                         if (newTemplateName.isNotBlank()) {
                             onSaveTemplate(newTemplateName)
-                            loadTemplates()
                             showSaveDialog = false
                             newTemplateName = ""
                         }
@@ -531,7 +598,10 @@ data class QueueItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StitchTab() {
+fun StitchTab(
+    availableTemplates: List<Template>,
+    onRefreshTemplates: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -575,23 +645,14 @@ fun StitchTab() {
             put("scanStep", scanStep)
             put("packaging", packagingOption.name)
         }
-        val tObj = JSONObject().apply {
-            put("name", name)
-            put("settings", settings)
-        }
-        val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
-        val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
-        set.removeIf { JSONObject(it).getString("name") == name }
-        set.add(tObj.toString())
-        prefs.edit().putStringSet("templates", set).apply()
+        TemplateManager.save(context, name, settings)
+        onRefreshTemplates()
         currentTemplate = Template(name, settings)
     }
 
     fun deleteTemplate(t: Template) {
-        val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
-        val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
-        set.removeIf { JSONObject(it).getString("name") == t.name }
-        prefs.edit().putStringSet("templates", set).apply()
+        TemplateManager.delete(context, t.name)
+        onRefreshTemplates()
         if (currentTemplate?.name == t.name) currentTemplate = null
     }
 
@@ -655,7 +716,9 @@ fun StitchTab() {
             ignorable, { ignorable = it },
             scanStep, { scanStep = it },
             packagingOption, { packagingOption = it },
-            currentTemplate, ::applyTemplate, ::saveTemplate, ::deleteTemplate
+            currentTemplate,
+            availableTemplates,
+            ::applyTemplate, ::saveTemplate, ::deleteTemplate
         )
 
         HorizontalDivider()
@@ -771,7 +834,10 @@ fun StitchTab() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BatoTab() {
+fun BatoTab(
+    availableTemplates: List<Template>,
+    onRefreshTemplates: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
@@ -801,6 +867,57 @@ fun BatoTab() {
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
+
+    var currentTemplate by remember { mutableStateOf<Template?>(null) }
+
+    fun saveTemplate(name: String) {
+        val settings = JSONObject().apply {
+            put("splitHeight", splitHeight)
+            put("outputType", outputType)
+            put("customFileName", customFileName)
+            put("widthEnforce", widthEnforce)
+            put("customWidth", customWidth)
+            put("sensitivity", sensitivity)
+            put("ignorable", ignorable)
+            put("scanStep", scanStep)
+            put("packaging", packagingOption.name)
+        }
+        TemplateManager.save(context, name, settings)
+        onRefreshTemplates()
+        currentTemplate = Template(name, settings)
+    }
+
+    fun deleteTemplate(t: Template) {
+        TemplateManager.delete(context, t.name)
+        onRefreshTemplates()
+        if (currentTemplate?.name == t.name) currentTemplate = null
+    }
+
+    fun applyTemplate(t: Template?) {
+        currentTemplate = t
+        if (t != null) {
+            val s = t.settings
+            splitHeight = s.optString("splitHeight", "5000")
+            outputType = s.optString("outputType", ".png")
+            customFileName = s.optString("customFileName", "")
+            widthEnforce = s.optInt("widthEnforce", 0)
+            customWidth = s.optString("customWidth", "720")
+            sensitivity = s.optString("sensitivity", "90")
+            ignorable = s.optString("ignorable", "0")
+            scanStep = s.optString("scanStep", "5")
+            packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
+        } else {
+            splitHeight = "5000"
+            outputType = ".png"
+            customFileName = ""
+            widthEnforce = 0
+            customWidth = "720"
+            sensitivity = "90"
+            ignorable = "0"
+            scanStep = "5"
+            packagingOption = PackagingOption.FOLDER
+        }
+    }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -1080,7 +1197,9 @@ fun BatoTab() {
             ignorable, { ignorable = it },
             scanStep, { scanStep = it },
             packagingOption, { packagingOption = it },
-            null, {}, {}, {}
+            currentTemplate,
+            availableTemplates,
+            ::applyTemplate, ::saveTemplate, ::deleteTemplate
         )
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
