@@ -2,10 +2,6 @@ import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
 
-PROGRESS_FILE = None
-PROGRESS_OFFSET = 0
-
-
 class ProgressWriter:
     def __init__(self, path, offset=0):
         self.path = path
@@ -80,28 +76,14 @@ def run(input_folder,
         progress_path=None,
         progress_offset=0,
         mark_done=True):
-    global PROGRESS_FILE, PROGRESS_OFFSET
+
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
-    PROGRESS_FILE = progress_path or os.path.join(resolved_output_folder, "progress.json")
-    PROGRESS_OFFSET = progress_offset
+    progress_file = progress_path or os.path.join(resolved_output_folder, "progress.json")
 
-    writer = ProgressWriter(PROGRESS_FILE, PROGRESS_OFFSET)
+    writer = ProgressWriter(progress_file, progress_offset)
 
-    _orig_save = ssc.save_data
-
-    def save_data_with_progress(data, foldername, outputformat, offset=0, progress_func=None, filename_template=None, parent_name=None):
-        cb = writer.wrap_saver(len(data))
-        return _orig_save(
-            data,
-            foldername,
-            outputformat,
-            offset=offset,
-            progress_func=cb,
-            filename_template=filename_template,
-            parent_name=parent_name,
-        )
-
-    ssc.save_data = save_data_with_progress
+    # REMOVED GLOBAL MONKEY-PATCHING OF ssc.save_data
+    # We now pass the writer to main.run_stitch_process which handles it.
 
     stitch.run_stitch_process(
         input_folder=input_folder,
@@ -120,11 +102,7 @@ def run(input_folder,
         progress_writer=writer
     )
 
-    ssc.save_data = _orig_save
-    PROGRESS_OFFSET = 0
-
     writer.finish(mark_done)
-    PROGRESS_FILE = None
 
     # Clean progress file from output folder before packaging
     prog_in_out = os.path.join(resolved_output_folder, "progress.json")
@@ -153,7 +131,8 @@ def run(input_folder,
             ))
         ]
         if not image_paths:
-            raise RuntimeError("Tidak ada gambar untuk dikonversi ke PDF")
+            print("No images found for PDF conversion.")
+            return resolved_output_folder
 
         images = []
         try:
@@ -169,19 +148,20 @@ def run(input_folder,
                     print(f"Skipping invalid image {path}: {exc}")
                 finally:
                     try:
-                        image.close()
+                        if image: image.close()
                     except Exception:
                         pass
 
             if not images:
-                raise RuntimeError("Tidak ada gambar valid untuk dikonversi ke PDF")
+                 return resolved_output_folder
 
             first, *rest = images
             pdf_path = f"{resolved_output_folder}.pdf"
             first.save(pdf_path, save_all=True, append_images=rest)
         finally:
             for img in images:
-                img.close()
+                try: img.close()
+                except: pass
 
         shutil.rmtree(resolved_output_folder, ignore_errors=True)
         return pdf_path

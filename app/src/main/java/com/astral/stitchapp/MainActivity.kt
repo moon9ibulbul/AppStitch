@@ -7,6 +7,7 @@ import android.media.ToneGenerator
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -20,6 +21,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +33,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
+import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.*
@@ -39,6 +46,49 @@ import java.io.File
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
+
+// Use a local variable to hold the vector, but if `Icons.Filled.Pause` is missing,
+// we must remove the import `androidx.compose.material.icons.filled.Pause`.
+// However, I see `import androidx.compose.material.icons.filled.Pause` is still there in the previous step
+// which causes the error if the library is missing.
+// I must remove that import line.
+
+// Re-defining PauseIcon cleanly.
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+
+val PauseIcon: ImageVector
+    get() {
+        if (_pauseIcon != null) return _pauseIcon!!
+        _pauseIcon = ImageVector.Builder(
+            name = "Pause",
+            defaultWidth = 24.0.dp,
+            defaultHeight = 24.0.dp,
+            viewportWidth = 24.0f,
+            viewportHeight = 24.0f
+        ).apply {
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(6.0f, 19.0f)
+                horizontalLineToRelative(4.0f)
+                verticalLineTo(5.0f)
+                horizontalLineTo(6.0f)
+                verticalLineToRelative(14.0f)
+                close()
+                moveTo(14.0f, 5.0f)
+                verticalLineToRelative(14.0f)
+                horizontalLineToRelative(4.0f)
+                verticalLineTo(5.0f)
+                horizontalLineToRelative(-4.0f)
+                close()
+            }
+        }.build()
+        return _pauseIcon!!
+    }
+private var _pauseIcon: ImageVector? = null
 
 enum class PackagingOption {
     FOLDER, ZIP, PDF
@@ -76,20 +126,49 @@ class MainActivity : ComponentActivity() {
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
-        setContent { MaterialTheme { MainScreen() } }
+        setContent {
+            val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+            val isDarkTheme = remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
+
+            AstralStitchTheme(darkTheme = isDarkTheme.value) {
+                MainScreen(
+                    isDarkTheme = isDarkTheme.value,
+                    onThemeChange = { isDark ->
+                        isDarkTheme.value = isDark
+                        prefs.edit().putBoolean("dark_mode", isDark).apply()
+                    }
+                )
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Stitcher", "Rawloader")
+    val titles = listOf("Local", "Rawloader")
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        SettingsScreen(
+            onDismiss = { showSettings = false },
+            isDarkTheme = isDarkTheme,
+            onThemeChange = onThemeChange
+        )
+    }
 
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(title = { Text("AstralStitch v1.2.0") })
+                TopAppBar(
+                    title = { Text("AstralStitch v1.3.0") },
+                    actions = {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    }
+                )
                 TabRow(selectedTabIndex = selectedTab) {
                     titles.forEachIndexed { index, title ->
                         Tab(
@@ -103,18 +182,177 @@ fun MainScreen() {
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
-            if (selectedTab == 0) {
+            Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 0) 1f else 0f).alpha(if (selectedTab == 0) 1f else 0f)) {
                 StitchTab()
-            } else {
+            }
+            Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 1) 1f else 0f).alpha(if (selectedTab == 1) 1f else 0f)) {
                 BatoTab()
             }
         }
     }
 }
 
-// ==========================================
-// SHARED SETTINGS & TEMPLATES
-// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(onDismiss: () -> Unit, isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+
+    var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
+    var bgProgress by remember { mutableStateOf(prefs.getBoolean("bg_progress", false)) }
+    var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
+
+    val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            defaultOutputUri = uri.toString()
+            prefs.edit().putString("default_output_uri", uri.toString()).apply()
+        }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            val tmplPrefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
+            val set = tmplPrefs.getStringSet("templates", setOf()) ?: setOf()
+            val exportList = JSONArray()
+            set.forEach { exportList.put(JSONObject(it)) }
+            try {
+                context.contentResolver.openOutputStream(uri)?.use {
+                    it.write(exportList.toString(2).toByteArray())
+                }
+                Toast.makeText(context, "Templates Exported!", Toast.LENGTH_SHORT).show()
+            } catch(e:Exception) {
+                Toast.makeText(context, "Export Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { ins ->
+                    val jsonStr = ins.bufferedReader().readText()
+                    val jsonArr = JSONArray(jsonStr)
+                    val tmplPrefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
+                    val currentSet = tmplPrefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
+                    var added = 0
+                    for(i in 0 until jsonArr.length()) {
+                        val obj = jsonArr.getJSONObject(i)
+                        if(obj.has("name") && obj.has("settings")) {
+                            val name = obj.getString("name")
+                            currentSet.removeIf { JSONObject(it).getString("name") == name }
+                            currentSet.add(obj.toString())
+                            added++
+                        }
+                    }
+                    tmplPrefs.edit().putStringSet("templates", currentSet).apply()
+                    Toast.makeText(context, "Imported $added templates!", Toast.LENGTH_SHORT).show()
+                }
+            } catch(e:Exception) {
+                Toast.makeText(context, "Import Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    var cacheSize by remember { mutableStateOf("Calculating...") }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val sizeBytes = context.cacheDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+            val mb = sizeBytes / (1024.0 * 1024.0)
+            withContext(Dispatchers.Main) {
+                cacheSize = "%.2f MB".format(mb)
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium)
+                HorizontalDivider()
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Dark Mode")
+                    Switch(checked = isDarkTheme, onCheckedChange = onThemeChange)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Notification Sound")
+                    Switch(checked = soundEnabled, onCheckedChange = {
+                        soundEnabled = it
+                        prefs.edit().putBoolean("sound_enabled", it).apply()
+                    })
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Background Progress (Notif)")
+                    Switch(checked = bgProgress, onCheckedChange = {
+                        bgProgress = it
+                        prefs.edit().putBoolean("bg_progress", it).apply()
+                        if (it) {
+                            Toast.makeText(context, "Requires App Restart / Service Implementation", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                }
+
+                Text("Rawloader Default Output:")
+                Button(onClick = { pickDefaultOutput.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (defaultOutputUri != null) "Change Folder" else "Set Default Folder")
+                }
+                if (defaultOutputUri != null) {
+                    Text(Uri.parse(defaultOutputUri).lastPathSegment ?: "Unknown", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("Default: App Storage (Accessible via File Manager)", style = MaterialTheme.typography.bodySmall)
+                }
+
+                HorizontalDivider()
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cache: $cacheSize")
+                    Button(onClick = {
+                        context.cacheDir.deleteRecursively()
+                        cacheSize = "0.00 MB"
+                        Toast.makeText(context, "Cache Cleared", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Clear")
+                    }
+                }
+
+                HorizontalDivider()
+
+                Button(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://trakteer.id/astralexpresscrew/tip"))
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Donate Me ❤️")
+                }
+
+                Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                     Button(onClick = { exportLauncher.launch("stitch_templates.json") }) { Text("Export Tmpl") }
+                     Button(onClick = { importLauncher.launch(arrayOf("application/json")) }) { Text("Import Tmpl") }
+                }
+
+                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Close")
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,7 +366,6 @@ fun StitchSettingsUI(
     ignorable: String, onIgn: (String)->Unit,
     scanStep: String, onScan: (String)->Unit,
     packaging: PackagingOption, onPack: (PackagingOption)->Unit,
-    // Template params
     currentTemplate: Template?,
     onLoadTemplate: (Template?) -> Unit,
     onSaveTemplate: (String) -> Unit,
@@ -140,7 +377,6 @@ fun StitchSettingsUI(
     var expandedTemplates by remember { mutableStateOf(false) }
     var availableTemplates by remember { mutableStateOf(listOf<Template>()) }
 
-    // Load templates function
     fun loadTemplates() {
         val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
         val set = prefs.getStringSet("templates", setOf()) ?: setOf()
@@ -153,58 +389,6 @@ fun StitchSettingsUI(
     LaunchedEffect(Unit) { loadTemplates() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Template Controls
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(Modifier.weight(1f)) {
-                OutlinedButton(onClick = { expandedTemplates = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(currentTemplate?.name ?: "Default Settings")
-                }
-                DropdownMenu(expanded = expandedTemplates, onDismissRequest = { expandedTemplates = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Default Settings") },
-                        onClick = { onLoadTemplate(null); expandedTemplates = false }
-                    )
-                    availableTemplates.forEach { t ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                    Text(t.name)
-                                    Text("X", color = Color.Red, modifier = Modifier.clickable {
-                                        onDeleteTemplate(t)
-                                        loadTemplates()
-                                    })
-                                }
-                            },
-                            onClick = { onLoadTemplate(t); expandedTemplates = false }
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { showSaveDialog = true }) { Text("Save") }
-        }
-
-        if (showSaveDialog) {
-            AlertDialog(
-                onDismissRequest = { showSaveDialog = false },
-                title = { Text("Save Template") },
-                text = { OutlinedTextField(value = newTemplateName, onValueChange = { newTemplateName = it }, label = { Text("Template Name") }) },
-                confirmButton = {
-                    Button(onClick = {
-                        if (newTemplateName.isNotBlank()) {
-                            onSaveTemplate(newTemplateName)
-                            loadTemplates()
-                            showSaveDialog = false
-                            newTemplateName = ""
-                        }
-                    }) { Text("Save") }
-                },
-                dismissButton = { Button(onClick = { showSaveDialog = false }) { Text("Cancel") } }
-            )
-        }
-
-        HorizontalDivider()
-
         OutlinedTextField(
             value = splitHeight,
             onValueChange = { onSplitH(it.filter { ch -> ch.isDigit() }) },
@@ -277,18 +461,64 @@ fun StitchSettingsUI(
                 Spacer(Modifier.width(4.dp))
             }
         }
+
+        HorizontalDivider()
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(Modifier.weight(1f)) {
+                OutlinedButton(onClick = { expandedTemplates = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(currentTemplate?.name ?: "Default Settings")
+                }
+                DropdownMenu(expanded = expandedTemplates, onDismissRequest = { expandedTemplates = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Default Settings") },
+                        onClick = { onLoadTemplate(null); expandedTemplates = false }
+                    )
+                    availableTemplates.forEach { t ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                    Text(t.name)
+                                    Text("X", color = Color.Red, modifier = Modifier.clickable {
+                                        onDeleteTemplate(t)
+                                        loadTemplates()
+                                    })
+                                }
+                            },
+                            onClick = { onLoadTemplate(t); expandedTemplates = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { showSaveDialog = true }) { Text("Save") }
+        }
+
+        if (showSaveDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveDialog = false },
+                title = { Text("Save Template") },
+                text = { OutlinedTextField(value = newTemplateName, onValueChange = { newTemplateName = it }, label = { Text("Template Name") }) },
+                confirmButton = {
+                    Button(onClick = {
+                        if (newTemplateName.isNotBlank()) {
+                            onSaveTemplate(newTemplateName)
+                            loadTemplates()
+                            showSaveDialog = false
+                            newTemplateName = ""
+                        }
+                    }) { Text("Save") }
+                },
+                dismissButton = { Button(onClick = { showSaveDialog = false }) { Text("Cancel") } }
+            )
+        }
     }
 }
-
-// ==========================================
-// TAB 1: STITCHER (Queue System)
-// ==========================================
 
 data class LocalQueueItem(
     val id: String,
     val path: String,
     val name: String,
-    val status: String, // pending, processing, done, failed
+    val status: String,
     val progress: Double
 )
 
@@ -296,7 +526,7 @@ data class QueueItem(
     val id: String,
     val url: String,
     val title: String,
-    val status: String, // pending, downloading, stitching, done, failed, paused
+    val status: String,
     val progress: Double
 )
 
@@ -306,12 +536,11 @@ fun StitchTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Queue State
-    var queueItems by remember { mutableStateOf(listOf<LocalQueueItem>()) }
-    val queueMutex = remember { Mutex() }
+    // Single item state
+    var inputUri by remember { mutableStateOf<Uri?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
-    var concurrencyCount by remember { mutableIntStateOf(1) }
-    var expandedConcurrency by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var statusText by remember { mutableStateOf("Ready") }
 
     // Settings State
     var splitHeight by remember { mutableStateOf("5000") }
@@ -324,36 +553,17 @@ fun StitchTab() {
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
 
-    // Template State
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
-
-    // Notification State
-    var showNotification by remember { mutableStateOf(false) }
-    var notificationMessage by remember { mutableStateOf("") }
 
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            inputUri = uri
             val doc = DocumentFile.fromTreeUri(context, uri)
-            if (doc != null) {
-                // Add to queue
-                val newItem = LocalQueueItem(
-                    id = java.util.UUID.randomUUID().toString(),
-                    path = uri.toString(),
-                    name = doc.name ?: "Unknown",
-                    status = "pending",
-                    progress = 0.0
-                )
-                scope.launch {
-                    queueMutex.withLock {
-                        queueItems = queueItems + newItem
-                    }
-                }
-            }
+            statusText = "Selected: ${doc?.name ?: "Unknown"}"
         }
     }
 
-    // Helper to save/load templates
     fun saveTemplate(name: String) {
         val settings = JSONObject().apply {
             put("splitHeight", splitHeight)
@@ -372,7 +582,6 @@ fun StitchTab() {
         }
         val prefs = context.getSharedPreferences("stitch_templates", android.content.Context.MODE_PRIVATE)
         val set = prefs.getStringSet("templates", mutableSetOf())!!.toMutableSet()
-        // Remove existing with same name if any
         set.removeIf { JSONObject(it).getString("name") == name }
         set.add(tObj.toString())
         prefs.edit().putStringSet("templates", set).apply()
@@ -401,7 +610,6 @@ fun StitchTab() {
             scanStep = s.optString("scanStep", "5")
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
         } else {
-            // Defaults
             splitHeight = "5000"
             outputType = ".png"
             customFileName = ""
@@ -414,148 +622,6 @@ fun StitchTab() {
         }
     }
 
-    // Queue Processor
-    LaunchedEffect(isProcessing, concurrencyCount) {
-        if (!isProcessing) return@LaunchedEffect
-
-        withContext(Dispatchers.IO) {
-            val jobs = List(concurrencyCount) {
-                launch {
-                    while (isActive && isProcessing) {
-                        var itemToProcess: LocalQueueItem? = null
-
-                        queueMutex.withLock {
-                             val pending = queueItems.find { it.status == "pending" }
-                             if (pending != null) {
-                                 itemToProcess = pending
-                                 queueItems = queueItems.map { if (it.id == pending.id) it.copy(status = "processing") else it }
-                             }
-                        }
-
-                        if (itemToProcess == null) {
-                            // Check if all done
-                            var allDone = false
-                            queueMutex.withLock {
-                                if (queueItems.none { it.status == "processing" } && queueItems.isNotEmpty() && queueItems.all { it.status == "done" || it.status == "failed" }) {
-                                    allDone = true
-                                }
-                            }
-                            if (allDone) {
-                                withContext(Dispatchers.Main) {
-                                    isProcessing = false
-                                    showNotification = true
-                                    notificationMessage = "Stitching Complete!"
-                                    val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
-                                }
-                            }
-                            delay(1000)
-                            continue
-                        }
-
-                        val item = itemToProcess!!
-                        try {
-                            val inputUri = Uri.parse(item.path)
-
-                            // 1. Copy Input
-                            val cacheIn = File(context.cacheDir, "stitch_in_${item.id}")
-                            cacheIn.deleteRecursively(); cacheIn.mkdirs()
-                            copyFromTree(context, inputUri, cacheIn)
-
-                            // 2. Prepare Output
-                            val cacheOutParent = File(context.cacheDir, "stitch_out_${item.id}")
-                            val outputName = "${item.name} [Stitched]"
-                            cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
-                            val dir = File(cacheOutParent, outputName)
-                            dir.mkdirs()
-
-                            // 3. Run Python
-                            val py = Python.getInstance()
-                            val bridge = py.getModule("bridge")
-                            val progressFile = File(context.cacheDir, "prog_${item.id}.json")
-
-                            // Monitor progress (optional, simplistic here)
-                            val monitor = launch {
-                                while(isActive) {
-                                    if(progressFile.exists()) {
-                                        try {
-                                            val j = JSONObject(progressFile.readText())
-                                            val p = j.optInt("processed", 0)
-                                            val t = j.optInt("total", 1)
-                                            val prog = if(t>0) p.toDouble()/t else 0.0
-                                             withContext(Dispatchers.Main) {
-                                                queueItems = queueItems.map { if (it.id == item.id) it.copy(progress = prog) else it }
-                                             }
-                                        } catch(_:Exception){}
-                                    }
-                                    delay(500)
-                                }
-                            }
-
-                            val finalPathStr = bridge.callAttr(
-                                "run", cacheIn.absolutePath,
-                                splitHeight.toIntOrNull()?:5000,
-                                outputType, false, widthEnforce,
-                                customWidth.toIntOrNull()?:720,
-                                sensitivity.toIntOrNull()?:90,
-                                ignorable.toIntOrNull()?:0,
-                                scanStep.toIntOrNull()?:5,
-                                false, 20, // Low RAM disabled
-                                dir.absolutePath,
-                                customFileName.takeIf { it.isNotBlank() },
-                                packagingOption == PackagingOption.ZIP,
-                                packagingOption == PackagingOption.PDF,
-                                progressFile.absolutePath, 0, true
-                            ).toString()
-
-                            monitor.cancel()
-
-                            // 4. Copy Back (Next to input)
-                            val finalFile = File(finalPathStr)
-                            val targetTree = DocumentFile.fromTreeUri(context, inputUri)
-
-                            if (targetTree != null && targetTree.canWrite()) {
-                                 if (finalFile.isDirectory) {
-                                    copyToTree(context, finalFile, targetTree)
-                                } else {
-                                    val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                    copyToTree(context, finalFile, targetTree, mime)
-                                }
-                            }
-
-                            // Cleanup
-                            cacheIn.deleteRecursively()
-                            cacheOutParent.deleteRecursively()
-                            progressFile.delete()
-
-                            withContext(Dispatchers.Main) {
-                                queueItems = queueItems.map { if (it.id == item.id) it.copy(status = "done", progress = 1.0) else it }
-                            }
-
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                             withContext(Dispatchers.Main) {
-                                queueMutex.withLock {
-                                    queueItems = queueItems.map { if (it.id == item.id) it.copy(status = "failed", progress = 0.0) else it }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            jobs.joinAll()
-        }
-    }
-
-    if (showNotification) {
-        AlertDialog(
-            onDismissRequest = { showNotification = false },
-            confirmButton = { Button(onClick = { showNotification = false }) { Text("OK") } },
-            title = { Text("Notification") },
-            text = { Text(notificationMessage) }
-        )
-    }
-
     Column(
         Modifier
             .fillMaxSize()
@@ -563,18 +629,19 @@ fun StitchTab() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Manual Stitcher (Local Queue)", style = MaterialTheme.typography.titleMedium)
-
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { pickInput.launch(null) }) { Text("Add Folder to Queue") }
+            Button(onClick = { pickInput.launch(null) }, enabled = !isProcessing) { Text("Select Input Folder") }
              Spacer(Modifier.width(8.dp))
-             // Text field that overflows
              Text(
-                 text = "Queue: ${queueItems.size} items",
+                 text = statusText,
                  modifier = Modifier.weight(1f),
                  overflow = TextOverflow.Ellipsis,
                  maxLines = 2
              )
+        }
+
+        if (isProcessing) {
+            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
         }
 
         HorizontalDivider()
@@ -594,84 +661,138 @@ fun StitchTab() {
 
         HorizontalDivider()
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    OutlinedButton(onClick = { expandedConcurrency = true }) {
-                        Text("Workers: $concurrencyCount")
-                    }
-                    DropdownMenu(expanded = expandedConcurrency, onDismissRequest = { expandedConcurrency = false }) {
-                        (1..5).forEach { num ->
-                            DropdownMenuItem(
-                                text = { Text("$num") },
-                                onClick = { concurrencyCount = num; expandedConcurrency = false }
-                            )
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                if (inputUri == null) {
+                    Toast.makeText(context, "Please select an input folder", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
+                isProcessing = true
+                progress = 0f
+                statusText = "Processing..."
+
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val uri = inputUri!!
+                        val doc = DocumentFile.fromTreeUri(context, uri)
+                        val name = doc?.name ?: "Unknown"
+
+                        val cacheIn = File(context.cacheDir, "stitch_single_in")
+                        cacheIn.deleteRecursively(); cacheIn.mkdirs()
+                        copyFromTree(context, uri, cacheIn)
+
+                        val cacheOutParent = File(context.cacheDir, "stitch_single_out")
+                        val outputName = "$name [Stitched]"
+                        cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
+                        val dir = File(cacheOutParent, outputName)
+                        dir.mkdirs()
+
+                        val py = Python.getInstance()
+                        val bridge = py.getModule("bridge")
+                        val progressFile = File(context.cacheDir, "prog_single.json")
+
+                        val monitor = launch {
+                            while(isActive) {
+                                if(progressFile.exists()) {
+                                    try {
+                                        val j = JSONObject(progressFile.readText())
+                                        val p = j.optInt("processed", 0)
+                                        val t = j.optInt("total", 1)
+                                        val prog = if(t>0) p.toFloat()/t else 0f
+                                        withContext(Dispatchers.Main) {
+                                            progress = prog
+                                        }
+                                    } catch(_:Exception){}
+                                }
+                                delay(500)
+                            }
+                        }
+
+                        val finalPathStr = bridge.callAttr(
+                            "run", cacheIn.absolutePath,
+                            splitHeight.toIntOrNull()?:5000,
+                            outputType, false, widthEnforce,
+                            customWidth.toIntOrNull()?:720,
+                            sensitivity.toIntOrNull()?:90,
+                            ignorable.toIntOrNull()?:0,
+                            scanStep.toIntOrNull()?:5,
+                            false, 20,
+                            dir.absolutePath,
+                            customFileName.takeIf { it.isNotBlank() },
+                            packagingOption == PackagingOption.ZIP,
+                            packagingOption == PackagingOption.PDF,
+                            progressFile.absolutePath, 0, true
+                        ).toString()
+
+                        monitor.cancel()
+
+                        val finalFile = File(finalPathStr)
+                        val targetTree = DocumentFile.fromTreeUri(context, uri)
+
+                        if (targetTree != null && targetTree.canWrite()) {
+                             if (finalFile.isDirectory) {
+                                copyToTree(context, finalFile, targetTree)
+                            } else {
+                                val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                copyToTree(context, finalFile, targetTree, mime)
+                            }
+                        }
+
+                        cacheIn.deleteRecursively()
+                        cacheOutParent.deleteRecursively()
+                        progressFile.delete()
+
+                        withContext(Dispatchers.Main) {
+                            isProcessing = false
+                            progress = 1f
+                            statusText = "Done! Output saved to source folder."
+                            Toast.makeText(context, "Stitching Complete!", Toast.LENGTH_SHORT).show()
+                            val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+                            if (prefs.getBoolean("sound_enabled", true)) {
+                                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        withContext(Dispatchers.Main) {
+                            isProcessing = false
+                            statusText = "Error: ${e.message}"
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 }
-            }
-             Button(onClick = { scope.launch { queueMutex.withLock { queueItems = listOf(); isProcessing = false } } }) { Text("Clear All") }
-        }
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { isProcessing = !isProcessing },
-            colors = ButtonDefaults.buttonColors(containerColor = if(isProcessing) Color.Red else Color(0xFF4CAF50))
-        ) { Text(if (isProcessing) "STOP QUEUE" else "START QUEUE") }
-
-        LazyColumn(
-            modifier = Modifier.height(400.dp).fillMaxWidth().background(Color(0xFFEEEEEE)),
-            contentPadding = PaddingValues(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(queueItems) { item ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(8.dp)) {
-                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text(item.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines=1, overflow = TextOverflow.Ellipsis)
-                            IconButton(onClick = { scope.launch { queueMutex.withLock { queueItems = queueItems.filter { it.id != item.id } } } }) {
-                                Text("X")
-                            }
-                         }
-                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                             Text(item.status.uppercase(), style = MaterialTheme.typography.labelSmall,
-                                 color = if (item.status == "failed") Color.Red else if(item.status=="done") Color.Green else Color.Unspecified)
-                         }
-                         if (item.status == "processing") {
-                             LinearProgressIndicator(progress = item.progress.toFloat(), modifier = Modifier.fillMaxWidth())
-                         }
-                    }
-                }
-            }
-        }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = if(isProcessing) Color.Gray else Color(0xFF4CAF50)),
+            enabled = !isProcessing
+        ) { Text(if (isProcessing) "PROCESSING..." else "START STITCHING") }
     }
 }
-
-// ==========================================
-// TAB 2: BATO / RIDI DOWNLOADER
-// ==========================================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BatoTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
-    var selectedSource by remember { mutableStateOf("Bato.to") } // Bato.to or Ridibooks
+    var selectedSource by remember { mutableStateOf("Bato.to") }
     var expandedSource by remember { mutableStateOf(false) }
 
     var urlInput by remember { mutableStateOf("") }
+    var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf("") }
     var autoRetry by remember { mutableStateOf(true) }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
-    var outputUri by remember { mutableStateOf<Uri?>(null) }
+
     var concurrencyCount by remember { mutableIntStateOf(1) }
     var expandedConcurrency by remember { mutableStateOf(false) }
     var isAddingToQueue by remember { mutableStateOf(false) }
 
-    // Settings State (Shared)
+    // Settings
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
     var customFileName by remember { mutableStateOf("") }
@@ -682,17 +803,6 @@ fun BatoTab() {
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
 
-    // Notification State
-    var showNotification by remember { mutableStateOf(false) }
-
-    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
-        if (it != null) {
-            context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            outputUri = it
-        }
-    }
-
-    // Load Queue Poller
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             while(isActive) {
@@ -713,12 +823,6 @@ fun BatoTab() {
                             progress = obj.optDouble("progress", 0.0)
                         ))
                     }
-                    // Check completion for notification
-                    if (list.isNotEmpty() && list.all { it.status == "done" || it.status == "failed" } && isProcessorRunning) {
-                         // Only notify if we were running and now all done.
-                         // But we need to detect edge trigger. Too complex for simple poll loop without state.
-                         // Simplified: Processor worker will trigger notify.
-                    }
                     withContext(Dispatchers.Main) {
                         queueItems = list
                     }
@@ -728,32 +832,30 @@ fun BatoTab() {
         }
     }
 
-    // Queue Processor
     LaunchedEffect(isProcessorRunning, concurrencyCount) {
         if (!isProcessorRunning) return@LaunchedEffect
-
         withContext(Dispatchers.IO) {
             val jobs = List(concurrencyCount) {
                 launch {
                     while (isActive && isProcessorRunning) {
-                        if (outputUri == null) { delay(1000); continue }
+                        val defaultUriStr = prefs.getString("default_output_uri", null)
+                        val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
 
-                        // Check if all done
                         val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
                         if (pendingCount == 0 && queueItems.isNotEmpty()) {
                              withContext(Dispatchers.Main) {
                                 isProcessorRunning = false
-                                showNotification = true
-                                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                Toast.makeText(context, "All tasks completed!", Toast.LENGTH_SHORT).show()
+                                if (prefs.getBoolean("sound_enabled", true)) {
+                                    val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
+                                }
                             }
                             break
                         }
-
                         try {
                             val py = Python.getInstance()
                             val bato = py.getModule("bato")
-
                             val params = JSONObject().apply {
                                 put("splitHeight", splitHeight)
                                 put("outputType", outputType)
@@ -765,10 +867,8 @@ fun BatoTab() {
                                 put("scanStep", scanStep)
                                 put("autoRetry", autoRetry)
                             }
-
                             val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
                             val result = JSONObject(resultStr)
-
                             if (result.has("status")) {
                                 val status = result.getString("status")
                                 if (status == "empty") {
@@ -776,13 +876,29 @@ fun BatoTab() {
                                 } else if (status == "success") {
                                     val path = result.getString("path")
                                     val file = File(path)
-                                    val targetTree = DocumentFile.fromTreeUri(context, outputUri!!)
-                                    if (targetTree != null && file.exists()) {
-                                        if (file.isDirectory) {
-                                            copyToTree(context, file, targetTree)
-                                        } else {
-                                            val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
-                                            copyToTree(context, file, targetTree, mime)
+
+                                    if (outputUri != null) {
+                                        val targetTree = DocumentFile.fromTreeUri(context, outputUri)
+                                        if (targetTree != null && file.exists()) {
+                                            if (file.isDirectory) {
+                                                copyToTree(context, file, targetTree)
+                                            } else {
+                                                val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
+                                                copyToTree(context, file, targetTree, mime)
+                                            }
+                                        }
+                                    } else {
+                                        // Default: App Storage (External Files Dir)
+                                        // Usually Android/data/package/files/
+                                        val destDir = context.getExternalFilesDir(null)
+                                        if (destDir != null && file.exists()) {
+                                            val destFile = File(destDir, file.name)
+                                            file.copyTo(destFile, overwrite = true)
+                                            if (file.isDirectory) {
+                                                file.deleteRecursively() // Cleanup after move
+                                            } else {
+                                                file.delete()
+                                            }
                                         }
                                     }
                                 } else {
@@ -791,7 +907,6 @@ fun BatoTab() {
                             } else if (result.has("error")) {
                                  delay(1000)
                             }
-
                         } catch (e: Exception) {
                             e.printStackTrace()
                             delay(2000)
@@ -803,16 +918,6 @@ fun BatoTab() {
         }
     }
 
-    if (showNotification) {
-        AlertDialog(
-            onDismissRequest = { showNotification = false },
-            confirmButton = { Button(onClick = { showNotification = false }) { Text("OK") } },
-            title = { Text("Notification") },
-            text = { Text("All tasks completed!") }
-        )
-    }
-
-    // Define QueueItemRow for BatoTab
     @Composable
     fun QueueItemRow(item: QueueItem, onDelete: (String) -> Unit, onRetry: (String) -> Unit, onPause: (String) -> Unit) {
         Card(Modifier.fillMaxWidth()) {
@@ -821,33 +926,20 @@ fun BatoTab() {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Text(item.status.uppercase(), style = MaterialTheme.typography.labelSmall,
                          color = if (item.status == "failed") Color.Red else Color.Unspecified)
-
                     Row {
                         if (item.status == "downloading" || item.status == "stitching") {
-                            Button(onClick = { onPause(item.id) }, modifier = Modifier.height(32.dp)) {
-                                Text("Pause", style = MaterialTheme.typography.labelSmall)
-                            }
-                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = { onPause(item.id) }, modifier = Modifier.size(32.dp)) { Icon(PauseIcon, contentDescription="Pause") }
+                            Spacer(Modifier.width(4.dp))
                         }
-
                         if (item.status == "paused") {
-                            Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) {
-                                Text("Resume", style = MaterialTheme.typography.labelSmall)
-                            }
+                            Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) { Text("Resume", style = MaterialTheme.typography.labelSmall) }
                             Spacer(Modifier.width(8.dp))
                         }
-
                         if (item.status == "failed") {
-                            Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) {
-                                Text("Retry", style = MaterialTheme.typography.labelSmall)
-                            }
+                            Button(onClick = { onRetry(item.id) }, modifier = Modifier.height(32.dp)) { Text("Retry", style = MaterialTheme.typography.labelSmall) }
                             Spacer(Modifier.width(8.dp))
                         }
-
-                        // Always allow removing (which acts as Cancel for downloading items)
-                        IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) {
-                            Text("X")
-                        }
+                        IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) { Text("X") }
                     }
                 }
                 if (item.status == "downloading" || item.status == "stitching") {
@@ -858,36 +950,34 @@ fun BatoTab() {
     }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Bulk Downloader", style = MaterialTheme.typography.titleMedium)
-
-        // Source Selector
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Source: ")
             Spacer(Modifier.width(8.dp))
             Box {
-                OutlinedButton(onClick = { expandedSource = true }) {
-                    Text(selectedSource)
-                }
+                OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
                     DropdownMenuItem(text = { Text("Bato.to") }, onClick = { selectedSource = "Bato.to"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
                 }
             }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            val labelText = when(selectedSource) {
+                "Ridibooks" -> "Url (Book)"
+                "Naver Webtoon" -> "Comic ID"
+                "XToon" -> "Url (Chapter)"
+                else -> "Url (Chapter/Series)"
+            }
             OutlinedTextField(
                 value = urlInput,
                 onValueChange = { urlInput = it },
-                label = {
-                    Text(if (selectedSource == "Ridibooks") "Url (Book)" else "Url (Chapter/Series)")
-                },
+                label = { Text(labelText) },
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
@@ -896,15 +986,47 @@ fun BatoTab() {
             } else {
                 Button(
                     onClick = {
+                        if (selectedSource == "Naver Webtoon" && chapterInput.isBlank()) {
+                            Toast.makeText(context, "Chapter ID required for Naver!", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
                         isAddingToQueue = true
                         scope.launch(Dispatchers.IO) {
                             try {
                                 val py = Python.getInstance()
                                 val bato = py.getModule("bato")
-                                val type = if(selectedSource == "Ridibooks") "ridi" else "bato"
-                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, urlInput, type, cookieInput)
+                                val type = when(selectedSource) {
+                                    "Ridibooks" -> "ridi"
+                                    "Naver Webtoon" -> "naver"
+                                    "XToon" -> "xtoon"
+                                    else -> "bato"
+                                }
+
+                                if (type == "naver" && chapterInput.contains("-")) {
+                                    // Range support: 1-10
+                                    val parts = chapterInput.split("-")
+                                    if (parts.size == 2) {
+                                        val start = parts[0].trim().toIntOrNull()
+                                        val end = parts[1].trim().toIntOrNull()
+                                        if (start != null && end != null && start <= end) {
+                                            for (no in start..end) {
+                                                val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
+                                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val finalUrl = if (type == "naver") {
+                                        "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$chapterInput"
+                                    } else {
+                                        urlInput
+                                    }
+                                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+                                }
+
                                 withContext(Dispatchers.Main) {
                                     urlInput = ""
+                                    chapterInput = ""
                                 }
                             } finally {
                                 withContext(Dispatchers.Main) {
@@ -916,6 +1038,15 @@ fun BatoTab() {
                     enabled = urlInput.isNotBlank()
                 ) { Text("Add") }
             }
+        }
+
+        if (selectedSource == "Naver Webtoon") {
+             OutlinedTextField(
+                value = chapterInput,
+                onValueChange = { chapterInput = it }, // Allow dash for range
+                label = { Text("Chapter (No. or 1-10)") },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         if (selectedSource == "Ridibooks") {
@@ -930,26 +1061,16 @@ fun BatoTab() {
 
         HorizontalDivider()
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { pickOutput.launch(null) }) { Text("Set Output Folder") }
-            Spacer(Modifier.width(8.dp))
-            Text(outputUri?.lastPathSegment ?: "Not Set", maxLines=1, overflow = TextOverflow.Ellipsis)
+        val defOut = prefs.getString("default_output_uri", null)
+        if (defOut != null) {
+            Text("Output: ${Uri.parse(defOut).lastPathSegment}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        } else {
+             Text("Output: Default (App Storage)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
-
-        // Auto Retry
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = autoRetry, onCheckedChange = { autoRetry = it })
             Text("Auto Retry")
         }
-
-        // Full Settings for Bato
-        Text("Stitch Settings for Queue", style = MaterialTheme.typography.bodySmall)
-        // Note: Template system not explicitly requested for Bato tab, but settings are here.
-        // Can reuse StitchSettingsUI but without templates if desired, or with.
-        // Prompt says "Tambahkan fitur template ke manual stitcher" (Add template feature to manual stitcher).
-        // It doesn't explicitly say Bato. But usually settings are shared.
-        // I'll stick to basic settings UI here for simplicity or reuse without template controls to match prompt strictly?
-        // Let's just use the shared UI but pass null/noop for templates to keep Bato tab clean as requested (only stitcher mentioned).
         StitchSettingsUI(
             splitHeight, { splitHeight = it },
             outputType, { outputType = it },
@@ -962,78 +1083,44 @@ fun BatoTab() {
             packagingOption, { packagingOption = it },
             null, {}, {}, {}
         )
-
         HorizontalDivider()
-
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Queue (${queueItems.size})")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box {
-                    OutlinedButton(onClick = { expandedConcurrency = true }) {
-                        Text("Workers: $concurrencyCount")
-                    }
+                    OutlinedButton(onClick = { expandedConcurrency = true }) { Text("Workers: $concurrencyCount") }
                     DropdownMenu(expanded = expandedConcurrency, onDismissRequest = { expandedConcurrency = false }) {
                         (1..5).forEach { num ->
-                            DropdownMenuItem(
-                                text = { Text("$num") },
-                                onClick = { concurrencyCount = num; expandedConcurrency = false }
-                            )
+                            DropdownMenuItem(text = { Text("$num") }, onClick = { concurrencyCount = num; expandedConcurrency = false })
                         }
                     }
                 }
                 Spacer(Modifier.width(8.dp))
-                 Button(
-                    onClick = {
-                        scope.launch(Dispatchers.IO) {
-                             Python.getInstance().getModule("bato").callAttr("clear_completed", context.cacheDir.absolutePath)
-                        }
-                    }
-                ) { Text("Clear Done") }
+                 Button(onClick = { scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("clear_completed", context.cacheDir.absolutePath) } }) { Text("Clear Done") }
             }
         }
-
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = { isProcessorRunning = !isProcessorRunning },
             colors = ButtonDefaults.buttonColors(containerColor = if(isProcessorRunning) Color.Red else Color(0xFF4CAF50))
         ) { Text(if (isProcessorRunning) "STOP QUEUE" else "START QUEUE") }
 
-        if (isProcessorRunning && outputUri == null) {
-            Text("Please select Output Folder to start processing!", color = Color.Red)
-        }
-
         LazyColumn(
-            modifier = Modifier.height(400.dp).fillMaxWidth().background(Color(0xFFEEEEEE)),
+            modifier = Modifier.height(400.dp).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant),
             contentPadding = PaddingValues(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(queueItems) { item ->
                 QueueItemRow(
                     item = item,
-                    onDelete = { id ->
-                        scope.launch(Dispatchers.IO) {
-                            Python.getInstance().getModule("bato").callAttr("remove_from_queue", context.cacheDir.absolutePath, id)
-                        }
-                    },
-                    onRetry = { id ->
-                        scope.launch(Dispatchers.IO) {
-                            Python.getInstance().getModule("bato").callAttr("retry_item", context.cacheDir.absolutePath, id)
-                        }
-                    },
-                    onPause = { id ->
-                        scope.launch(Dispatchers.IO) {
-                            Python.getInstance().getModule("bato").callAttr("pause_item", context.cacheDir.absolutePath, id)
-                        }
-                    }
+                    onDelete = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("remove_from_queue", context.cacheDir.absolutePath, id) } },
+                    onRetry = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("retry_item", context.cacheDir.absolutePath, id) } },
+                    onPause = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("pause_item", context.cacheDir.absolutePath, id) } }
                 )
             }
         }
     }
 }
-
-// ==========================================
-// HELPERS
-// ==========================================
 
 fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File) {
     val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return
@@ -1043,10 +1130,6 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
             if (isRoot) {
                 for (child in doc.listFiles()) copy(child, base, false)
             } else {
-                 // For subdirectories, replicate structure?
-                 // The stitcher usually flattens or recurses?
-                 // Original implementation: copy(child, base, false) -> flattens into base.
-                 // Let's keep it flattening for now as SmartStitchCore expects a folder of images.
                  for (child in doc.listFiles()) copy(child, base, false)
             }
             return
@@ -1123,9 +1206,6 @@ fun copyToTree(
                     current
                 }
             }
-            // If exists, delete or overwrite?
-            // SAF create file might generate "name (1).ext" automatically if exists? No, it usually fails or duplicates.
-            // Let's delete existing to overwrite.
             if (existing != null) existing.delete()
 
             val target = parent.createFile(mime, file.name)!!

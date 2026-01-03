@@ -1,5 +1,5 @@
 """
-Bato & Ridibooks Downloader & Queue Manager for AstralStitch.
+Bato & Ridibooks & Naver & XToon Downloader & Queue Manager for AstralStitch.
 """
 
 import json
@@ -17,6 +17,8 @@ from typing import List, Dict, Optional, Tuple
 
 import SmartStitchCore as ssc
 import bridge
+import naver_downloader
+import xtoon_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -56,7 +58,6 @@ def safe_urlopen(req, timeout=30):
         return urlopen(req, timeout=timeout)
     except HTTPError as e:
         if e.code == 403:
-            # Try to print body for debugging
             try:
                 print(f"403 Error Body: {e.read().decode()}")
             except: pass
@@ -268,7 +269,7 @@ class BatoQueue:
             json.dump(queue, f, indent=2)
 
     def add_url(self, url: str, source_type: str = "bato", cookie: str = "") -> Dict:
-        # source_type: "bato" or "ridi"
+        # source_type: "bato", "ridi", "naver", "xtoon"
 
         with FileLock(self.lock_path):
             queue = self._load()
@@ -309,7 +310,6 @@ class BatoQueue:
                     if not book_id:
                         return {"error": "Invalid Ridi URL (No Book ID found)"}
 
-                    # Fetch Title from WebPage
                     title = f"Ridi Book {book_id}"
                     try:
                         html = fetch_html(url, cookie=cookie)
@@ -328,6 +328,37 @@ class BatoQueue:
                             "added_at": time.time(),
                             "type": "ridi",
                             "cookie": cookie
+                        })
+                        added = 1
+
+                elif source_type == "naver":
+                    # url is now the full URL (detail page with titleId and no)
+                    info = naver_downloader.get_naver_chapter_info(url)
+                    if "error" in info:
+                        return info
+
+                    title = info.get("title", "Naver Chapter")
+                    if not any(q['url'] == url for q in queue):
+                         queue.append({
+                            "id": str(uuid.uuid4()),
+                            "url": url,
+                            "title": title,
+                            "status": "pending",
+                            "added_at": time.time(),
+                            "type": "naver"
+                         })
+                         added = 1
+
+                elif source_type == "xtoon":
+                    title = xtoon_downloader.get_xtoon_title(url)
+                    if not any(q['url'] == url for q in queue):
+                        queue.append({
+                            "id": str(uuid.uuid4()),
+                            "url": url,
+                            "title": title,
+                            "status": "pending",
+                            "added_at": time.time(),
+                            "type": "xtoon"
                         })
                         added = 1
 
@@ -402,9 +433,6 @@ class BatoQueue:
             queue = [q for q in queue if q["status"] != "done"]
             self._save(queue)
 
-    def set_auto_retry(self, enabled: bool):
-        pass
-
 # ============================================================
 # PROCESSING WORKER
 # ============================================================
@@ -450,6 +478,14 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             title_prefix, imgs = process_ridi_item(book_id, cookie)
             images = imgs
             referer = f"https://ridibooks.com/books/{book_id}/view"
+
+        elif source_type == "naver":
+            images = naver_downloader.get_naver_images(url)
+            referer = "https://comic.naver.com/"
+
+        elif source_type == "xtoon":
+            images = xtoon_downloader.get_xtoon_images(url)
+            referer = url
 
         if not images:
             raise RuntimeError("No images found")
