@@ -209,7 +209,7 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
 
     # Init detector
     try:
-        model_path = os.path.join(os.environ.get("HOME", "."), "detector.onnx")
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detector.onnx")
         detector = BubbleDetector(model_path)
     except Exception as e:
         print(f"Failed to init detector: {e}")
@@ -220,17 +220,20 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     while (split_offset + split_height) < max_height:
         unsafe_ranges = []
         if detector:
-            # Crop a region around where we expect to split
-            # We crop from split_offset to split_offset + 2 * split_height to be safe
-            crop_start = split_offset
-            crop_end = min(max_height, split_offset + 2 * split_height)
-            try:
-                crop_img = combined_img.crop((0, crop_start, max_width, crop_end))
-                ranges_relative = detector.detect(crop_img)
-                # Convert to absolute
-                unsafe_ranges = [(s + crop_start, e + crop_start) for s, e in ranges_relative]
-            except Exception as e:
-                print(f"Detection failed: {e}")
+            # Probe Window Logic: Crop only a small region around the potential cut
+            target_cut_y = split_offset + split_height
+            probe_y_start = max(split_offset, target_cut_y - 1500)
+            probe_y_end = min(max_height, target_cut_y + 500)
+
+            # Ensure we have a valid crop height
+            if probe_y_end > probe_y_start:
+                try:
+                    crop_img = combined_img.crop((0, probe_y_start, max_width, probe_y_end))
+                    ranges_relative = detector.detect(crop_img)
+                    # Convert relative coordinates to global
+                    unsafe_ranges = [(s + probe_y_start, e + probe_y_start) for s, e in ranges_relative]
+                except Exception as e:
+                    print(f"Detection failed: {e}")
 
         new_split_height = adjust_split_location(combined_pixels, split_height, split_offset, senstivity,
                                                  ignorable_pixels, scan_step, unsafe_ranges)
