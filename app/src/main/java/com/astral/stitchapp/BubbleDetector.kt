@@ -5,7 +5,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import java.nio.FloatBuffer
+import android.util.Log
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Collections
 import kotlin.math.max
 import kotlin.math.min
@@ -15,14 +17,22 @@ class BubbleDetector(modelPath: String) {
     private val session: OrtSession
 
     init {
+        Log.d("BubbleDetector", "Initializing with model: $modelPath")
         env = OrtEnvironment.getEnvironment()
         val opts = OrtSession.SessionOptions()
         session = env.createSession(modelPath, opts)
+        Log.d("BubbleDetector", "Session created successfully")
     }
 
     // Returns list of [y_min, y_max]
     fun detect(imageBytes: ByteArray): Array<IntArray> {
-        val originalBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) ?: return emptyArray()
+        val st = System.currentTimeMillis()
+        val originalBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        if (originalBitmap == null) {
+            Log.e("BubbleDetector", "Failed to decode bitmap from bytes")
+            return emptyArray()
+        }
+
         val originalW = originalBitmap.width
         val originalH = originalBitmap.height
 
@@ -34,8 +44,10 @@ class BubbleDetector(modelPath: String) {
         val pixels = IntArray(inputW * inputH)
         resizedBitmap.getPixels(pixels, 0, inputW, 0, 0, inputW, inputH)
 
-        val floatBuffer = FloatBuffer.allocate(3 * inputW * inputH)
-        floatBuffer.rewind()
+        // Use Direct ByteBuffer for ORT
+        val floatBuffer = ByteBuffer.allocateDirect(1 * 3 * inputW * inputH * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
 
         // Extract pixels and normalize (CHW layout, 1/255.0)
         // R channel
@@ -100,6 +112,8 @@ class BubbleDetector(modelPath: String) {
             val yMaxInt = yMax.toInt().coerceAtMost(originalH)
             intArrayOf(yMinInt, yMaxInt)
         }.toTypedArray()
+
+        Log.d("BubbleDetector", "Detected ${ranges.size} bubbles in ${System.currentTimeMillis() - st}ms")
 
         tensor.close()
         output.close()

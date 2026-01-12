@@ -32,16 +32,19 @@ class BubbleDetector:
 
         # Call Kotlin detector
         try:
+            st = time.time()
             # Returns Array<IntArray> which Chaquopy converts to list of lists/arrays
             ranges = self.detector.detect(img_bytes)
 
             # ranges is likely a Java Array.
             # Convert to python list of tuples
             result = []
-            for r in ranges:
-                # r is IntArray
-                result.append((r[0], r[1]))
+            if ranges:
+                for r in ranges:
+                    # r is IntArray
+                    result.append((r[0], r[1]))
 
+            print(f"Kotlin detect: found {len(result)} ranges in {time.time()-st:.3f}s")
             return result
         except Exception as e:
             print(f"Inference failed: {e}")
