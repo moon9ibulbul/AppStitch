@@ -11,6 +11,14 @@ class BubbleDetector:
         self._load_model()
 
     def _load_model(self):
+        # Check if model exists but is corrupted (e.g. empty file)
+        if os.path.exists(self.model_path) and os.path.getsize(self.model_path) < 1024:
+             print("Model file too small, removing and re-downloading...")
+             try:
+                 os.remove(self.model_path)
+             except OSError:
+                 pass
+
         if not os.path.exists(self.model_path):
             print(f"Model not found at {self.model_path}, downloading...")
             url = "https://huggingface.co/bulbulmoon/lama/resolve/main/detector.onnx"
