@@ -23,15 +23,19 @@ class BubbleDetector:
 
     def detect(self, pil_image):
         if self.detector is None:
+             print("Detector is None, returning empty.")
              return []
 
         # Convert PIL image to bytes (PNG)
-        img_byte_arr = io.BytesIO()
-        pil_image.save(img_byte_arr, format='PNG')
-        img_bytes = img_byte_arr.getvalue()
-
-        # Call Kotlin detector
         try:
+            img_byte_arr = io.BytesIO()
+            pil_image.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+
+            # Debug info
+            w, h = pil_image.size
+            print(f"ONNX Detect Start: Image {w}x{h}, sending {len(img_bytes)} bytes to Kotlin")
+
             st = time.time()
             # Returns Array<IntArray> which Chaquopy converts to list of lists/arrays
             ranges = self.detector.detect(img_bytes)
@@ -47,7 +51,9 @@ class BubbleDetector:
             print(f"Kotlin detect: found {len(result)} ranges in {time.time()-st:.3f}s")
             return result
         except Exception as e:
-            print(f"Inference failed: {e}")
+            print(f"Inference failed in Python wrapper: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
 def download_model(save_path):

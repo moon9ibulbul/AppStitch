@@ -32,7 +32,7 @@ class BubbleDetector(modelPath: String) {
     }
 
     init {
-        Log.d("BubbleDetector", "Initializing with model: $modelPath")
+        Log.i("BubbleDetector", "Initializing with model: $modelPath")
         env = OrtEnvironment.getEnvironment()
         val opts = OrtSession.SessionOptions()
         try {
@@ -43,7 +43,7 @@ class BubbleDetector(modelPath: String) {
             Log.w("BubbleDetector", "Failed to set advanced opts", e)
         }
         session = env.createSession(modelPath, opts)
-        Log.d("BubbleDetector", "Session created successfully. Inputs: ${session.inputNames}")
+        Log.i("BubbleDetector", "Session created successfully. Available Inputs: ${session.inputNames}")
     }
 
     // Returns list of [y_min, y_max]
@@ -66,23 +66,24 @@ class BubbleDetector(modelPath: String) {
             val originalHeight = originalBitmap.height
 
             // 1. Scale Logic (From Reference)
-            // Resize to width 640 while maintaining aspect ratio
             val scaleFactor = if (originalWidth > INPUT_SIZE) INPUT_SIZE.toFloat() / originalWidth else 1.0f
 
             procBitmap = if (scaleFactor < 1.0f) {
                 val targetHeight = (originalHeight * scaleFactor).roundToInt()
                 Bitmap.createScaledBitmap(originalBitmap, INPUT_SIZE, targetHeight, true)
             } else {
-                originalBitmap // No need to copy if not resizing, just treat as procBitmap
+                originalBitmap
             }
 
             val width = procBitmap.width
             val height = procBitmap.height
 
-            // Determine input names
+            // Determine input names safely
             val inputNames = session.inputNames
-            val imageInputName = inputNames.find { it.contains("image", ignoreCase = true) } ?: "images"
+            val imageInputName = inputNames.find { it.contains("image", ignoreCase = true) } ?: inputNames.first()
             val sizeInputName = inputNames.find { it.contains("size", ignoreCase = true) || it.contains("orig", ignoreCase = true) }
+
+            Log.i("BubbleDetector", "Using Input Names -> Image: '$imageInputName', Size: '$sizeInputName'")
 
             // 2. Tiled Processing
             val allDetections = ArrayList<RectF>()
@@ -124,7 +125,6 @@ class BubbleDetector(modelPath: String) {
 
             // 5. Map back to original coordinates & Shrink
             val ranges = mergedBoxes.map { box ->
-                // Map back to original scale
                 val originalBox = RectF(
                     box.left / scaleFactor,
                     box.top / scaleFactor,
@@ -143,9 +143,12 @@ class BubbleDetector(modelPath: String) {
                 intArrayOf(yMin, yMax)
             }.toTypedArray()
 
-            Log.d("BubbleDetector", "Detected ${ranges.size} bubbles in ${System.currentTimeMillis() - st}ms")
+            Log.i("BubbleDetector", "Detection Summary: ${ranges.size} bubbles found in ${System.currentTimeMillis() - st}ms (Input: ${originalWidth}x${originalHeight})")
             return ranges
 
+        } catch (e: Exception) {
+            Log.e("BubbleDetector", "Global detection error", e)
+            return emptyArray()
         } finally {
             if (procBitmap != null && procBitmap != originalBitmap) {
                 procBitmap.recycle()
@@ -164,12 +167,10 @@ class BubbleDetector(modelPath: String) {
         val tileBitmap = Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(tileBitmap)
 
-        // Draw crop
         val srcRect = Rect(x, y, min(x + INPUT_SIZE, totalW), min(y + INPUT_SIZE, totalH))
         val dstRect = Rect(0, 0, srcRect.width(), srcRect.height())
         canvas.drawBitmap(sourceBitmap, srcRect, dstRect, null)
 
-        // Prepare Image Buffer
         val floatBuffer = ByteBuffer.allocateDirect(1 * 3 * INPUT_SIZE * INPUT_SIZE * 4)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
@@ -177,7 +178,6 @@ class BubbleDetector(modelPath: String) {
         val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
         tileBitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
 
-        // CHW, 0-1
         for (i in 0 until INPUT_SIZE * INPUT_SIZE) {
             val pixel = pixels[i]
             floatBuffer.put(i, ((pixel shr 16) and 0xFF) / 255.0f)
@@ -195,11 +195,9 @@ class BubbleDetector(modelPath: String) {
         val shape = longArrayOf(1, 3, INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
         val imageTensor = OnnxTensor.createTensor(env, floatBuffer, shape)
 
-        // Prepare Inputs Map
         val inputs = HashMap<String, OnnxTensor>()
         inputs[imageInputName] = imageTensor
 
-        // Handle Optional Size Tensor (for RT-DETR/Reference compatibility)
         var sizeTensor: OnnxTensor? = null
         if (sizeInputName != null) {
              val sizeBuffer = LongBuffer.allocate(2)
@@ -213,17 +211,13 @@ class BubbleDetector(modelPath: String) {
         val results = ArrayList<RectF>()
         try {
             val output = session.run(inputs)
+            val rawOutput = output.iterator().next().value.value
 
-            // PARSE OUTPUTS dynamically (YOLO vs RT-DETR/Reference)
-            // YOLO: 1 output, shape [1, 5, 8400]
-            // Reference: 3 outputs (boxes, scores, labels)
-
-            val rawOutput = output.iterator().next().value.value // First output
+            // Log.d("BubbleDetector", "Tile ($x, $y) Output type: ${rawOutput?.javaClass?.simpleName}")
 
             if (output.size() == 1 && rawOutput is Array<*>) {
-                // YOLO Logic
                 val rawArr = rawOutput as Array<Array<FloatArray>>
-                val predictions = rawArr[0] // 5 x 8400
+                val predictions = rawArr[0]
                 val numProposals = predictions[0].size
 
                 for (i in 0 until numProposals) {
@@ -236,48 +230,24 @@ class BubbleDetector(modelPath: String) {
 
                         val globalCx = cx + x
                         val globalCy = cy + y
-
-                        val xMin = globalCx - w / 2
-                        val yMin = globalCy - h / 2
-                        val xMax = globalCx + w / 2
-                        val yMax = globalCy + h / 2
-
-                        results.add(RectF(xMin, yMin, xMax, yMax))
+                        results.add(RectF(globalCx - w / 2, globalCy - h / 2, globalCx + w / 2, globalCy + h / 2))
                     }
                 }
             } else {
-                // Try Reference Logic (Boxes + Scores separate)
-                // We iterate all outputs to find boxes and scores
                 var boxes: Array<FloatArray>? = null
                 var scores: FloatArray? = null
 
                 for (entry in output) {
                     val value = entry.value.value
                     if (value is Array<*>) {
-                         // [1, N, 4] -> Boxes
                          if (value.isNotEmpty() && value[0] is Array<*>) {
                              val first = value[0] as Array<FloatArray>
-                             if (first.isNotEmpty() && first[0].size == 4) {
-                                 boxes = first
-                             }
+                             if (first.isNotEmpty() && first[0].size == 4) boxes = first
                          }
-                    } else if (value is FloatArray) { // Possible flattened score? usually [1, N] -> Array<FloatArray>??
-                         // Wait, OnnxRuntime Java behavior for Float[1][N] is Array<FloatArray>
-                         // If it's 1D, it's FloatArray.
-                         // But usually scores are [Batch, N].
+                    } else if (value is FloatArray) {
                          scores = value
                     } else if (value is Array<*>) {
-                        // Check for scores as [1, N] -> Array<FloatArray> where inner is size N? No inner is size 1?
-                        // Actually: Float[1][N] -> Object[] containing float[]?
-                        // Let's assume standard layout.
-                        if (value.isNotEmpty() && value[0] is FloatArray) {
-                            val fArr = value[0] as FloatArray
-                            // Distinguish from Boxes (Nx4)
-                            // If this is Nx? No, it's 1 array of size N.
-                            // Boxes was Array<FloatArray> (N arrays of size 4).
-                            // This is just 1 array.
-                            scores = fArr
-                        }
+                        if (value.isNotEmpty() && value[0] is FloatArray) scores = value[0] as FloatArray
                     }
                 }
 
@@ -287,26 +257,18 @@ class BubbleDetector(modelPath: String) {
                         val score = scores[i]
                         if (score > CONFIDENCE_THRESHOLD) {
                             val box = boxes[i]
-                            // Reference: box is [x1, y1, x2, y2]
                             val bX1 = box[0]
                             val bY1 = box[1]
                             val bX2 = box[2]
                             val bY2 = box[3]
-
-                            // Offset by tile
-                            val xMin = bX1 + x
-                            val yMin = bY1 + y
-                            val xMax = bX2 + x
-                            val yMax = bY2 + y
-
-                            results.add(RectF(xMin, yMin, xMax, yMax))
+                            results.add(RectF(bX1 + x, bY1 + y, bX2 + x, bY2 + y))
                         }
                     }
                 }
             }
             output.close()
         } catch (e: Exception) {
-            Log.e("BubbleDetector", "Tile inference error", e)
+            Log.e("BubbleDetector", "Tile inference error at $x,$y", e)
         } finally {
             imageTensor.close()
             sizeTensor?.close()
