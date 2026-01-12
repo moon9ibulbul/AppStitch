@@ -1,14 +1,13 @@
 import os
 import requests
 import numpy as np
-import onnxruntime as ort
 import cv2
 from PIL import Image
 
 class BubbleDetector:
     def __init__(self, model_path):
         self.model_path = model_path
-        self.session = None
+        self.net = None
         self._load_model()
 
     def _load_model(self):
@@ -32,25 +31,25 @@ class BubbleDetector:
                 return
 
         try:
-            self.session = ort.InferenceSession(self.model_path)
-            print("Model loaded successfully.")
+            self.net = cv2.dnn.readNetFromONNX(self.model_path)
+            print("Model loaded successfully with OpenCV DNN.")
         except Exception as e:
             print(f"Failed to load model: {e}")
 
     def detect(self, pil_image):
-        if self.session is None:
+        if self.net is None:
              if os.path.exists(self.model_path):
                  self._load_model()
-             if self.session is None:
+             if self.net is None:
                  return []
 
         # Preprocess
         original_w, original_h = pil_image.size
         input_w, input_h = 640, 640
 
+        # PIL Resize is RGB
         img = pil_image.resize((input_w, input_h), Image.BILINEAR)
-
-        img_data = np.array(img).astype(np.float32) / 255.0
+        img_data = np.array(img)
 
         # Handle channels
         if len(img_data.shape) == 2: # Grayscale
@@ -58,15 +57,27 @@ class BubbleDetector:
         elif img_data.shape[2] == 4: # RGBA
              img_data = img_data[:, :, :3]
 
-        # HWC -> CHW
-        img_data = img_data.transpose(2, 0, 1)
-        input_tensor = np.expand_dims(img_data, axis=0)
+        # Create blob from image
+        # Scale: 1/255.0, Size: (640, 640), Mean: (0,0,0), SwapRB: False (since model trained on RGB probably?), Crop: False
+        # If the model expects RGB (PyTorch standard), we keep RGB.
+        # If the model expects BGR (OpenCV standard), we swap.
+        # YOLOv8 export usually keeps RGB if from PyTorch.
+        # But let's assume standard normalization 0-1.
+
+        # Convert to blob
+        # cv2.dnn.blobFromImage expects BGR by default if swapRB is False?
+        # No, blobFromImage just takes the array.
+        # If img_data is RGB (from PIL), and we pass it:
+        # If we want RGB to model: swapRB=False.
+
+        blob = cv2.dnn.blobFromImage(img_data, 1/255.0, (input_w, input_h), swapRB=False, crop=False)
 
         # Inference
         try:
-            input_name = self.session.get_inputs()[0].name
-            outputs = self.session.run(None, {input_name: input_tensor})
-            output = outputs[0][0] # (5, 8400)
+            self.net.setInput(blob)
+            outputs = self.net.forward()
+            # outputs shape should be (1, 5, 8400) or similar
+            output = outputs[0] # (5, 8400)
         except Exception as e:
             print(f"Inference failed: {e}")
             return []

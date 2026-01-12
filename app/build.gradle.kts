@@ -73,7 +73,6 @@ chaquopy {
             install("numpy<2")
 
             install("natsort==8.4.0")
-            install("onnxruntime")
             install("opencv-python")
             install("requests")
         }
