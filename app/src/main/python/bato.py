@@ -537,7 +537,9 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             unit_images=20,
             zip_output=params.get("packaging") == "ZIP",
             pdf_output=params.get("packaging") == "PDF",
-            mark_done=False
+            mark_done=False,
+            enable_onnx=params.get("enableOnnx", False),
+            model_path=params.get("modelPath", None)
         )
 
         shutil.rmtree(dl_dir, ignore_errors=True)

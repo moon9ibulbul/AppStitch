@@ -195,7 +195,7 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
     return new_split_height
 
 
-def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step):
+def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step, enable_onnx=False, model_path=None):
     """Splits the gaint combined img into small images passed on desired height."""
     st = time.time()
     split_height = int(split_height)
@@ -208,12 +208,19 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     images = []
 
     # Init detector
-    try:
-        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detector.onnx")
-        detector = BubbleDetector(model_path)
-    except Exception as e:
-        print(f"Failed to init detector: {e}")
-        detector = None
+    detector = None
+    if enable_onnx and model_path:
+        try:
+            detector = BubbleDetector(model_path)
+            if detector.net is None:
+                detector = None
+                print("Detector initialized but net is None (load failed).")
+        except Exception as e:
+            print(f"Failed to init detector: {e}")
+            detector = None
+
+    if enable_onnx and not detector:
+        print("SmartStitch 2.0 requested but model failed to load. Falling back to 1.0 logic.")
 
     # The spliting starts here (calls another function to decide where to slice)
     split_offset = 0

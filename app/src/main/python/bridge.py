@@ -1,6 +1,10 @@
 import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
+from OnnxSafety import download_model as dm
+
+def download_model(save_path):
+    return dm(save_path)
 
 class ProgressWriter:
     def __init__(self, path, offset=0):
@@ -75,7 +79,9 @@ def run(input_folder,
         pdf_output=False,
         progress_path=None,
         progress_offset=0,
-        mark_done=True):
+        mark_done=True,
+        enable_onnx=False,
+        model_path=None):
 
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
     progress_file = progress_path or os.path.join(resolved_output_folder, "progress.json")
@@ -99,7 +105,9 @@ def run(input_folder,
         unit_images=unit_images,
         output_folder=resolved_output_folder,
         filename_template=filename_template,
-        progress_writer=writer
+        progress_writer=writer,
+        enable_onnx=enable_onnx,
+        model_path=model_path
     )
 
     writer.finish(mark_done)

@@ -11,24 +11,14 @@ class BubbleDetector:
         self._load_model()
 
     def _load_model(self):
-        if not os.path.exists(self.model_path):
-            print(f"Model not found at {self.model_path}, downloading...")
-            url = "https://huggingface.co/bulbulmoon/lama/resolve/main/detector.onnx"
-            try:
-                # Ensure directory exists
-                model_dir = os.path.dirname(self.model_path)
-                if model_dir and not os.path.exists(model_dir):
-                    os.makedirs(model_dir)
+        # We assume the model path is provided correctly.
+        # If it doesn't exist, we can try to download it if we are allowed,
+        # but for this app, we want the download to be explicit in the UI.
+        # However, for backward compatibility or ease, if it's missing, we just fail gracefully.
 
-                response = requests.get(url, stream=True)
-                response.raise_for_status()
-                with open(self.model_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print("Model downloaded successfully.")
-            except Exception as e:
-                print(f"Failed to download model: {e}")
-                return
+        if not os.path.exists(self.model_path):
+            print(f"Model not found at {self.model_path}")
+            return
 
         try:
             self.net = cv2.dnn.readNetFromONNX(self.model_path)
@@ -38,10 +28,7 @@ class BubbleDetector:
 
     def detect(self, pil_image):
         if self.net is None:
-             if os.path.exists(self.model_path):
-                 self._load_model()
-             if self.net is None:
-                 return []
+             return []
 
         # Preprocess
         original_w, original_h = pil_image.size
@@ -57,26 +44,12 @@ class BubbleDetector:
         elif img_data.shape[2] == 4: # RGBA
              img_data = img_data[:, :, :3]
 
-        # Create blob from image
-        # Scale: 1/255.0, Size: (640, 640), Mean: (0,0,0), SwapRB: False (since model trained on RGB probably?), Crop: False
-        # If the model expects RGB (PyTorch standard), we keep RGB.
-        # If the model expects BGR (OpenCV standard), we swap.
-        # YOLOv8 export usually keeps RGB if from PyTorch.
-        # But let's assume standard normalization 0-1.
-
-        # Convert to blob
-        # cv2.dnn.blobFromImage expects BGR by default if swapRB is False?
-        # No, blobFromImage just takes the array.
-        # If img_data is RGB (from PIL), and we pass it:
-        # If we want RGB to model: swapRB=False.
-
         blob = cv2.dnn.blobFromImage(img_data, 1/255.0, (input_w, input_h), swapRB=False, crop=False)
 
         # Inference
         try:
             self.net.setInput(blob)
             outputs = self.net.forward()
-            # outputs shape should be (1, 5, 8400) or similar
             output = outputs[0] # (5, 8400)
         except Exception as e:
             print(f"Inference failed: {e}")
@@ -107,9 +80,6 @@ class BubbleDetector:
         for i in range(len(filtered_boxes)):
             cx, cy, w, h = filtered_boxes[i]
 
-            # YOLO output is cx, cy, w, h
-            # NMSBoxes expects top-left x, top-left y, w, h
-
             w_scaled = w * x_scale
             h_scaled = h * y_scale
 
@@ -132,3 +102,23 @@ class BubbleDetector:
                 unsafe_ranges.append((y_min, y_max))
 
         return unsafe_ranges
+
+def download_model(save_path):
+    print(f"Downloading model to {save_path}...")
+    url = "https://huggingface.co/bulbulmoon/lama/resolve/main/detector.onnx"
+    try:
+        # Ensure directory exists
+        model_dir = os.path.dirname(save_path)
+        if model_dir and not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(save_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        print("Model downloaded successfully.")
+        return True
+    except Exception as e:
+        print(f"Failed to download model: {e}")
+        return False
