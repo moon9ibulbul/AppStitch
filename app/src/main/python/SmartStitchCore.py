@@ -6,6 +6,7 @@ import subprocess
 import time
 import tempfile
 import shutil
+from OnnxSafety import BubbleDetector
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -138,7 +139,7 @@ def combine_images(images):
     return new_image
 
 
-def adjust_split_location(combined_pixels, split_height, split_offset, senstivity, ignorable_pixels, scan_step):
+def adjust_split_location(combined_pixels, split_height, split_offset, senstivity, ignorable_pixels, scan_step, unsafe_ranges=None):
     """Where the smart magic happens, compares pixels of each row, to decide if it's okay to cut there."""
     st = time.time()
     threshold = int(255 * (1 - (senstivity / 100)))
@@ -151,6 +152,28 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
         split_row = split_offset + new_split_height
         if split_row > last_row:
             break
+
+        # Check if current row is in unsafe range (bubbles)
+        is_unsafe_bubble = False
+        if unsafe_ranges:
+            for start, end in unsafe_ranges:
+                if start <= split_row <= end:
+                    is_unsafe_bubble = True
+                    break
+
+        if is_unsafe_bubble:
+            if countdown:
+                new_split_height -= scan_step
+            else:
+                new_split_height += scan_step
+            adjust_in_progress = True
+            # Bounds check logic duplicated below, but we continue to skip pixel check
+            if new_split_height < 0.4 * split_height:
+                new_split_height = split_height
+                countdown = False
+                adjust_in_progress = True
+            continue
+
         pixel_row = combined_pixels[split_row]
         prev_pixel = int(pixel_row[ignorable_pixels])
         for x in range((ignorable_pixels + 1), len(pixel_row) - (ignorable_pixels)):
@@ -183,11 +206,37 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     max_height = combined_img.size[1]
     combined_pixels = np.array(combined_img.convert('L'))
     images = []
+
+    # Init detector
+    try:
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detector.onnx")
+        detector = BubbleDetector(model_path)
+    except Exception as e:
+        print(f"Failed to init detector: {e}")
+        detector = None
+
     # The spliting starts here (calls another function to decide where to slice)
     split_offset = 0
     while (split_offset + split_height) < max_height:
+        unsafe_ranges = []
+        if detector:
+            # Probe Window Logic: Crop only a small region around the potential cut
+            target_cut_y = split_offset + split_height
+            probe_y_start = max(split_offset, target_cut_y - 1500)
+            probe_y_end = min(max_height, target_cut_y + 500)
+
+            # Ensure we have a valid crop height
+            if probe_y_end > probe_y_start:
+                try:
+                    crop_img = combined_img.crop((0, probe_y_start, max_width, probe_y_end))
+                    ranges_relative = detector.detect(crop_img)
+                    # Convert relative coordinates to global
+                    unsafe_ranges = [(s + probe_y_start, e + probe_y_start) for s, e in ranges_relative]
+                except Exception as e:
+                    print(f"Detection failed: {e}")
+
         new_split_height = adjust_split_location(combined_pixels, split_height, split_offset, senstivity,
-                                                 ignorable_pixels, scan_step)
+                                                 ignorable_pixels, scan_step, unsafe_ranges)
         split_image = pil.new('RGB', (max_width, new_split_height))
         split_image.paste(combined_img, (0, -split_offset))
         split_offset += new_split_height
