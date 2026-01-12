@@ -11,6 +11,15 @@ class BubbleDetector:
         self._load_model()
 
     def _load_model(self):
+        # Validation: Check if model file is valid (size > 1KB)
+        if os.path.exists(self.model_path):
+            try:
+                if os.path.getsize(self.model_path) < 1024:
+                    print("Model file is too small (corrupt), deleting...")
+                    os.remove(self.model_path)
+            except Exception as e:
+                print(f"Error checking model file: {e}")
+
         if not os.path.exists(self.model_path):
             print(f"Model not found at {self.model_path}, downloading...")
             url = "https://huggingface.co/bulbulmoon/lama/resolve/main/detector.onnx"
@@ -35,6 +44,10 @@ class BubbleDetector:
             print("Model loaded successfully with OpenCV DNN.")
         except Exception as e:
             print(f"Failed to load model: {e}")
+            # If load fails, maybe the file is corrupt? We could delete it here too,
+            # but that might cause a loop if the download is broken.
+            # Best to just leave it and let the user/dev investigate or retry manually.
+            self.net = None
 
     def detect(self, pil_image):
         if self.net is None:

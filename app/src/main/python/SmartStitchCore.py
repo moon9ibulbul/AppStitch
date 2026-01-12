@@ -12,6 +12,21 @@ from OnnxSafety import BubbleDetector
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
+# Global variable
+_detector_instance = None
+
+def get_detector():
+    global _detector_instance
+    if _detector_instance is None:
+        try:
+            model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detector.onnx")
+            _detector_instance = BubbleDetector(model_path)
+        except Exception as e:
+            print(f"Failed to init detector: {e}")
+            _detector_instance = None
+    return _detector_instance
+
+
 def get_folder_paths(batch_mode_enabled, given_input_folder, given_output_folder):
     """Gets paths of all input and output folders."""
     st = time.time()
@@ -208,12 +223,7 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     images = []
 
     # Init detector
-    try:
-        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detector.onnx")
-        detector = BubbleDetector(model_path)
-    except Exception as e:
-        print(f"Failed to init detector: {e}")
-        detector = None
+    detector = get_detector()
 
     # The spliting starts here (calls another function to decide where to slice)
     split_offset = 0
