@@ -79,7 +79,7 @@ def normalize_bato_url(url: str) -> str:
 
 def fetch_html(url: str, cookie: str = None) -> str:
     headers = {"User-Agent": USER_AGENT}
-    if "bato.ing" in url:
+    if "xbat.si" in url:
         headers["Referer"] = "https://xbat.si/"
     if cookie:
         headers["Cookie"] = cookie
@@ -166,7 +166,7 @@ def fetch_bato_series_chapters(url: str) -> List[Dict[str, str]]:
         if len(parts) < 3: continue
         if not re.match(r"^\d+", parts[2]): continue
 
-        full_url = "https://bato.ing" + href
+        full_url = "https://xbat.si" + href
         if full_url not in seen_urls:
             slug = parts[2]
             slug_parts = slug.split("-", 1)
@@ -470,7 +470,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             normalized_url = normalize_bato_url(url)
             html = fetch_html(normalized_url)
             images = extract_bato_images(html)
-            referer = "https://bato.ing/"
+            referer = "https://xbat.si/"
 
         elif source_type == "ridi":
             book_id = get_ridi_book_id(url)
