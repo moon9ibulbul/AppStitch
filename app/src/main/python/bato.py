@@ -72,15 +72,15 @@ def normalize_bato_url(url: str) -> str:
     path = p.path.rstrip("/")
     m = re.match(r"^/chapter/(\d+)$", path)
     if m:
-        return f"https://bato.ing/title/_/{m.group(1)}"
+        return f"https://xbat.si/title/_/{m.group(1)}"
     if path.startswith("/title/"):
-        return f"https://bato.ing{path}"
-    return f"https://bato.ing{path}"
+        return f"https://xbat.si{path}"
+    return f"https://xbat.si{path}"
 
 def fetch_html(url: str, cookie: str = None) -> str:
     headers = {"User-Agent": USER_AGENT}
     if "bato.ing" in url:
-        headers["Referer"] = "https://bato.ing/"
+        headers["Referer"] = "https://xbat.si/"
     if cookie:
         headers["Cookie"] = cookie
 
@@ -110,7 +110,7 @@ def normalize_image_host(url: str) -> str:
 def clean_title_text(text: str) -> str:
     text = text.replace(" - Read Free Manga Online", "")
     text = text.replace("Read Free Manga Online", "")
-    text = text.replace("Bato.to", "").replace("Bato.ing", "")
+    text = text.replace("Bato.to", "").replace("Xbat", "")
     text = text.replace(" - Ridibooks", "")
     text = re.sub(r"\[.*?\]$", "", text)
     return text.strip()
