@@ -903,7 +903,7 @@ fun BatoTab(
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
-    var selectedSource by remember { mutableStateOf("Bato.to") }
+    var selectedSource by remember { mutableStateOf("Xbat") }
     var expandedSource by remember { mutableStateOf(false) }
 
     var urlInput by remember { mutableStateOf("") }
@@ -1146,7 +1146,7 @@ fun BatoTab(
             Box {
                 OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
-                    DropdownMenuItem(text = { Text("Bato.to") }, onClick = { selectedSource = "Bato.to"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Xbat") }, onClick = { selectedSource = "Xbat"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
