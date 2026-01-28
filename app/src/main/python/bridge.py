@@ -83,6 +83,11 @@ def run(input_folder,
         enable_onnx=False,
         model_path=None):
 
+    if output_files_type == ".webp":
+        output_files_type = ".bmp"
+        zip_output = False
+        pdf_output = False
+
     resolved_output_folder = _resolve_output_folder(input_folder, output_folder)
     progress_file = progress_path or os.path.join(resolved_output_folder, "progress.json")
 
