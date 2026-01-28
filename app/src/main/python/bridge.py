@@ -120,26 +120,35 @@ def run(input_folder,
             pass
 
     if zip_output:
-        zip_path = shutil.make_archive(
-            resolved_output_folder,
-            "zip",
-            root_dir=os.path.dirname(resolved_output_folder),
-            base_dir=os.path.basename(resolved_output_folder)
-        )
-        shutil.rmtree(resolved_output_folder, ignore_errors=True)
-        return zip_path
+        return pack_archive(resolved_output_folder, "ZIP")
 
     if pdf_output:
+        return pack_archive(resolved_output_folder, "PDF")
+
+    return resolved_output_folder
+
+def pack_archive(source_path, fmt):
+    source_path = os.path.abspath(source_path)
+    if fmt == "ZIP":
+        zip_path = shutil.make_archive(
+            source_path,
+            "zip",
+            root_dir=os.path.dirname(source_path),
+            base_dir=os.path.basename(source_path)
+        )
+        shutil.rmtree(source_path, ignore_errors=True)
+        return zip_path
+    elif fmt == "PDF":
         image_paths = [
-            os.path.join(resolved_output_folder, name)
-            for name in sorted(os.listdir(resolved_output_folder))
+            os.path.join(source_path, name)
+            for name in sorted(os.listdir(source_path))
             if name.lower().endswith((
                 ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga"
             ))
         ]
         if not image_paths:
             print("No images found for PDF conversion.")
-            return resolved_output_folder
+            return source_path
 
         images = []
         try:
@@ -160,17 +169,17 @@ def run(input_folder,
                         pass
 
             if not images:
-                 return resolved_output_folder
+                 return source_path
 
             first, *rest = images
-            pdf_path = f"{resolved_output_folder}.pdf"
+            pdf_path = f"{source_path}.pdf"
             first.save(pdf_path, save_all=True, append_images=rest)
         finally:
             for img in images:
                 try: img.close()
                 except: pass
 
-        shutil.rmtree(resolved_output_folder, ignore_errors=True)
+        shutil.rmtree(source_path, ignore_errors=True)
         return pdf_path
 
-    return resolved_output_folder
+    return source_path

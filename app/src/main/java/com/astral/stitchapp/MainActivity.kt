@@ -194,6 +194,39 @@ class MainActivity : ComponentActivity() {
                 false
             }
         }
+
+        @JvmStatic
+        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption): File {
+            var resultFile = finalFile
+            if (outputType == ".webp" && resultFile.isDirectory) {
+                resultFile.listFiles()?.forEach { f ->
+                    if (f.isFile && f.extension.equals("bmp", ignoreCase = true)) {
+                        val bitmap = BitmapFactory.decodeFile(f.absolutePath)
+                        if (bitmap != null) {
+                            val webpFile = File(f.parent, f.nameWithoutExtension + ".webp")
+                            webpFile.outputStream().use { out ->
+                                if (Build.VERSION.SDK_INT >= 30) {
+                                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                } else {
+                                    bitmap.compress(Bitmap.CompressFormat.WEBP, 100, out)
+                                }
+                            }
+                            bitmap.recycle()
+                            f.delete()
+                        }
+                    }
+                }
+            }
+
+            if (resultFile.isDirectory && packaging != PackagingOption.FOLDER) {
+                val py = Python.getInstance()
+                val bridge = py.getModule("bridge")
+                val packedPath = bridge.callAttr("pack_archive", resultFile.absolutePath, packaging.name).toString()
+                resultFile = File(packedPath)
+            }
+
+            return resultFile
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -864,27 +897,8 @@ fun StitchTab(
 
                         monitor.cancel()
 
-                        val finalFile = File(finalPathStr)
-
-                        if (outputType == ".webp" && finalFile.isDirectory) {
-                            finalFile.listFiles()?.forEach { f ->
-                                if (f.isFile && f.extension.equals("bmp", ignoreCase = true)) {
-                                    val bitmap = BitmapFactory.decodeFile(f.absolutePath)
-                                    if (bitmap != null) {
-                                        val webpFile = File(f.parent, f.nameWithoutExtension + ".webp")
-                                        webpFile.outputStream().use { out ->
-                                            if (Build.VERSION.SDK_INT >= 30) {
-                                                bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
-                                            } else {
-                                                bitmap.compress(Bitmap.CompressFormat.WEBP, 100, out)
-                                            }
-                                        }
-                                        bitmap.recycle()
-                                        f.delete()
-                                    }
-                                }
-                            }
-                        }
+                        val rawFile = File(finalPathStr)
+                        val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption)
 
                         val targetTree = DocumentFile.fromTreeUri(context, uri)
 
@@ -944,6 +958,7 @@ fun BatoTab(
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
+    var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
     var autoRetry by remember { mutableStateOf(true) }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
@@ -1098,7 +1113,8 @@ fun BatoTab(
                                     delay(2000)
                                 } else if (status == "success") {
                                     val path = result.getString("path")
-                                    val file = File(path)
+                                    val rawFile = File(path)
+                                    val file = MainActivity.processOutput(rawFile, outputType, packagingOption)
 
                                     if (outputUri != null) {
                                         val targetTree = DocumentFile.fromTreeUri(context, outputUri)
@@ -1186,6 +1202,7 @@ fun BatoTab(
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
                 }
             }
         }
@@ -1195,6 +1212,7 @@ fun BatoTab(
                 "Ridibooks" -> "Url (Book)"
                 "Naver Webtoon" -> "Comic ID"
                 "XToon" -> "Url (Chapter)"
+                "KakaoPage" -> "Url (Chapter)"
                 else -> "Url (Chapter/Series)"
             }
             OutlinedTextField(
@@ -1222,8 +1240,11 @@ fun BatoTab(
                                     "Ridibooks" -> "ridi"
                                     "Naver Webtoon" -> "naver"
                                     "XToon" -> "xtoon"
+                                    "KakaoPage" -> "kakao"
                                     else -> "bato"
                                 }
+
+                                val cookieToUse = if (type == "ridi") cookieInput else if (type == "kakao") kakaoCookieInput else ""
 
                                 if (type == "naver" && chapterInput.contains("-")) {
                                     // Range support: 1-10
@@ -1234,7 +1255,7 @@ fun BatoTab(
                                         if (start != null && end != null && start <= end) {
                                             for (no in start..end) {
                                                 val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
-                                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+                                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieToUse)
                                             }
                                         }
                                     }
@@ -1244,7 +1265,7 @@ fun BatoTab(
                                     } else {
                                         urlInput
                                     }
-                                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieInput)
+                                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieToUse)
                                 }
 
                                 withContext(Dispatchers.Main) {
@@ -1280,6 +1301,19 @@ fun BatoTab(
                     prefs.edit().putString("ridi_cookie", it).apply()
                 },
                 label = { Text("Cookie (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 3
+            )
+        }
+
+        if (selectedSource == "KakaoPage") {
+             OutlinedTextField(
+                value = kakaoCookieInput,
+                onValueChange = {
+                    kakaoCookieInput = it
+                    prefs.edit().putString("kakao_cookie", it).apply()
+                },
+                label = { Text("KakaoPage Cookie") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3
             )

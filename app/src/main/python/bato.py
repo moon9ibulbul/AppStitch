@@ -18,6 +18,7 @@ import SmartStitchCore as ssc
 import bridge
 import naver_downloader
 import xtoon_downloader
+import kakaopage_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -380,6 +381,22 @@ class BatoQueue:
                         })
                         added = 1
 
+                elif source_type == "kakao":
+                    info = kakaopage_downloader.get_chapter_info(url, cookie)
+                    title = info.get("title", "KakaoPage Item")
+
+                    if not any(q['url'] == url for q in queue):
+                        queue.append({
+                            "id": str(uuid.uuid4()),
+                            "url": url,
+                            "title": title,
+                            "status": "pending",
+                            "added_at": time.time(),
+                            "type": "kakao",
+                            "cookie": cookie
+                        })
+                        added = 1
+
                 if added > 0:
                     self._save(queue)
             except Exception as e:
@@ -504,6 +521,10 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         elif source_type == "xtoon":
             images = xtoon_downloader.get_xtoon_images(url)
             referer = url
+
+        elif source_type == "kakao":
+            images = kakaopage_downloader.get_images(url, item.get("cookie"))
+            referer = "https://page.kakao.com/"
 
         if len(images) == 0:
             raise Exception("No images found")
