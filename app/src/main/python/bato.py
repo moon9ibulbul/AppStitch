@@ -89,9 +89,34 @@ def fetch_html(url: str, cookie: str = None) -> str:
         charset = r.headers.get_content_charset() or "utf-8"
         return r.read().decode(charset, errors="replace")
 
-IMG_URL_RE = re.compile(r"https://[kn]\d+\.mb[^\"'\s<>]+", re.IGNORECASE)
+IMG_URL_RE = re.compile(r"https://(?:[kn]\d+\.mb|[a-z0-9]+\.zfs\d+\.com)[^\"'\s<>]+", re.IGNORECASE)
 
 def extract_bato_images(html: str) -> List[str]:
+    # 1. Try Qwik JSON (xbat.si)
+    qwik_re = re.search(r'<script type="qwik/json"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if qwik_re:
+        try:
+            content = qwik_re.group(1).replace("\\x3C", "<")
+            data = json.loads(content)
+            objs = data.get("objs", [])
+            images = []
+            for item in objs:
+                # Filter for chapter images (media/mbch)
+                if isinstance(item, str) and "/media/mbch/" in item:
+                    # Resolve relative URLs if any
+                    if item.startswith("//"):
+                        item = "https:" + item
+                    elif item.startswith("/"):
+                        item = "https://xbat.si" + item
+
+                    if item not in images:
+                        images.append(item)
+            if images:
+                return images
+        except Exception as e:
+            print(f"Bato Qwik extraction failed: {e}")
+
+    # 2. Fallback to Regex
     found = IMG_URL_RE.findall(html)
     seen = set()
     images = []
