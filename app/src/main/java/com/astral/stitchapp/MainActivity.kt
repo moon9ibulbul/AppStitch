@@ -1319,8 +1319,6 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         if (doc.isDirectory) {
             if (isRoot) {
                 for (child in doc.listFiles()) copy(child, base, false)
-            } else {
-                 for (child in doc.listFiles()) copy(child, base, false)
             }
             return
         }

@@ -512,8 +512,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             images = xtoon_downloader.get_xtoon_images(url)
             referer = url
 
-        if not images:
-            raise RuntimeError("No images found")
+        if len(images) == 0:
+            raise Exception("No images found")
 
         dl_dir.mkdir(parents=True, exist_ok=True)
 
@@ -541,6 +541,11 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                         success = MainActivity.convertWebpToPng(str(f.absolute()))
                         if success: f.unlink()
                     except: pass
+
+        # Verify integrity
+        final_files = [f for f in dl_dir.iterdir() if f.is_file()]
+        if len(final_files) < len(images):
+            raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
 
         queue_mgr.update_status(item_id, "stitching", 0.0)
 
