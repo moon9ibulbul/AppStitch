@@ -134,6 +134,46 @@ object TemplateManager {
 class MainActivity : ComponentActivity() {
     companion object {
         @JvmStatic
+        fun saveAsBmp(bitmap: Bitmap, file: File) {
+            val width = bitmap.width
+            val height = bitmap.height
+            val headerSize = 54
+            val imageSize = width * height * 4
+            val fileSize = headerSize + imageSize
+
+            val buffer = java.nio.ByteBuffer.allocate(headerSize)
+            buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+            // BMP Header
+            buffer.put(0x42.toByte()); buffer.put(0x4D.toByte()) // "BM"
+            buffer.putInt(fileSize)
+            buffer.putInt(0) // Reserved
+            buffer.putInt(headerSize) // Offset
+
+            // DIB Header
+            buffer.putInt(40) // Header size
+            buffer.putInt(width)
+            buffer.putInt(-height) // Negative height for top-down
+            buffer.putShort(1.toShort()) // Planes
+            buffer.putShort(32.toShort()) // BitCount
+            buffer.putInt(0) // Compression (BI_RGB)
+            buffer.putInt(imageSize)
+            buffer.putInt(0); buffer.putInt(0)
+            buffer.putInt(0); buffer.putInt(0)
+
+            val intPixels = IntArray(width * height)
+            bitmap.getPixels(intPixels, 0, width, 0, 0, width, height)
+            val pixelBuffer = java.nio.ByteBuffer.allocate(imageSize)
+            pixelBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            pixelBuffer.asIntBuffer().put(intPixels)
+
+            file.outputStream().use {
+                it.write(buffer.array())
+                it.write(pixelBuffer.array())
+            }
+        }
+
+        @JvmStatic
         fun convertWebpToPng(path: String): Boolean {
             val file = File(path)
             if (!file.exists()) return false
@@ -519,7 +559,7 @@ fun StitchSettingsUI(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Output")
             Spacer(Modifier.width(8.dp))
-            listOf(".png", ".jpg").forEach { t ->
+            listOf(".png", ".jpg", ".webp").forEach { t ->
                 FilterChip(selected = outputType == t, onClick = { onOutT(t) }, label = { Text(t) })
                 Spacer(Modifier.width(8.dp))
             }
@@ -851,6 +891,27 @@ fun StitchTab(
                         monitor.cancel()
 
                         val finalFile = File(finalPathStr)
+
+                        if (outputType == ".webp" && finalFile.isDirectory) {
+                            finalFile.listFiles()?.forEach { f ->
+                                if (f.isFile && f.extension.equals("bmp", ignoreCase = true)) {
+                                    val bitmap = BitmapFactory.decodeFile(f.absolutePath)
+                                    if (bitmap != null) {
+                                        val webpFile = File(f.parent, f.nameWithoutExtension + ".webp")
+                                        webpFile.outputStream().use { out ->
+                                            if (Build.VERSION.SDK_INT >= 30) {
+                                                bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                            } else {
+                                                bitmap.compress(Bitmap.CompressFormat.WEBP, 100, out)
+                                            }
+                                        }
+                                        bitmap.recycle()
+                                        f.delete()
+                                    }
+                                }
+                            }
+                        }
+
                         val targetTree = DocumentFile.fromTreeUri(context, uri)
 
                         if (targetTree != null && targetTree.canWrite()) {
@@ -1332,20 +1393,18 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         val lower = name.lowercase(Locale.ROOT)
         if (lower.endsWith(".webp")) {
             val baseName = name.dropLast(5)
-            val targetName = "$baseName.png"
+            val targetName = "$baseName.bmp"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_webp$index.png")
+                targetFile = java.io.File(base, "${baseName}_webp$index.bmp")
                 index += 1
             }
             val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
                 BitmapFactory.decodeStream(ins)
             }
             if (converted != null) {
-                targetFile.outputStream().use { outs ->
-                    converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                }
+                MainActivity.saveAsBmp(converted, targetFile)
                 converted.recycle()
             } else {
                  val fallbackFile = java.io.File(base, name)
@@ -1373,7 +1432,8 @@ fun copyToTree(
 
     fun inferredMime(file: java.io.File): String {
         return when (file.extension.lowercase(Locale.ROOT)) {
-            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga" -> "image/*"
+            "webp" -> "image/webp"
+            "png", "jpg", "jpeg", "bmp", "tiff", "tif", "tga" -> "image/*"
             "zip" -> "application/zip"
             "pdf" -> "application/pdf"
             else -> "application/octet-stream"
