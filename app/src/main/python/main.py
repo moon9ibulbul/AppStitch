@@ -8,7 +8,7 @@ import time
 def run_stitch_process(input_folder, split_height=5000, output_files_type=".png", batch_mode=False,
                        width_enforce_type=0, custom_width=720, senstivity=90, ignorable_pixels=0, scan_line_step=5,
                        low_ram=False, unit_images=20, output_folder=None, filename_template=None, progress_writer=None,
-                       enable_onnx=False, model_path=None):
+                       split_mode=0):
     """Runs the stitch process using the SS core functions, and updates the progress on the UI."""
 
     def helper_func(images, width_enforce_type, num_of_inputs, unit=False):
@@ -32,7 +32,7 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
         if progress_writer:
             progress_writer.step()
         del resized_images
-        final_images = ssc.split_image(combined_image, split_height, senstivity, ignorable_pixels, scan_line_step, enable_onnx, model_path)
+        final_images = ssc.split_image(combined_image, split_height, senstivity, ignorable_pixels, scan_line_step, split_mode)
         if progress_writer:
             progress_writer.step()
         print(f"Working - Saving Finalized {unit_str}Images!")

@@ -318,9 +318,6 @@ fun SettingsScreen(
     var bgProgress by remember { mutableStateOf(prefs.getBoolean("bg_progress", false)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
 
-    var isDownloadingModel by remember { mutableStateOf(false) }
-    var modelDownloadText by remember { mutableStateOf("Download SmartStitch 2.0 Model") }
-
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -431,38 +428,6 @@ fun SettingsScreen(
 
                 HorizontalDivider()
 
-                Text("SmartStitch Model")
-                Button(
-                    onClick = {
-                        isDownloadingModel = true
-                        modelDownloadText = "Downloading..."
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                val py = Python.getInstance()
-                                val bridge = py.getModule("bridge")
-                                val modelPath = File(context.filesDir, "detector.onnx").absolutePath
-                                val success = bridge.callAttr("download_model", modelPath).toBoolean()
-                                withContext(Dispatchers.Main) {
-                                    isDownloadingModel = false
-                                    modelDownloadText = if (success) "Download Complete" else "Download Failed"
-                                    Toast.makeText(context, modelDownloadText, Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    isDownloadingModel = false
-                                    modelDownloadText = "Error: ${e.message}"
-                                }
-                            }
-                        }
-                    },
-                    enabled = !isDownloadingModel,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(modelDownloadText)
-                }
-
-                HorizontalDivider()
-
                 Text("Rawloader Default Output:")
                 Button(onClick = { pickDefaultOutput.launch(null) }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (defaultOutputUri != null) "Change Folder" else "Set Default Folder")
@@ -524,7 +489,8 @@ fun StitchSettingsUI(
     ignorable: String, onIgn: (String)->Unit,
     scanStep: String, onScan: (String)->Unit,
     packaging: PackagingOption, onPack: (PackagingOption)->Unit,
-    engineMode: String, onEngineChange: (String)->Unit,
+    splitMode: Int, onSplitMode: (Int)->Unit,
+    lowRam: Boolean, onLowRam: (Boolean)->Unit,
     currentTemplate: Template?,
     availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
@@ -534,18 +500,24 @@ fun StitchSettingsUI(
     var showSaveDialog by remember { mutableStateOf(false) }
     var newTemplateName by remember { mutableStateOf("") }
     var expandedTemplates by remember { mutableStateOf(false) }
-    var expandedEngine by remember { mutableStateOf(false) }
+    var expandedMode by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Engine: ")
-            Spacer(Modifier.width(8.dp))
-            Box {
-                OutlinedButton(onClick = { expandedEngine = true }) { Text(engineMode) }
-                DropdownMenu(expanded = expandedEngine, onDismissRequest = { expandedEngine = false }) {
-                    DropdownMenuItem(text = { Text("SmartStitch 1.0 (Legacy)") }, onClick = { onEngineChange("SmartStitch 1.0 (Legacy)"); expandedEngine = false })
-                    DropdownMenuItem(text = { Text("SmartStitch 2.0 (AI/ONNX)") }, onClick = { onEngineChange("SmartStitch 2.0 (AI/ONNX)"); expandedEngine = false })
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Stitch Mode: ")
+                Spacer(Modifier.width(8.dp))
+                Box {
+                    OutlinedButton(onClick = { expandedMode = true }) { Text(if (splitMode == 1) "Direct (Fixed)" else "Smart (Legacy)") }
+                    DropdownMenu(expanded = expandedMode, onDismissRequest = { expandedMode = false }) {
+                        DropdownMenuItem(text = { Text("Smart (Legacy)") }, onClick = { onSplitMode(0); expandedMode = false })
+                        DropdownMenuItem(text = { Text("Direct (Fixed)") }, onClick = { onSplitMode(1); expandedMode = false })
+                    }
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Low RAM")
+                Switch(checked = lowRam, onCheckedChange = onLowRam)
             }
         }
 
@@ -713,7 +685,8 @@ fun StitchTab(
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
-    var engineMode by remember { mutableStateOf("SmartStitch 1.0 (Legacy)") }
+    var splitMode by remember { mutableIntStateOf(0) }
+    var lowRam by remember { mutableStateOf(false) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -737,7 +710,8 @@ fun StitchTab(
             put("ignorable", ignorable)
             put("scanStep", scanStep)
             put("packaging", packagingOption.name)
-            put("engineMode", engineMode)
+            put("splitMode", splitMode)
+            put("lowRam", lowRam)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -763,7 +737,8 @@ fun StitchTab(
             ignorable = s.optString("ignorable", "0")
             scanStep = s.optString("scanStep", "5")
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
-            engineMode = s.optString("engineMode", "SmartStitch 1.0 (Legacy)")
+            splitMode = s.optInt("splitMode", 0)
+            lowRam = s.optBoolean("lowRam", false)
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -774,7 +749,8 @@ fun StitchTab(
             ignorable = "0"
             scanStep = "5"
             packagingOption = PackagingOption.FOLDER
-            engineMode = "SmartStitch 1.0 (Legacy)"
+            splitMode = 0
+            lowRam = false
         }
     }
 
@@ -812,7 +788,8 @@ fun StitchTab(
             ignorable, { ignorable = it },
             scanStep, { scanStep = it },
             packagingOption, { packagingOption = it },
-            engineMode, { engineMode = it },
+            splitMode, { splitMode = it },
+            lowRam, { lowRam = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate
@@ -868,9 +845,6 @@ fun StitchTab(
                             }
                         }
 
-                        val isSS2 = engineMode.contains("2.0")
-                        val modelPath = File(context.filesDir, "detector.onnx").absolutePath
-
                         val finalPathStr = bridge.callAttr(
                             "run", cacheIn.absolutePath,
                             splitHeight.toIntOrNull()?:5000,
@@ -879,13 +853,13 @@ fun StitchTab(
                             sensitivity.toIntOrNull()?:90,
                             ignorable.toIntOrNull()?:0,
                             scanStep.toIntOrNull()?:5,
-                            false, 20,
+                            lowRam, 20,
                             dir.absolutePath,
                             customFileName.takeIf { it.isNotBlank() },
                             packagingOption == PackagingOption.ZIP,
                             packagingOption == PackagingOption.PDF,
                             progressFile.absolutePath, 0, true,
-                            isSS2, modelPath
+                            splitMode
                         ).toString()
 
                         monitor.cancel()
@@ -969,7 +943,7 @@ fun BatoTab(
 
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
-    var cookieInput by remember { mutableStateOf("") }
+    var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var autoRetry by remember { mutableStateOf(true) }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
@@ -989,7 +963,8 @@ fun BatoTab(
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
-    var engineMode by remember { mutableStateOf("SmartStitch 1.0 (Legacy)") }
+    var splitMode by remember { mutableIntStateOf(0) }
+    var lowRam by remember { mutableStateOf(false) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -1004,7 +979,8 @@ fun BatoTab(
             put("ignorable", ignorable)
             put("scanStep", scanStep)
             put("packaging", packagingOption.name)
-            put("engineMode", engineMode)
+            put("splitMode", splitMode)
+            put("lowRam", lowRam)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -1030,7 +1006,8 @@ fun BatoTab(
             ignorable = s.optString("ignorable", "0")
             scanStep = s.optString("scanStep", "5")
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
-            engineMode = s.optString("engineMode", "SmartStitch 1.0 (Legacy)")
+            splitMode = s.optInt("splitMode", 0)
+            lowRam = s.optBoolean("lowRam", false)
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -1041,7 +1018,8 @@ fun BatoTab(
             ignorable = "0"
             scanStep = "5"
             packagingOption = PackagingOption.FOLDER
-            engineMode = "SmartStitch 1.0 (Legacy)"
+            splitMode = 0
+            lowRam = false
         }
     }
 
@@ -1099,9 +1077,6 @@ fun BatoTab(
                             val py = Python.getInstance()
                             val bato = py.getModule("bato")
 
-                            val isSS2 = engineMode.contains("2.0")
-                            val modelPath = File(context.filesDir, "detector.onnx").absolutePath
-
                             val params = JSONObject().apply {
                                 put("splitHeight", splitHeight)
                                 put("outputType", outputType)
@@ -1112,8 +1087,8 @@ fun BatoTab(
                                 put("ignorable", ignorable)
                                 put("scanStep", scanStep)
                                 put("autoRetry", autoRetry)
-                                put("enableOnnx", isSS2)
-                                put("modelPath", modelPath)
+                                put("splitMode", splitMode)
+                                put("lowRam", lowRam)
                             }
                             val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
                             val result = JSONObject(resultStr)
@@ -1300,7 +1275,10 @@ fun BatoTab(
         if (selectedSource == "Ridibooks") {
              OutlinedTextField(
                 value = cookieInput,
-                onValueChange = { cookieInput = it },
+                onValueChange = {
+                    cookieInput = it
+                    prefs.edit().putString("ridi_cookie", it).apply()
+                },
                 label = { Text("Cookie (Optional)") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3
@@ -1329,7 +1307,8 @@ fun BatoTab(
             ignorable, { ignorable = it },
             scanStep, { scanStep = it },
             packagingOption, { packagingOption = it },
-            engineMode, { engineMode = it },
+            splitMode, { splitMode = it },
+            lowRam, { lowRam = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate

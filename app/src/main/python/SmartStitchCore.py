@@ -6,7 +6,6 @@ import subprocess
 import time
 import tempfile
 import shutil
-from OnnxSafety import BubbleDetector
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -195,7 +194,7 @@ def adjust_split_location(combined_pixels, split_height, split_offset, senstivit
     return new_split_height
 
 
-def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step, enable_onnx=False, model_path=None):
+def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_step, split_mode=0):
     """Splits the gaint combined img into small images passed on desired height."""
     st = time.time()
     split_height = int(split_height)
@@ -207,43 +206,17 @@ def split_image(combined_img, split_height, senstivity, ignorable_pixels, scan_s
     combined_pixels = np.array(combined_img.convert('L'))
     images = []
 
-    # Init detector
-    detector = None
-    if enable_onnx and model_path:
-        try:
-            detector = BubbleDetector(model_path)
-            if detector.net is None:
-                detector = None
-                print("Detector initialized but net is None (load failed).")
-        except Exception as e:
-            print(f"Failed to init detector: {e}")
-            detector = None
-
-    if enable_onnx and not detector:
-        print("SmartStitch 2.0 requested but model failed to load. Falling back to 1.0 logic.")
-
     # The spliting starts here (calls another function to decide where to slice)
     split_offset = 0
     while (split_offset + split_height) < max_height:
-        unsafe_ranges = []
-        if detector:
-            # Probe Window Logic: Crop only a small region around the potential cut
-            target_cut_y = split_offset + split_height
-            probe_y_start = max(split_offset, target_cut_y - 1500)
-            probe_y_end = min(max_height, target_cut_y + 500)
+        if split_mode == 1:
+            # Direct Mode: Hard cut
+            new_split_height = split_height
+        else:
+            # Smart Mode (Legacy)
+            new_split_height = adjust_split_location(combined_pixels, split_height, split_offset, senstivity,
+                                                     ignorable_pixels, scan_step)
 
-            # Ensure we have a valid crop height
-            if probe_y_end > probe_y_start:
-                try:
-                    crop_img = combined_img.crop((0, probe_y_start, max_width, probe_y_end))
-                    ranges_relative = detector.detect(crop_img)
-                    # Convert relative coordinates to global
-                    unsafe_ranges = [(s + probe_y_start, e + probe_y_start) for s, e in ranges_relative]
-                except Exception as e:
-                    print(f"Detection failed: {e}")
-
-        new_split_height = adjust_split_location(combined_pixels, split_height, split_offset, senstivity,
-                                                 ignorable_pixels, scan_step, unsafe_ranges)
         split_image = pil.new('RGB', (max_width, new_split_height))
         split_image.paste(combined_img, (0, -split_offset))
         split_offset += new_split_height
