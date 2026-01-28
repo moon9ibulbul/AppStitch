@@ -242,7 +242,7 @@ def _index_to_letters(idx):
     return ''.join(reversed(letters)) or 'a'
 
 
-def save_data(data, foldername, outputformat, offset=0, progress_func=None, filename_template=None, parent_name=None):
+def save_data(data, foldername, outputformat, offset=0, progress_func=None, filename_template=None, parent_name=None, quality=100):
     """Saves the given images/date in the output folder."""
     st = time.time()
     new_folder = str(foldername)
@@ -274,7 +274,7 @@ def save_data(data, foldername, outputformat, offset=0, progress_func=None, file
         if progress_func is not None:
             progress_func(len(data))
         filename = build_name(imageIndex)
-        image.save(os.path.join(new_folder, filename), quality=100)
+        image.save(os.path.join(new_folder, filename), quality=quality)
         imageIndex += 1
     print(f"save_data: {time.time() - st}")
     return imageIndex - 1
