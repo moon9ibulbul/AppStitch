@@ -1,0 +1,410 @@
+// ==UserScript==
+// @name         KakaoPage Image Grabber (With Cookie Support)
+// @namespace    astralexpress-helper
+// @match        https://page.kakao.com/content/*/viewer/*
+// @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      bff-page.kakao.com
+// @connect      page-edge.kakao.com
+// @connect      kakao.com
+// @version      2.0.0
+// @author       Astral (Modified)
+// @description  Deteksi respons GraphQL KakaoPage, ambil secureUrl, unduh dengan cookie support, dan kemas ZIP.
+// @require      https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  // ====== State ======
+  const STATE = {
+    items: new Map(),
+    orderedNos: [],
+    busy: false,
+    log: [],
+    titleHint: null,
+    cookies: GM_getValue('kakao_cookies', '') || '',
+  };
+
+  const BFF_HOST = 'bff-page.kakao.com';
+  const GRAPHQL_PATH = '/graphql';
+
+  // ====== UI ======
+  const ui = (() => {
+    const box = document.createElement('div');
+    box.id = 'kakao-ig-box';
+    box.innerHTML = `
+      <div class="kig-head">KakaoPage Grabber v2</div>
+      <div class="kig-body">
+        <div class="kig-row"><b>Status:</b> <span id="kig-status">Menunggu data…</span></div>
+        <div class="kig-row"><b>Terdeteksi:</b> <span id="kig-count">0</span> gambar</div>
+        <div class="kig-progress"><div class="kig-bar" id="kig-bar"></div></div>
+        
+        <div class="kig-section">
+          <label for="kig-cookie">Cookie (opsional):</label>
+          <textarea id="kig-cookie" class="kig-textarea" placeholder="Paste seluruh cookie string di sini..."></textarea>
+          <button id="kig-save-cookie" class="kig-small-btn">Simpan Cookie</button>
+        </div>
+        
+        <div class="kig-actions">
+          <button id="kig-dlzip" disabled>Download ZIP</button>
+          <button id="kig-clear">Clear</button>
+        </div>
+        <div class="kig-mini" id="kig-mini"></div>
+      </div>
+    `;
+    document.documentElement.appendChild(box);
+
+    const css = `
+      #kakao-ig-box{
+        position:fixed; right:12px; bottom:12px; z-index:999999;
+        width: 280px; max-height: 600px; overflow-y: auto;
+        background:#151821; color:#e6e9ef; border:1px solid #2a2d39;
+        border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.35); 
+        font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      }
+      #kakao-ig-box .kig-head{
+        padding:10px 12px; font-weight:700; background:#10131b; 
+        border-bottom:1px solid #2a2d39; border-radius:14px 14px 0 0;
+      }
+      #kakao-ig-box .kig-body{ padding:10px 12px; }
+      #kakao-ig-box .kig-row{ margin:6px 0; }
+      #kakao-ig-box .kig-section{
+        background:#0f121a; border:1px solid #222636; border-radius:8px;
+        padding:8px; margin:8px 0;
+      }
+      #kakao-ig-box .kig-section label{
+        display:block; font-weight:600; margin-bottom:4px; font-size:12px;
+      }
+      #kakao-ig-box .kig-textarea{
+        width:100%; height:60px; border:1px solid #2a2d39; border-radius:6px;
+        background:#0e1118; color:#e6e9ef; padding:6px; font-size:11px;
+        font-family: monospace; resize:vertical; box-sizing:border-box;
+      }
+      #kakao-ig-box .kig-textarea:focus{
+        outline:none; border-color:#67d34a;
+      }
+      #kakao-ig-box .kig-small-btn{
+        width:100%; padding:6px 8px; margin-top:4px; border-radius:6px;
+        border:1px solid #2a2d39; background:#1b2030; color:#e6e9ef;
+        cursor:pointer; font-size:12px;
+      }
+      #kakao-ig-box .kig-small-btn:hover{ background:#242a38; }
+      #kakao-ig-box .kig-actions{ display:flex; gap:8px; margin-top:10px; }
+      #kakao-ig-box button{
+        flex:1; padding:8px 10px; border-radius:10px; border:1px solid #2a2d39;
+        background:#1b2030; color:#e6e9ef; cursor:pointer; font-weight:600;
+      }
+      #kakao-ig-box button:hover:not([disabled]){ background:#242a38; }
+      #kakao-ig-box button[disabled]{ opacity:.5; cursor:not-allowed; }
+      #kakao-ig-box .kig-progress{
+        height:8px; background:#0e1118; border:1px solid #2a2d39; 
+        border-radius:999px; overflow:hidden; margin:8px 0 2px;
+      }
+      #kakao-ig-box .kig-bar{
+        height:100%; width:0%; background:#67d34a; transition:width .2s ease;
+      }
+      #kakao-ig-box .kig-mini{
+        max-height:150px; overflow:auto; background:#0f121a; 
+        border:1px solid #222636; border-radius:8px; padding:6px; 
+        margin-top:8px; font-size:12px;
+      }
+      #kig-mini .line{ 
+        opacity:.85; white-space:nowrap; overflow:hidden; 
+        text-overflow:ellipsis; margin:2px 0;
+      }
+      #kig-mini .line.success{ color:#67d34a; }
+      #kig-mini .line.error{ color:#f38ba8; }
+    `;
+    if (typeof GM_addStyle === 'function') GM_addStyle(css);
+    else {
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.appendChild(style);
+    }
+
+    const $status = box.querySelector('#kig-status');
+    const $count  = box.querySelector('#kig-count');
+    const $bar    = box.querySelector('#kig-bar');
+    const $mini   = box.querySelector('#kig-mini');
+    const $dlzip  = box.querySelector('#kig-dlzip');
+    const $clear  = box.querySelector('#kig-clear');
+    const $cookie = box.querySelector('#kig-cookie');
+    const $saveCookie = box.querySelector('#kig-save-cookie');
+
+    // Load saved cookie
+    $cookie.value = STATE.cookies;
+
+    $saveCookie.addEventListener('click', () => {
+      const cookieStr = $cookie.value.trim();
+      STATE.cookies = cookieStr;
+      GM_setValue('kakao_cookies', cookieStr);
+      if (cookieStr) {
+        setStatus('✓ Cookie disimpan');
+        log('Cookie berhasil disimpan ke browser');
+      } else {
+        setStatus('Cookie dihapus');
+        log('Cookie dihapus');
+      }
+    });
+
+    $dlzip.addEventListener('click', () => zipAndSave());
+    $clear.addEventListener('click', () => {
+      STATE.items.clear();
+      STATE.orderedNos = [];
+      STATE.titleHint = null;
+      updateCount();
+      setStatus('Dibersihkan. Menunggu data…');
+      $dlzip.disabled = true;
+      progress(0);
+    });
+
+    function setStatus(msg){ $status.textContent = msg; }
+    function updateCount(){ 
+      $count.textContent = String(STATE.items.size); 
+      $dlzip.disabled = STATE.items.size === 0; 
+    }
+    function progress(p){ $bar.style.width = Math.max(0, Math.min(100, p)) + '%'; }
+    function log(line, type = 'normal'){
+      STATE.log.push(line);
+      const div = document.createElement('div');
+      div.className = 'line ' + (type || 'normal');
+      div.textContent = line;
+      $mini.appendChild(div);
+      while ($mini.childNodes.length > 100) $mini.removeChild($mini.firstChild);
+      $mini.scrollTop = $mini.scrollHeight;
+    }
+
+    return { setStatus, updateCount, progress, log, $dlzip };
+  })();
+
+  // ====== Helpers ======
+  function sanitizeFilename(name) {
+    return (name || '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'kakao';
+  }
+
+  function safeParse(jsonText) {
+    try { return JSON.parse(jsonText); } catch { return null; }
+  }
+
+  function extractFilesFromGraphQL(jsonObj) {
+    try {
+      if (!jsonObj || !jsonObj.data) return null;
+      const data = jsonObj.data;
+
+      let title = null;
+      if (data.viewerInfo?.item?.title) title = data.viewerInfo.item.title;
+
+      const vd = data.viewerInfo?.viewerData;
+      if (vd && vd.type === 'ImageViewerData') {
+        const files = vd.imageDownloadData?.files;
+        if (Array.isArray(files) && files.length) {
+          return { title, files: files.map(f => ({ no: f.no, url: f.secureUrl })) };
+        }
+      }
+
+      const stack = [data];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (cur && typeof cur === 'object') {
+          if (cur.type === 'ImageViewerData' && cur.imageDownloadData?.files?.length) {
+            const files = cur.imageDownloadData.files.map(f => ({ no: f.no, url: f.secureUrl }));
+            return { title, files };
+          }
+          for (const k of Object.keys(cur)) {
+            if (cur[k] && typeof cur[k] === 'object') stack.push(cur[k]);
+          }
+        }
+      }
+    } catch {}
+    return null;
+  }
+
+  function addFiles(list) {
+    let added = 0;
+    for (const { no, url } of list) {
+      if (!no || !url) continue;
+      const key = Number(no);
+      if (!STATE.items.has(key)) {
+        STATE.items.set(key, { no: key, url: url });
+        added++;
+      }
+    }
+    STATE.orderedNos = Array.from(STATE.items.keys()).sort((a, b) => a - b);
+    ui.updateCount();
+    if (added) ui.log(`+${added} file terdeteksi (total ${STATE.items.size})`, 'success');
+  }
+
+  function detectAndIngest(text) {
+    if (!text || text.indexOf('"ImageViewerData"') === -1 || text.indexOf('"imageDownloadData"') === -1) return;
+    const obj = safeParse(text);
+    if (!obj) return;
+    const result = extractFilesFromGraphQL(obj);
+    if (result && result.files?.length) {
+      if (result.title) STATE.titleHint = result.title;
+      addFiles(result.files);
+      ui.setStatus('Data terdeteksi. Siap unduh ZIP.');
+    }
+  }
+
+  // ====== Network hooks ======
+  const _fetch = window.fetch;
+  window.fetch = async function(input, init){
+    try {
+      const url = (typeof input === 'string') ? input : (input?.url || '');
+      const isTarget = url.includes(BFF_HOST) && url.includes(GRAPHQL_PATH);
+      const resp = await _fetch.apply(this, arguments);
+      if (isTarget) {
+        resp.clone().text().then(detectAndIngest).catch(()=>{});
+      }
+      return resp;
+    } catch (e) {
+      return _fetch.apply(this, arguments);
+    }
+  };
+
+  (function(){
+    const origOpen = XMLHttpRequest.prototype.open;
+    const origSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url){
+      this._kakaoTarget = (typeof url === 'string' && url.includes(BFF_HOST) && url.includes(GRAPHQL_PATH));
+      return origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(){
+      if (this._kakaoTarget) {
+        this.addEventListener('readystatechange', function(){
+          try{
+            if (this.readyState === 4 && (this.status >= 200 && this.status < 300)) {
+              const txt = this.responseText;
+              detectAndIngest(txt);
+            }
+          } catch {}
+        });
+      }
+      return origSend.apply(this, arguments);
+    };
+  })();
+
+  // ====== Downloader & ZIP ======
+  function httpGetBinary(url) {
+    return new Promise((resolve, reject) => {
+      const headers = {};
+      if (STATE.cookies) {
+        headers['Cookie'] = STATE.cookies;
+      }
+
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        headers,
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        onload: (res) => {
+          if (res.status >= 200 && res.status < 300) {
+            resolve(new Uint8Array(res.response));
+          } else {
+            reject(new Error('HTTP ' + res.status));
+          }
+        },
+        onerror: () => reject(new Error('Network error')),
+        ontimeout: () => reject(new Error('Timeout (30s)')),
+      });
+    });
+  }
+
+  async function zipAndSave() {
+    if (STATE.busy || STATE.items.size === 0) return;
+    STATE.busy = true;
+    ui.$dlzip.disabled = true;
+    ui.setStatus('Mengunduh gambar…');
+    ui.progress(0);
+
+    const filesForZip = {};
+    const total = STATE.orderedNos.length;
+    let done = 0;
+    let failed = 0;
+
+    const concurrency = 3;
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < total) {
+        const idx = cursor++;
+        const no = STATE.orderedNos[idx];
+        const { url } = STATE.items.get(no);
+        const fname = `${no}.jpeg`;
+
+        try {
+          const data = await httpGetBinary(url);
+          filesForZip[fname] = data;
+          ui.log(`✓ ${fname} (${(data.byteLength/1024).toFixed(1)}KB)`, 'success');
+        } catch (err) {
+          ui.log(`✗ ${fname}: ${err.message || err}`, 'error');
+          failed++;
+        } finally {
+          done++;
+          ui.progress(Math.round((done / total) * 100));
+        }
+      }
+    }
+
+    const workers = Array.from({ length: concurrency }, () => worker());
+    await Promise.all(workers);
+
+    if (Object.keys(filesForZip).length === 0) {
+      ui.setStatus('Gagal: Tidak ada gambar yang berhasil didownload');
+      STATE.busy = false;
+      ui.$dlzip.disabled = false;
+      return;
+    }
+
+    ui.setStatus('Membuat ZIP…');
+    ui.log(`ZIP Progress: ${done - failed}/${total} berhasil`);
+
+    const entries = {};
+    for (const name of Object.keys(filesForZip)) {
+      entries[name] = [filesForZip[name], { level: 0 }];
+    }
+    const zipped = fflate.zipSync(entries, { level: 0 });
+    const blob = new Blob([zipped], { type: 'application/zip' });
+
+    const docTitle = sanitizeFilename(STATE.titleHint || document.title || 'kakao');
+    const zipName = `${docTitle}.zip`;
+
+    try {
+      if (navigator && navigator.share && navigator.canShare && navigator.canShare({ files: [] })) {
+        throw new Error('share-unsupported');
+      }
+      throw new Error('force-anchor');
+    } catch {
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = zipName;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        a.remove();
+      }, 2000);
+    }
+
+    ui.setStatus(`✓ Selesai: ${zipName}`);
+    ui.log(`ZIP berhasil dibuat: ${zipName}`);
+    STATE.busy = false;
+    ui.$dlzip.disabled = false;
+  }
+
+  const titleObs = new MutationObserver(() => {
+    if (!STATE.titleHint) {
+      STATE.titleHint = document.title;
+    }
+  });
+  titleObs.observe(document.querySelector('title') || document.documentElement, { childList: true, subtree: true });
+
+  ui.setStatus('Menunggu data… Buka episode terlebih dahulu');
+  ui.log('Script siap. Paste cookie jika diperlukan.');
+})();
