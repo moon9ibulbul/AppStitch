@@ -382,7 +382,9 @@ class BatoQueue:
                         added = 1
 
                 elif source_type == "kakao":
-                    title = "KakaoPage Item"
+                    info = kakaopage_downloader.get_chapter_info(url, cookie)
+                    title = info.get("title", "KakaoPage Item")
+
                     if not any(q['url'] == url for q in queue):
                         queue.append({
                             "id": str(uuid.uuid4()),

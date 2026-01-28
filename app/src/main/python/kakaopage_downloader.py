@@ -428,7 +428,7 @@ def extract_ids_from_url(url):
         return int(m.group(1)), int(m.group(2))
     return None, None
 
-def get_images(url, cookie=None):
+def _fetch_data(url, cookie=None):
     headers = {
         "User-Agent": USER_AGENT,
         "Referer": "https://page.kakao.com/",
@@ -440,11 +440,8 @@ def get_images(url, cookie=None):
 
     series_id, product_id = extract_ids_from_url(url)
 
-    # Fallback if URL parsing fails but we have at least one ID?
-    # Usually the URL structure is consistent.
     if not product_id:
-        print(f"KakaoPage: Could not parse IDs from URL: {url}")
-        return []
+        raise ValueError(f"KakaoPage: Could not parse IDs from URL: {url}")
 
     payload = {
         "query": QUERY,
@@ -454,15 +451,28 @@ def get_images(url, cookie=None):
         }
     }
 
+    response = requests.post(
+        "https://bff-page.kakao.com/graphql",
+        json=payload,
+        headers=headers,
+        timeout=30
+    )
+    response.raise_for_status()
+    return response.json()
+
+def get_chapter_info(url, cookie=None):
     try:
-        response = requests.post(
-            "https://bff-page.kakao.com/graphql",
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-        response.raise_for_status()
-        data = response.json()
+        data = _fetch_data(url, cookie)
+        viewer_info = data.get("data", {}).get("viewerInfo", {})
+        title = viewer_info.get("item", {}).get("title", "KakaoPage Item")
+        return {"title": title}
+    except Exception as e:
+        print(f"KakaoPage Info Error: {e}")
+        return {"title": "KakaoPage Item"}
+
+def get_images(url, cookie=None):
+    try:
+        data = _fetch_data(url, cookie)
 
         # Traverse JSON
         viewer_info = data.get("data", {}).get("viewerInfo", {})
