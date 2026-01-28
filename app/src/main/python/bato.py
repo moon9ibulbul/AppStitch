@@ -9,10 +9,9 @@ import shutil
 import time
 import uuid
 import fcntl
+import requests
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
 from typing import List, Dict, Optional, Tuple
 
 import SmartStitchCore as ssc
@@ -53,16 +52,6 @@ class FileLock:
 def sanitize_filename(name: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", name).strip()
 
-def safe_urlopen(req, timeout=30):
-    try:
-        return urlopen(req, timeout=timeout)
-    except HTTPError as e:
-        if e.code == 403:
-            try:
-                print(f"403 Error Body: {e.read().decode()}")
-            except: pass
-        raise e
-
 # ============================================================
 # BATO LOGIC
 # ============================================================
@@ -84,10 +73,11 @@ def fetch_html(url: str, cookie: str = None) -> str:
     if cookie:
         headers["Cookie"] = cookie
 
-    req = Request(url, headers=headers)
-    with safe_urlopen(req, timeout=30) as r:
-        charset = r.headers.get_content_charset() or "utf-8"
-        return r.read().decode(charset, errors="replace")
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    # Handle encoding
+    response.encoding = response.apparent_encoding
+    return response.text
 
 IMG_URL_RE = re.compile(r"https://(?:[kn]\d+\.mb|[a-z0-9]+\.zfs\d+\.com)[^\"'\s<>]+", re.IGNORECASE)
 
@@ -147,7 +137,7 @@ def extract_title_from_html(html: str) -> str:
         return sanitize_filename(t)
     return ""
 
-def download_image(url: str, dest: Path, idx: int, cookie: str = None, referer: str = None):
+def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None):
     url = normalize_image_host(url)
     path = urlparse(url).path
     _, ext = os.path.splitext(path)
@@ -166,11 +156,11 @@ def download_image(url: str, dest: Path, idx: int, cookie: str = None, referer: 
 
     for attempt in range(3):
         try:
-            req = Request(url, headers=headers)
-            with safe_urlopen(req, timeout=30) as r:
-                content = r.read()
-                if len(content) == 0: raise IOError("Empty content")
-                target.write_bytes(content)
+            with session.get(url, headers=headers, timeout=30, stream=True) as r:
+                r.raise_for_status()
+                with open(target, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
             return
         except Exception as e:
             if attempt == 2:
@@ -244,11 +234,14 @@ def fetch_ridi_data(book_id: str, cookie: str) -> Dict:
     if cookie:
         headers["Cookie"] = cookie
 
-    data = json.dumps({"book_id": str(book_id)}).encode('utf-8')
-    req = Request(RIDI_API_URL, data=data, headers=headers, method='POST')
-
-    with safe_urlopen(req, timeout=30) as r:
-        return json.load(r)
+    data = json.dumps({"book_id": str(book_id)})
+    try:
+        response = requests.post(RIDI_API_URL, data=data, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        # Mimic urllib error handling slightly or just propagate
+        raise RuntimeError(f"Ridi Fetch Error: {e}")
 
 def process_ridi_item(book_id: str, cookie: str) -> Tuple[str, List[str]]:
     # Returns (Title, List of Image URLs)
@@ -518,18 +511,21 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         dl_dir.mkdir(parents=True, exist_ok=True)
 
         total = len(images)
-        for i, img in enumerate(images, 1):
-            action = queue_mgr.check_action(item_id)
-            if action == "paused":
-                return json.dumps({"status": "paused"})
-            if action == "removed":
-                if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
-                return json.dumps({"status": "removed"})
 
-            download_image(img, dl_dir, i, cookie=item.get("cookie"), referer=referer)
+        # Use a session for the loop
+        with requests.Session() as session:
+            for i, img in enumerate(images, 1):
+                action = queue_mgr.check_action(item_id)
+                if action == "paused":
+                    return json.dumps({"status": "paused"})
+                if action == "removed":
+                    if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
+                    return json.dumps({"status": "removed"})
 
-            if i % 5 == 0:
-                queue_mgr.update_status(item_id, "downloading", i/total)
+                download_image(img, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer)
+
+                if i % 5 == 0:
+                    queue_mgr.update_status(item_id, "downloading", i/total)
 
         downloaded_files = list(dl_dir.iterdir())
 
@@ -563,13 +559,12 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             senstivity=int(params.get("sensitivity", 90)),
             ignorable_pixels=int(params.get("ignorable", 0)),
             scan_line_step=int(params.get("scanStep", 5)),
-            low_ram=False,
+            low_ram=bool(params.get("lowRam", False)),
             unit_images=20,
             zip_output=params.get("packaging") == "ZIP",
             pdf_output=params.get("packaging") == "PDF",
             mark_done=False,
-            enable_onnx=params.get("enableOnnx", False),
-            model_path=params.get("modelPath", None)
+            split_mode=int(params.get("splitMode", 0))
         )
 
         shutil.rmtree(dl_dir, ignore_errors=True)

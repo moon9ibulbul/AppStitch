@@ -1,10 +1,6 @@
 import os, json, shutil
 import SmartStitchCore as ssc
 import main as stitch
-from OnnxSafety import download_model as dm
-
-def download_model(save_path):
-    return dm(save_path)
 
 class ProgressWriter:
     def __init__(self, path, offset=0):
@@ -80,8 +76,7 @@ def run(input_folder,
         progress_path=None,
         progress_offset=0,
         mark_done=True,
-        enable_onnx=False,
-        model_path=None):
+        split_mode=0):
 
     if output_files_type == ".webp":
         output_files_type = ".bmp"
@@ -111,8 +106,7 @@ def run(input_folder,
         output_folder=resolved_output_folder,
         filename_template=filename_template,
         progress_writer=writer,
-        enable_onnx=enable_onnx,
-        model_path=model_path
+        split_mode=split_mode
     )
 
     writer.finish(mark_done)
