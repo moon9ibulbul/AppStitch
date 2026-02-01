@@ -196,7 +196,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
-        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption): File {
+        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100): File {
             var resultFile = finalFile
             if (outputType == ".webp" && resultFile.isDirectory) {
                 resultFile.listFiles()?.forEach { f ->
@@ -206,9 +206,13 @@ class MainActivity : ComponentActivity() {
                             val webpFile = File(f.parent, f.nameWithoutExtension + ".webp")
                             webpFile.outputStream().use { out ->
                                 if (Build.VERSION.SDK_INT >= 30) {
-                                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                    if (quality == 100) {
+                                        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                    } else {
+                                        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality, out)
+                                    }
                                 } else {
-                                    bitmap.compress(Bitmap.CompressFormat.WEBP, 100, out)
+                                    bitmap.compress(Bitmap.CompressFormat.WEBP, quality, out)
                                 }
                             }
                             bitmap.recycle()
@@ -299,7 +303,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.3.0") },
+                    title = { Text("AstralStitch v1.4.0") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -524,6 +528,7 @@ fun StitchSettingsUI(
     packaging: PackagingOption, onPack: (PackagingOption)->Unit,
     splitMode: Int, onSplitMode: (Int)->Unit,
     lowRam: Boolean, onLowRam: (Boolean)->Unit,
+    quality: Int, onQuality: (Int)->Unit,
     currentTemplate: Template?,
     availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
@@ -548,10 +553,11 @@ fun StitchSettingsUI(
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Low RAM")
-                Switch(checked = lowRam, onCheckedChange = onLowRam)
-            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Low RAM")
+            Switch(checked = lowRam, onCheckedChange = onLowRam)
         }
 
         OutlinedTextField(
@@ -567,6 +573,18 @@ fun StitchSettingsUI(
             listOf(".png", ".jpg", ".webp").forEach { t ->
                 FilterChip(selected = outputType == t, onClick = { onOutT(t) }, label = { Text(t) })
                 Spacer(Modifier.width(8.dp))
+            }
+        }
+
+        if (outputType == ".jpg" || outputType == ".webp") {
+            Column {
+                Text("Quality: $quality%")
+                Slider(
+                    value = quality.toFloat(),
+                    onValueChange = { onQuality(it.toInt()) },
+                    valueRange = 50f..100f,
+                    steps = 49
+                )
             }
         }
 
@@ -720,6 +738,7 @@ fun StitchTab(
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
     var splitMode by remember { mutableIntStateOf(0) }
     var lowRam by remember { mutableStateOf(false) }
+    var quality by remember { mutableIntStateOf(100) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -745,6 +764,7 @@ fun StitchTab(
             put("packaging", packagingOption.name)
             put("splitMode", splitMode)
             put("lowRam", lowRam)
+            put("quality", quality)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -772,6 +792,7 @@ fun StitchTab(
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
             splitMode = s.optInt("splitMode", 0)
             lowRam = s.optBoolean("lowRam", false)
+            quality = s.optInt("quality", 100)
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -784,6 +805,7 @@ fun StitchTab(
             packagingOption = PackagingOption.FOLDER
             splitMode = 0
             lowRam = false
+            quality = 100
         }
     }
 
@@ -823,6 +845,7 @@ fun StitchTab(
             packagingOption, { packagingOption = it },
             splitMode, { splitMode = it },
             lowRam, { lowRam = it },
+            quality, { quality = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate
@@ -892,13 +915,14 @@ fun StitchTab(
                             packagingOption == PackagingOption.ZIP,
                             packagingOption == PackagingOption.PDF,
                             progressFile.absolutePath, 0, true,
-                            splitMode
+                            splitMode,
+                            quality
                         ).toString()
 
                         monitor.cancel()
 
                         val rawFile = File(finalPathStr)
-                        val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption)
+                        val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
 
                         val targetTree = DocumentFile.fromTreeUri(context, uri)
 
@@ -980,6 +1004,7 @@ fun BatoTab(
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
     var splitMode by remember { mutableIntStateOf(0) }
     var lowRam by remember { mutableStateOf(false) }
+    var quality by remember { mutableIntStateOf(100) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -996,6 +1021,7 @@ fun BatoTab(
             put("packaging", packagingOption.name)
             put("splitMode", splitMode)
             put("lowRam", lowRam)
+            put("quality", quality)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -1023,6 +1049,7 @@ fun BatoTab(
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
             splitMode = s.optInt("splitMode", 0)
             lowRam = s.optBoolean("lowRam", false)
+            quality = s.optInt("quality", 100)
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -1035,6 +1062,7 @@ fun BatoTab(
             packagingOption = PackagingOption.FOLDER
             splitMode = 0
             lowRam = false
+            quality = 100
         }
     }
 
@@ -1104,6 +1132,7 @@ fun BatoTab(
                                 put("autoRetry", autoRetry)
                                 put("splitMode", splitMode)
                                 put("lowRam", lowRam)
+                                put("quality", quality)
                             }
                             val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
                             val result = JSONObject(resultStr)
@@ -1114,7 +1143,7 @@ fun BatoTab(
                                 } else if (status == "success") {
                                     val path = result.getString("path")
                                     val rawFile = File(path)
-                                    val file = MainActivity.processOutput(rawFile, outputType, packagingOption)
+                                    val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
 
                                     if (outputUri != null) {
                                         val targetTree = DocumentFile.fromTreeUri(context, outputUri)
@@ -1343,6 +1372,7 @@ fun BatoTab(
             packagingOption, { packagingOption = it },
             splitMode, { splitMode = it },
             lowRam, { lowRam = it },
+            quality, { quality = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate

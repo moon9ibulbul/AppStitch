@@ -8,7 +8,7 @@ import time
 def run_stitch_process(input_folder, split_height=5000, output_files_type=".png", batch_mode=False,
                        width_enforce_type=0, custom_width=720, senstivity=90, ignorable_pixels=0, scan_line_step=5,
                        low_ram=False, unit_images=20, output_folder=None, filename_template=None, progress_writer=None,
-                       split_mode=0):
+                       split_mode=0, quality=100):
     """Runs the stitch process using the SS core functions, and updates the progress on the UI."""
 
     def helper_func(images, width_enforce_type, num_of_inputs, unit=False):
@@ -72,13 +72,15 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
                     save_offset = ssc.save_data(final_images[:-1], path[1], output_files_type, offset=save_offset,
                                                 progress_func=progress_writer.wrap_saver(len(final_images) - 1) if progress_writer else None,
                                                 filename_template=filename_template,
-                                                parent_name=parent_folder_name)
+                                                parent_name=parent_folder_name,
+                                                quality=quality)
                 else:
                     first_image = None
                     save_offset = ssc.save_data(final_images, path[1], output_files_type, offset=save_offset,
                                                 progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None,
                                                 filename_template=filename_template,
-                                                parent_name=parent_folder_name)
+                                                parent_name=parent_folder_name,
+                                                quality=quality)
                 del final_images
                 if next_offset is None:
                     print("Done!")
@@ -101,7 +103,8 @@ def run_stitch_process(input_folder, split_height=5000, output_files_type=".png"
                     output_files_type,
                     progress_func=progress_writer.wrap_saver(len(final_images)) if progress_writer else None,
                     filename_template=filename_template,
-                    parent_name=parent_folder_name
+                    parent_name=parent_folder_name,
+                    quality=quality
                 )
                 print(path[1] + " Has Been Successfully Complete.")
                 print("Process Ended")
@@ -128,6 +131,8 @@ def main():
                         help='Sets the value of Ignorable Border Pixels')
     parser.add_argument("--scan_line_step", "-sl", type=int, default=5, choices=range(1, 21), metavar="[1-20]",
                         help='Sets the value of Scan Line Step')
+    parser.add_argument("--quality", "-q", type=int, default=100, choices=range(1, 101), metavar="[1-100]",
+                        help='Sets the output image quality (1-100)')
     parser.add_argument("--output_folder", "-o", type=str, default=None,
                         help='Sets the path of Output Folder. Defaults to INPUT + " [Stitched]"')
     parser.add_argument("--zip_output", "-z", dest='zip_output', action='store_true',
@@ -146,7 +151,8 @@ def main():
     start_time = time.time()
     run_stitch_process(args.input_folder, args.split_height, args.output_files_type, args.batch_mode,
                        args.width_enforce_type, args.custom_width, args.senstivity, args.ignorable_pixels,
-                       args.scan_line_step, args.low_ram, args.unit_images, output_folder)
+                       args.scan_line_step, args.low_ram, args.unit_images, output_folder,
+                       quality=args.quality)
     if args.zip_output:
         zip_path = shutil.make_archive(
             output_folder,

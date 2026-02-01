@@ -76,7 +76,8 @@ def run(input_folder,
         progress_path=None,
         progress_offset=0,
         mark_done=True,
-        split_mode=0):
+        split_mode=0,
+        quality=100):
 
     if output_files_type == ".webp":
         output_files_type = ".bmp"
@@ -106,7 +107,8 @@ def run(input_folder,
         output_folder=resolved_output_folder,
         filename_template=filename_template,
         progress_writer=writer,
-        split_mode=split_mode
+        split_mode=split_mode,
+        quality=quality
     )
 
     writer.finish(mark_done)

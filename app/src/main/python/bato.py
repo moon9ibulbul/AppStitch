@@ -585,7 +585,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             zip_output=params.get("packaging") == "ZIP",
             pdf_output=params.get("packaging") == "PDF",
             mark_done=False,
-            split_mode=int(params.get("splitMode", 0))
+            split_mode=int(params.get("splitMode", 0)),
+            quality=int(params.get("quality", 100))
         )
 
         shutil.rmtree(dl_dir, ignore_errors=True)
