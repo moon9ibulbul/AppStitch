@@ -59,6 +59,7 @@ jobs:
       # Upload artifact APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: StitchApp-debug
           path: app/build/outputs/apk/debug/app-debug.apk
