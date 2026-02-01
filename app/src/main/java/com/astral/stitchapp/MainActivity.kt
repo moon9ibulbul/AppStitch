@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
                                         bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality, out)
                                     }
                                 } else {
+                                    @Suppress("DEPRECATION")
                                     bitmap.compress(Bitmap.CompressFormat.WEBP, quality, out)
                                 }
                             }
@@ -322,7 +323,6 @@ fun SettingsScreen(
     onTemplatesImported: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
@@ -786,7 +786,7 @@ fun StitchTab(
         }
 
         if (isProcessing) {
-            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
 
         HorizontalDivider()
@@ -1164,7 +1164,7 @@ fun BatoTab(
                     }
                 }
                 if (item.status == "downloading" || item.status == "stitching") {
-                    LinearProgressIndicator(progress = item.progress.toFloat(), modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { item.progress.toFloat() }, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
