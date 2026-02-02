@@ -941,6 +941,7 @@ fun BatoTab(
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
+    var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
     var autoRetry by remember { mutableStateOf(true) }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
@@ -1026,9 +1027,9 @@ fun BatoTab(
         withContext(Dispatchers.IO) {
             while(isActive) {
                 if (!Python.isStarted()) { delay(500); continue }
-                val py = Python.getInstance()
-                val bato = py.getModule("bato")
                 try {
+                    val py = Python.getInstance()
+                    val bato = py.getModule("bato")
                     val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
                     val jsonArr = JSONArray(jsonStr)
                     val list = mutableListOf<QueueItem>()
@@ -1229,7 +1230,12 @@ fun BatoTab(
                                     else -> "bato"
                                 }
 
-                                val cookieToUse = if (type == "ridi") cookieInput else if (type == "kakao") kakaoCookieInput else ""
+                                val cookieToUse = when(type) {
+                                    "ridi" -> cookieInput
+                                    "kakao" -> kakaoCookieInput
+                                    "mangago" -> mangagoCookieInput
+                                    else -> ""
+                                }
 
                                 if (type == "naver" && chapterInput.contains("-")) {
                                     // Range support: 1-10
@@ -1299,6 +1305,19 @@ fun BatoTab(
                     prefs.edit().putString("kakao_cookie", it).apply()
                 },
                 label = { Text("KakaoPage Cookie") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 3
+            )
+        }
+
+        if (selectedSource == "MangaGo") {
+            OutlinedTextField(
+                value = mangagoCookieInput,
+                onValueChange = {
+                    mangagoCookieInput = it
+                    prefs.edit().putString("mangago_cookie", it).apply()
+                },
+                label = { Text("MangaGo Cookie (Optional)") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3
             )
