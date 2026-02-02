@@ -23,6 +23,8 @@ def get_headers(referer=None, cookie=None):
         "User-Agent": USER_AGENT,
         "Referer": ref
     }
+    # Note: We don't set 'Cookie' header here directly if we are using session.cookies.update()
+    # But for raw requests/cloudscraper, explicitly setting it in headers is often safer for custom strings.
     if cookie:
         h["Cookie"] = cookie
     return h
@@ -31,24 +33,23 @@ def get_session(cookie=None):
     if HAS_CLOUDSCRAPER:
         try:
             # browser='chrome' helps mimic a real browser to bypass some CF checks
+            # We explicitly set platform to windows to match our User-Agent
             scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
-            if cookie:
-                scraper.headers.update({"Cookie": cookie})
             return scraper
         except Exception as e:
             print(f"Cloudscraper init failed: {e}, falling back to requests")
 
-    sess = requests.Session()
-    if cookie:
-        sess.headers.update({"Cookie": cookie})
-    return sess
+    return requests.Session()
 
 def get_chapter_info(url, cookie=None):
     try:
+        # If user didn't provide cf_clearance, this request will likely fail if CF is active.
+        # But we proceed to try.
         session = get_session(cookie)
-        session.headers.update(get_headers(url, cookie))
+        headers = get_headers(url, cookie)
 
-        r = session.get(url, timeout=20)
+        # Important: Pass cookies via headers for cloudscraper to respect them fully during the handshake
+        r = session.get(url, headers=headers, timeout=20)
         r.raise_for_status()
 
         soup = BeautifulSoup(r.text, 'html.parser')
@@ -58,6 +59,8 @@ def get_chapter_info(url, cookie=None):
 
         return {"title": clean_title}
     except Exception as e:
+        if "403" in str(e) or "503" in str(e):
+             return {"error": "Cloudflare Blocked. You MUST provide a 'cf_clearance' cookie in settings!"}
         return {"error": str(e)}
 
 def extract_images_from_html(html, url, images_list):
@@ -122,13 +125,13 @@ def get_images(url, cookie=None):
     try:
         session = get_session(cookie)
         headers = get_headers(url, cookie)
-        session.headers.update(headers)
 
-        r = session.get(url, timeout=20)
+        r = session.get(url, headers=headers, timeout=20)
 
         if r.status_code in [403, 503]:
-            if "Just a moment" in r.text or "Cloudflare" in r.text:
-                raise Exception("Cloudflare blocked. Please provide a valid Cookie (cf_clearance) in Settings.")
+            # Check for Cloudflare specifics
+            if "Just a moment" in r.text or "Cloudflare" in r.text or "challenge" in r.text.lower():
+                raise Exception("Cloudflare blocked. You MUST provide the 'cf_clearance' cookie in Settings. The 'PHPSESSID' alone is not enough.")
             r.raise_for_status()
 
         images = []
@@ -179,8 +182,8 @@ def get_images(url, cookie=None):
                     next_url = f"{base_url}pg-{i}/"
                     try:
                         # Update referer to be previous page or main page
-                        session.headers.update({"Referer": url})
-                        resp = session.get(next_url, timeout=15)
+                        headers["Referer"] = url
+                        resp = session.get(next_url, headers=headers, timeout=15)
                         if resp.status_code == 200:
                             extract_images_from_html(resp.text, next_url, images)
                     except Exception as e:
@@ -198,8 +201,8 @@ def get_images(url, cookie=None):
                 for i in range(2, total_pages + 1):
                     next_url = f"{base_url}{i}/"
                     try:
-                        session.headers.update({"Referer": url})
-                        resp = session.get(next_url, timeout=15)
+                        headers["Referer"] = url
+                        resp = session.get(next_url, headers=headers, timeout=15)
                         if resp.status_code == 200:
                              extract_images_from_html(resp.text, next_url, images)
                     except: pass
@@ -211,4 +214,5 @@ def get_images(url, cookie=None):
 
     except Exception as e:
         print(f"MangaGo Download Error: {e}")
+        # Ensure the UI gets the clear message
         raise e
