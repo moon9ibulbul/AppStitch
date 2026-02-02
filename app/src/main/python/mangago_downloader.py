@@ -12,28 +12,27 @@ except ImportError:
 # Headers from reference repo + generic Desktop UA
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-def get_headers(referer=None, cookie=None):
-    # Reference repo uses .zone referer for these domains
-    if referer and ("mangago" in referer or "youhim" in referer):
-        ref = "https://www.mangago.zone/"
-    else:
-        ref = "https://www.mangago.zone/" # Default to .zone as per reference
-
+def get_headers(referer=None, cookie=None, is_image=False):
+    # Reference repo uses .zone referer ONLY for images on specific domains
     h = {
-        "User-Agent": USER_AGENT,
-        "Referer": ref
+        "User-Agent": USER_AGENT
     }
-    # Note: We don't set 'Cookie' header here directly if we are using session.cookies.update()
-    # But for raw requests/cloudscraper, explicitly setting it in headers is often safer for custom strings.
+
+    if is_image:
+         h["Referer"] = "https://www.mangago.zone/"
+
     if cookie:
         h["Cookie"] = cookie
     return h
 
 def get_session(cookie=None):
+    # If cookie is present, prefer standard requests first to avoid Cloudscraper interfering with valid sessions
+    if cookie:
+        return requests.Session()
+
     if HAS_CLOUDSCRAPER:
         try:
             # browser='chrome' helps mimic a real browser to bypass some CF checks
-            # We explicitly set platform to windows to match our User-Agent
             scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
             return scraper
         except Exception as e:
@@ -43,13 +42,20 @@ def get_session(cookie=None):
 
 def get_chapter_info(url, cookie=None):
     try:
-        # If user didn't provide cf_clearance, this request will likely fail if CF is active.
-        # But we proceed to try.
         session = get_session(cookie)
-        headers = get_headers(url, cookie)
+        # For HTML page, we don't force the .zone referer
+        headers = get_headers(url, cookie, is_image=False)
 
-        # Important: Pass cookies via headers for cloudscraper to respect them fully during the handshake
         r = session.get(url, headers=headers, timeout=20)
+
+        # Fallback to Cloudscraper if requests fails and we haven't tried it yet
+        if r.status_code in [403, 503] and cookie and HAS_CLOUDSCRAPER and isinstance(session, requests.Session):
+             try:
+                 print("Requests failed with 403, retrying with Cloudscraper...")
+                 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
+                 r = scraper.get(url, headers=headers, timeout=20)
+             except: pass
+
         r.raise_for_status()
 
         soup = BeautifulSoup(r.text, 'html.parser')
@@ -60,7 +66,7 @@ def get_chapter_info(url, cookie=None):
         return {"title": clean_title}
     except Exception as e:
         if "403" in str(e) or "503" in str(e):
-             return {"error": "Cloudflare Blocked. You MUST provide a 'cf_clearance' cookie in settings!"}
+             return {"error": "Cloudflare Blocked. Please Open Browser in App to capture cookies (cf_clearance)."}
         return {"error": str(e)}
 
 def extract_images_from_html(html, url, images_list):
@@ -124,14 +130,23 @@ def extract_images_from_html(html, url, images_list):
 def get_images(url, cookie=None):
     try:
         session = get_session(cookie)
-        headers = get_headers(url, cookie)
+        # HTML fetch: No Image Referer
+        headers = get_headers(url, cookie, is_image=False)
 
         r = session.get(url, headers=headers, timeout=20)
+
+        # Fallback retry logic
+        if r.status_code in [403, 503] and cookie and HAS_CLOUDSCRAPER and isinstance(session, requests.Session):
+             try:
+                 print("Requests failed with 403, retrying with Cloudscraper...")
+                 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
+                 r = scraper.get(url, headers=headers, timeout=20)
+             except: pass
 
         if r.status_code in [403, 503]:
             # Check for Cloudflare specifics
             if "Just a moment" in r.text or "Cloudflare" in r.text or "challenge" in r.text.lower():
-                raise Exception("Cloudflare blocked. You MUST provide the 'cf_clearance' cookie in Settings. The 'PHPSESSID' alone is not enough.")
+                raise Exception("Cloudflare blocked. Please Open Browser in App to capture cookies.")
             r.raise_for_status()
 
         images = []
@@ -170,29 +185,22 @@ def get_images(url, cookie=None):
         # Iterate pages if we have > 1 page and didn't find a bulk list
         if total_pages > 1:
             # Determine URL pattern
-            # Case A: /uu/ ... /pg-1/ -> /pg-2/
-            # Case B: /chapter/ ... /1/ -> /2/
-
             base_url = url
             if "/pg-" in url:
                 base_url = re.sub(r'pg-\d+/?', '', url)
                 if not base_url.endswith('/'): base_url += '/'
-                # Loop starts from 2 because 1 is already parsed
                 for i in range(2, total_pages + 1):
                     next_url = f"{base_url}pg-{i}/"
                     try:
-                        # Update referer to be previous page or main page
+                        # For subsequent pages, referer is the previous page
                         headers["Referer"] = url
                         resp = session.get(next_url, headers=headers, timeout=15)
                         if resp.status_code == 200:
                             extract_images_from_html(resp.text, next_url, images)
                     except Exception as e:
                         print(f"Failed to fetch page {i}: {e}")
-
             else:
-                # Generic /1/, /2/ pattern
                 url_stripped = url.rstrip('/')
-                # If url ends with digit, strip it
                 if url_stripped[-1].isdigit():
                      base_url = re.sub(r'/\d+$', '', url_stripped) + '/'
                 else:
