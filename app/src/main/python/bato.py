@@ -19,6 +19,7 @@ import bridge
 import naver_downloader
 import xtoon_downloader
 import kakaopage_downloader
+import mangago_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -397,6 +398,21 @@ class BatoQueue:
                         })
                         added = 1
 
+                elif source_type == "mangago":
+                    info = mangago_downloader.get_chapter_info(url)
+                    title = info.get("title", "MangaGo Item")
+
+                    if not any(q['url'] == url for q in queue):
+                        queue.append({
+                            "id": str(uuid.uuid4()),
+                            "url": url,
+                            "title": title,
+                            "status": "pending",
+                            "added_at": time.time(),
+                            "type": "mangago"
+                        })
+                        added = 1
+
                 if added > 0:
                     self._save(queue)
             except Exception as e:
@@ -525,6 +541,10 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         elif source_type == "kakao":
             images = kakaopage_downloader.get_images(url, item.get("cookie"))
             referer = "https://page.kakao.com/"
+
+        elif source_type == "mangago":
+            images = mangago_downloader.get_images(url)
+            referer = "https://www.mangago.me/"
 
         if len(images) == 0:
             raise Exception("No images found")

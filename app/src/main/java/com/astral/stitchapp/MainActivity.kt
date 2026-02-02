@@ -1,11 +1,7 @@
 package com.astral.stitchapp
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
@@ -46,8 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.chaquo.python.Python
@@ -212,6 +206,7 @@ class MainActivity : ComponentActivity() {
                                         bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality, out)
                                     }
                                 } else {
+                                    @Suppress("DEPRECATION")
                                     bitmap.compress(Bitmap.CompressFormat.WEBP, quality, out)
                                 }
                             }
@@ -235,26 +230,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Create Notification Channel
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Background Progress"
-            val descriptionText = "Notifications for download and stitch progress"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel("progress_channel", name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager: NotificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
-
-        // Request Permission for Android 13+
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
-            }
-        }
 
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
@@ -348,11 +323,9 @@ fun SettingsScreen(
     onTemplatesImported: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
-    var bgProgress by remember { mutableStateOf(prefs.getBoolean("bg_progress", false)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
 
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -445,21 +418,6 @@ fun SettingsScreen(
                     Switch(checked = soundEnabled, onCheckedChange = {
                         soundEnabled = it
                         prefs.edit().putBoolean("sound_enabled", it).apply()
-                    })
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Background Progress (Notif)")
-                    Switch(checked = bgProgress, onCheckedChange = {
-                        bgProgress = it
-                        prefs.edit().putBoolean("bg_progress", it).apply()
-                        if (it) {
-                            if (Build.VERSION.SDK_INT >= 33) {
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                                    Toast.makeText(context, "Please grant notification permission", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
                     })
                 }
 
@@ -828,7 +786,7 @@ fun StitchTab(
         }
 
         if (isProcessing) {
-            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
 
         HorizontalDivider()
@@ -988,8 +946,6 @@ fun BatoTab(
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
 
-    var concurrencyCount by remember { mutableIntStateOf(1) }
-    var expandedConcurrency by remember { mutableStateOf(false) }
     var isAddingToQueue by remember { mutableStateOf(false) }
 
     // Settings
@@ -1095,94 +1051,91 @@ fun BatoTab(
         }
     }
 
-    LaunchedEffect(isProcessorRunning, concurrencyCount) {
+    LaunchedEffect(isProcessorRunning) {
         if (!isProcessorRunning) return@LaunchedEffect
         withContext(Dispatchers.IO) {
-            val jobs = List(concurrencyCount) {
-                launch {
-                    while (isActive && isProcessorRunning) {
-                        val defaultUriStr = prefs.getString("default_output_uri", null)
-                        val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
+            launch {
+                while (isActive && isProcessorRunning) {
+                    val defaultUriStr = prefs.getString("default_output_uri", null)
+                    val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
 
-                        val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
-                        if (pendingCount == 0 && queueItems.isNotEmpty()) {
-                             withContext(Dispatchers.Main) {
-                                isProcessorRunning = false
-                                Toast.makeText(context, "All tasks completed!", Toast.LENGTH_SHORT).show()
-                                if (prefs.getBoolean("sound_enabled", true)) {
-                                    val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-                                    toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
-                                }
+                    val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
+                    if (pendingCount == 0 && queueItems.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                            isProcessorRunning = false
+                            Toast.makeText(context, "All tasks completed!", Toast.LENGTH_SHORT).show()
+                            if (prefs.getBoolean("sound_enabled", true)) {
+                                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                                toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
                             }
-                            break
                         }
-                        try {
-                            val py = Python.getInstance()
-                            val bato = py.getModule("bato")
+                        break
+                    }
+                    try {
+                        val py = Python.getInstance()
+                        val bato = py.getModule("bato")
 
-                            val params = JSONObject().apply {
-                                put("splitHeight", splitHeight)
-                                put("outputType", outputType)
-                                put("packaging", packagingOption.name)
-                                put("widthEnforce", widthEnforce)
-                                put("customWidth", customWidth)
-                                put("sensitivity", sensitivity)
-                                put("ignorable", ignorable)
-                                put("scanStep", scanStep)
-                                put("autoRetry", autoRetry)
-                                put("splitMode", splitMode)
-                                put("lowRam", lowRam)
-                                put("quality", quality)
-                            }
-                            val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
-                            val result = JSONObject(resultStr)
-                            if (result.has("status")) {
-                                val status = result.getString("status")
-                                if (status == "empty") {
-                                    delay(2000)
-                                } else if (status == "success") {
-                                    val path = result.getString("path")
-                                    val rawFile = File(path)
-                                    val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
+                        val params = JSONObject().apply {
+                            put("splitHeight", splitHeight)
+                            put("outputType", outputType)
+                            put("packaging", packagingOption.name)
+                            put("widthEnforce", widthEnforce)
+                            put("customWidth", customWidth)
+                            put("sensitivity", sensitivity)
+                            put("ignorable", ignorable)
+                            put("scanStep", scanStep)
+                            put("autoRetry", autoRetry)
+                            put("splitMode", splitMode)
+                            put("lowRam", lowRam)
+                            put("quality", quality)
+                        }
+                        val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
+                        val result = JSONObject(resultStr)
+                        if (result.has("status")) {
+                            val status = result.getString("status")
+                            if (status == "empty") {
+                                delay(2000)
+                            } else if (status == "success") {
+                                val path = result.getString("path")
+                                val rawFile = File(path)
+                                val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
 
-                                    if (outputUri != null) {
-                                        val targetTree = DocumentFile.fromTreeUri(context, outputUri)
-                                        if (targetTree != null && file.exists()) {
-                                            if (file.isDirectory) {
-                                                copyToTree(context, file, targetTree)
-                                            } else {
-                                                val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
-                                                copyToTree(context, file, targetTree, mime)
-                                            }
-                                        }
-                                    } else {
-                                        // Default: App Storage (External Files Dir)
-                                        // Usually Android/data/package/files/
-                                        val destDir = context.getExternalFilesDir(null)
-                                        if (destDir != null && file.exists()) {
-                                            val destFile = File(destDir, file.name)
-                                            file.copyTo(destFile, overwrite = true)
-                                            if (file.isDirectory) {
-                                                file.deleteRecursively() // Cleanup after move
-                                            } else {
-                                                file.delete()
-                                            }
+                                if (outputUri != null) {
+                                    val targetTree = DocumentFile.fromTreeUri(context, outputUri)
+                                    if (targetTree != null && file.exists()) {
+                                        if (file.isDirectory) {
+                                            copyToTree(context, file, targetTree)
+                                        } else {
+                                            val mime = if(file.extension == "pdf") "application/pdf" else "application/zip"
+                                            copyToTree(context, file, targetTree, mime)
                                         }
                                     }
                                 } else {
-                                    delay(1000)
+                                    // Default: App Storage (External Files Dir)
+                                    // Usually Android/data/package/files/
+                                    val destDir = context.getExternalFilesDir(null)
+                                    if (destDir != null && file.exists()) {
+                                        val destFile = File(destDir, file.name)
+                                        file.copyTo(destFile, overwrite = true)
+                                        if (file.isDirectory) {
+                                            file.deleteRecursively() // Cleanup after move
+                                        } else {
+                                            file.delete()
+                                        }
+                                    }
                                 }
-                            } else if (result.has("error")) {
-                                 delay(1000)
+                            } else {
+                                delay(1000)
                             }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            delay(2000)
+                        } else if (result.has("error")) {
+                                delay(1000)
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        delay(2000)
                     }
                 }
             }
-            jobs.joinAll()
         }
     }
 
@@ -1211,7 +1164,7 @@ fun BatoTab(
                     }
                 }
                 if (item.status == "downloading" || item.status == "stitching") {
-                    LinearProgressIndicator(progress = item.progress.toFloat(), modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(progress = { item.progress.toFloat() }, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -1232,6 +1185,7 @@ fun BatoTab(
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("MangaGo") }, onClick = { selectedSource = "MangaGo"; expandedSource = false })
                 }
             }
         }
@@ -1242,6 +1196,7 @@ fun BatoTab(
                 "Naver Webtoon" -> "Comic ID"
                 "XToon" -> "Url (Chapter)"
                 "KakaoPage" -> "Url (Chapter)"
+                "MangaGo" -> "Url (Chapter)"
                 else -> "Url (Chapter/Series)"
             }
             OutlinedTextField(
@@ -1270,6 +1225,7 @@ fun BatoTab(
                                     "Naver Webtoon" -> "naver"
                                     "XToon" -> "xtoon"
                                     "KakaoPage" -> "kakao"
+                                    "MangaGo" -> "mangago"
                                     else -> "bato"
                                 }
 
@@ -1381,15 +1337,6 @@ fun BatoTab(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Queue (${queueItems.size})")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    OutlinedButton(onClick = { expandedConcurrency = true }) { Text("Workers: $concurrencyCount") }
-                    DropdownMenu(expanded = expandedConcurrency, onDismissRequest = { expandedConcurrency = false }) {
-                        (1..5).forEach { num ->
-                            DropdownMenuItem(text = { Text("$num") }, onClick = { concurrencyCount = num; expandedConcurrency = false })
-                        }
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
                  Button(onClick = { scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("clear_completed", context.cacheDir.absolutePath) } }) { Text("Clear Done") }
             }
         }
