@@ -1026,9 +1026,9 @@ fun BatoTab(
         withContext(Dispatchers.IO) {
             while(isActive) {
                 if (!Python.isStarted()) { delay(500); continue }
-                val py = Python.getInstance()
-                val bato = py.getModule("bato")
                 try {
+                    val py = Python.getInstance()
+                    val bato = py.getModule("bato")
                     val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
                     val jsonArr = JSONArray(jsonStr)
                     val list = mutableListOf<QueueItem>()
@@ -1045,7 +1045,9 @@ fun BatoTab(
                     withContext(Dispatchers.Main) {
                         queueItems = list
                     }
-                } catch (e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
                 delay(1000)
             }
         }
