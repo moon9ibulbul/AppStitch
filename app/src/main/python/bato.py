@@ -545,7 +545,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
         elif source_type == "mangago":
             images = mangago_downloader.get_images(url, item.get("cookie"))
-            referer = "https://www.mangago.me/"
+            referer = "https://www.mangago.zone/"
 
         if len(images) == 0:
             raise Exception("No images found")

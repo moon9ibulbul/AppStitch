@@ -76,6 +76,7 @@ chaquopy {
             install("opencv-python")
             install("requests")
             install("beautifulsoup4")
+            install("cloudscraper")
         }
     }
 }
