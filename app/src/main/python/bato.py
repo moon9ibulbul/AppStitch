@@ -420,6 +420,26 @@ class BatoQueue:
                 return {"error": str(e)}
         return {"added": added}
 
+    def add_direct_job(self, title: str, images: List[str], cookie: str, source_type: str) -> Dict:
+        with FileLock(self.lock_path):
+            queue = self._load()
+
+            # Use a fake URL to identify direct jobs if needed, but ensure uniqueness
+            fake_url = f"direct://{sanitize_filename(title)}/{int(time.time())}"
+
+            queue.append({
+                "id": str(uuid.uuid4()),
+                "url": fake_url,
+                "title": title,
+                "status": "pending",
+                "added_at": time.time(),
+                "type": source_type,
+                "cookie": cookie,
+                "pre_scraped_images": images
+            })
+            self._save(queue)
+            return {"added": 1}
+
     def get_queue(self) -> str:
         with FileLock(self.lock_path):
             return json.dumps(self._load())
@@ -544,7 +564,10 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             referer = "https://page.kakao.com/"
 
         elif source_type == "mangago":
-            images = mangago_downloader.get_images(url, item.get("cookie"))
+            if "pre_scraped_images" in item:
+                images = item["pre_scraped_images"]
+            else:
+                images = mangago_downloader.get_images(url, item.get("cookie"))
             referer = "https://www.mangago.zone/"
 
         if len(images) == 0:
@@ -651,6 +674,9 @@ def get_queue(cache_dir: str) -> str:
 
 def add_to_queue(cache_dir: str, url: str, source_type: str = "bato", cookie: str = "") -> str:
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
+
+def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:
+    return json.dumps(BatoQueue(cache_dir).add_direct_job(title, images, cookie, source_type))
 
 def remove_from_queue(cache_dir: str, item_id: str):
     BatoQueue(cache_dir).remove_item(item_id)
