@@ -10,6 +10,7 @@ import time
 import uuid
 import fcntl
 import requests
+import urllib3
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from typing import List, Dict, Optional, Tuple
@@ -29,6 +30,9 @@ except ImportError:
     MainActivity = None
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Suppress SSL warnings for MangaGo
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
 # UTILS & LOCKING
@@ -155,7 +159,7 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
     for attempt in range(3):
         try:
-            with session.get(url, headers=headers, timeout=30, stream=True) as r:
+            with session.get(url, headers=headers, timeout=30, stream=True, verify=False) as r:
                 r.raise_for_status()
                 with open(target, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
