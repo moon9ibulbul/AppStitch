@@ -62,6 +62,7 @@ def get_chapter_info(url, cookie=None):
         title_tag = soup.find('title')
         full_title = title_tag.text.strip() if title_tag else "Unknown MangaGo Series"
         clean_title = full_title.split('|')[0].strip()
+        clean_title = re.sub(r'\s*Page\s*\d+', '', clean_title, flags=re.IGNORECASE).strip()
 
         return {"title": clean_title}
     except Exception as e:
