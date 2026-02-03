@@ -1384,9 +1384,6 @@ fun BatoTab(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3
                 )
-                Button(onClick = { showBrowserDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Open Browser to Solve CAPTCHA")
-                }
             }
         }
 
