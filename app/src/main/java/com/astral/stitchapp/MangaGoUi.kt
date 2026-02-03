@@ -21,6 +21,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -304,22 +311,6 @@ const val MANGAGO_SCRIPT = """
         }
     };
 
-    // Inject UI
-    function addFloatingFab() {
-        if (document.getElementById('mangago-fab')) return;
-        const btn = document.createElement('button');
-        btn.id = 'mangago-fab';
-        btn.innerText = 'SCRAPE';
-        btn.style.cssText = 'position:fixed; bottom:50px; right:20px; z-index:999999; padding:0; background:#FF5722; color:white; border-radius:50%; font-weight:bold; width:70px; height:70px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); border:none; font-size:12px;';
-        btn.onclick = window.runMangaGoScraper;
-        document.body.appendChild(btn);
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', addFloatingFab);
-    } else {
-        addFloatingFab();
-    }
 })();
 """
 
@@ -382,6 +373,8 @@ fun MangaGoWebViewDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
@@ -408,19 +401,33 @@ fun MangaGoWebViewDialog(
                                 }
                             }
                             loadUrl(url)
+                            webView = this
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().padding(bottom = 80.dp) // Leave space for buttons
                 )
 
-                // Close Button
-                Button(
-                    onClick = onDismiss,
+                Row(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text("Close")
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Close")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            webView?.evaluateJavascript("window.runMangaGoScraper();", null)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Scrape")
+                    }
                 }
             }
         }

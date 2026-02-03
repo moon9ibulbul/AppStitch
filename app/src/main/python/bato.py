@@ -676,7 +676,7 @@ def add_to_queue(cache_dir: str, url: str, source_type: str = "bato", cookie: st
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
 
 def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:
-    return json.dumps(BatoQueue(cache_dir).add_direct_job(title, images, cookie, source_type))
+    return json.dumps(BatoQueue(cache_dir).add_direct_job(title, list(images), cookie, source_type))
 
 def remove_from_queue(cache_dir: str, item_id: str):
     BatoQueue(cache_dir).remove_item(item_id)
