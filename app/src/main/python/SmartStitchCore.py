@@ -11,6 +11,41 @@ import shutil
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
+def fix_image_extension(filepath):
+    """
+    Checks the magic bytes of the file.
+    If the extension doesn't match the content (specifically WebP/JPG/PNG),
+    renames the file to the correct extension.
+    Returns the new filepath (or original if no change).
+    """
+    try:
+        with open(filepath, 'rb') as f:
+            header = f.read(12)
+
+        new_ext = None
+        if header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+            new_ext = '.webp'
+        elif header.startswith(b'\xFF\xD8\xFF'):
+            new_ext = '.jpg'
+        elif header.startswith(b'\x89PNG\r\n\x1a\n'):
+            new_ext = '.png'
+
+        if new_ext:
+            root, current_ext = os.path.splitext(filepath)
+            if current_ext.lower() != new_ext:
+                print(f"Fixing extension for {filepath}: {current_ext} -> {new_ext}")
+                new_path = root + new_ext
+                # Handle collision if needed? Usually unique names in these folders.
+                if os.path.exists(new_path):
+                   os.remove(new_path)
+                os.rename(filepath, new_path)
+                return new_path
+    except Exception as e:
+        print(f"Error checking extension for {filepath}: {e}")
+
+    return filepath
+
+
 def get_folder_paths(batch_mode_enabled, given_input_folder, given_output_folder):
     """Gets paths of all input and output folders."""
     st = time.time()
@@ -44,6 +79,7 @@ def load_images(foldername):
             if imgFile.lower().endswith('.webp'):
                 print("Processing .webp files...")
             imgPath = os.path.join(folder, imgFile)
+            imgPath = fix_image_extension(imgPath)
             try:
                 image = _open_image_with_webp_fallback(imgPath)
                 if image is not None:
@@ -76,6 +112,7 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
                 if imgFile.lower().endswith('.webp'):
                     print("Processing .webp files...")
                 imgPath = os.path.join(folder, imgFile)
+                imgPath = fix_image_extension(imgPath)
                 try:
                     image = _open_image_with_webp_fallback(imgPath)
                     if image is not None:
