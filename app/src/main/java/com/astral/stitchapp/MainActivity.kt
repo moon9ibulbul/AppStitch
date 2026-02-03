@@ -994,6 +994,8 @@ fun BatoTab(
     var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
     var autoRetry by remember { mutableStateOf(true) }
     var showBrowserDialog by remember { mutableStateOf(false) }
+    var showMangaGoScraper by remember { mutableStateOf(false) }
+    var mangaGoScraperUrl by remember { mutableStateOf("") }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
@@ -1281,6 +1283,15 @@ fun BatoTab(
                                     else -> "bato"
                                 }
 
+                                if (type == "mangago") {
+                                    mangaGoScraperUrl = if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/"
+                                    withContext(Dispatchers.Main) {
+                                        showMangaGoScraper = true
+                                        isAddingToQueue = false
+                                    }
+                                    return@launch
+                                }
+
                                 val cookieToUse = when(type) {
                                     "ridi" -> cookieInput
                                     "kakao" -> kakaoCookieInput
@@ -1373,9 +1384,6 @@ fun BatoTab(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3
                 )
-                Button(onClick = { showBrowserDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Open Browser to Solve CAPTCHA")
-                }
             }
         }
 
@@ -1387,6 +1395,39 @@ fun BatoTab(
                     mangagoCookieInput = cookies
                     prefs.edit().putString("mangago_cookie", cookies).apply()
                     Toast.makeText(context, "Cookies Captured!", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        if (showMangaGoScraper) {
+            MangaGoWebViewDialog(
+                url = mangaGoScraperUrl,
+                onDismiss = { showMangaGoScraper = false },
+                onScrapeSuccess = { title, images, cookie ->
+                    showMangaGoScraper = false
+                    // Update cookie if fresh
+                    if (cookie.isNotBlank()) {
+                         mangagoCookieInput = cookie
+                         prefs.edit().putString("mangago_cookie", cookie).apply()
+                    }
+
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val py = Python.getInstance()
+                            val bato = py.getModule("bato")
+                            bato.callAttr("add_direct_job", context.cacheDir.absolutePath, title, images.toTypedArray(), cookie, "mangago")
+
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Added ${images.size} images: $title", Toast.LENGTH_SHORT).show()
+                                urlInput = ""
+                            }
+                        } catch(e: Exception) {
+                            e.printStackTrace()
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Failed to add job: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
                 }
             )
         }

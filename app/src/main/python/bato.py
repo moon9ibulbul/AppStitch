@@ -10,6 +10,7 @@ import time
 import uuid
 import fcntl
 import requests
+import urllib3
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from typing import List, Dict, Optional, Tuple
@@ -28,10 +29,10 @@ try:
 except ImportError:
     MainActivity = None
 
-USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Suppress SSL warnings for MangaGo
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
 # UTILS & LOCKING
@@ -158,7 +159,7 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
     for attempt in range(3):
         try:
-            with session.get(url, headers=headers, timeout=30, stream=True) as r:
+            with session.get(url, headers=headers, timeout=30, stream=True, verify=False) as r:
                 r.raise_for_status()
                 with open(target, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -420,6 +421,26 @@ class BatoQueue:
                 return {"error": str(e)}
         return {"added": added}
 
+    def add_direct_job(self, title: str, images: List[str], cookie: str, source_type: str) -> Dict:
+        with FileLock(self.lock_path):
+            queue = self._load()
+
+            # Use a fake URL to identify direct jobs if needed, but ensure uniqueness
+            fake_url = f"direct://{sanitize_filename(title)}/{int(time.time())}"
+
+            queue.append({
+                "id": str(uuid.uuid4()),
+                "url": fake_url,
+                "title": title,
+                "status": "pending",
+                "added_at": time.time(),
+                "type": source_type,
+                "cookie": cookie,
+                "pre_scraped_images": images
+            })
+            self._save(queue)
+            return {"added": 1}
+
     def get_queue(self) -> str:
         with FileLock(self.lock_path):
             return json.dumps(self._load())
@@ -544,7 +565,10 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             referer = "https://page.kakao.com/"
 
         elif source_type == "mangago":
-            images = mangago_downloader.get_images(url, item.get("cookie"))
+            if "pre_scraped_images" in item:
+                images = item["pre_scraped_images"]
+            else:
+                images = mangago_downloader.get_images(url, item.get("cookie"))
             referer = "https://www.mangago.zone/"
 
         if len(images) == 0:
@@ -651,6 +675,9 @@ def get_queue(cache_dir: str) -> str:
 
 def add_to_queue(cache_dir: str, url: str, source_type: str = "bato", cookie: str = "") -> str:
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
+
+def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:
+    return json.dumps(BatoQueue(cache_dir).add_direct_job(title, list(images), cookie, source_type))
 
 def remove_from_queue(cache_dir: str, item_id: str):
     BatoQueue(cache_dir).remove_item(item_id)
