@@ -399,7 +399,7 @@ class BatoQueue:
                         added = 1
 
                 elif source_type == "mangago":
-                    info = mangago_downloader.get_chapter_info(url)
+                    info = mangago_downloader.get_chapter_info(url, cookie)
                     title = info.get("title", "MangaGo Item")
 
                     if not any(q['url'] == url for q in queue):
@@ -409,7 +409,8 @@ class BatoQueue:
                             "title": title,
                             "status": "pending",
                             "added_at": time.time(),
-                            "type": "mangago"
+                            "type": "mangago",
+                            "cookie": cookie
                         })
                         added = 1
 
@@ -543,8 +544,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             referer = "https://page.kakao.com/"
 
         elif source_type == "mangago":
-            images = mangago_downloader.get_images(url)
-            referer = "https://www.mangago.me/"
+            images = mangago_downloader.get_images(url, item.get("cookie"))
+            referer = "https://www.mangago.zone/"
 
         if len(images) == 0:
             raise Exception("No images found")

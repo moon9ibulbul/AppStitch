@@ -75,6 +75,8 @@ chaquopy {
             install("natsort==8.4.0")
             install("opencv-python")
             install("requests")
+            install("beautifulsoup4")
+            install("cloudscraper")
         }
     }
 }

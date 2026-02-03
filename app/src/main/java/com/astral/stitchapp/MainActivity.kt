@@ -42,6 +42,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.viewinterop.AndroidView
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.documentfile.provider.DocumentFile
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.chaquo.python.Python
@@ -309,6 +313,52 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
                     availableTemplates = availableTemplates,
                     onRefreshTemplates = { refreshTemplates() }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun CookieWebViewDialog(
+    url: String,
+    onDismiss: () -> Unit,
+    onCookiesCaptured: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            webViewClient = WebViewClient()
+                            loadUrl(url)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        val cookieManager = CookieManager.getInstance()
+                        val cookies = cookieManager.getCookie(url)
+                        if (cookies != null) {
+                            onCookiesCaptured(cookies)
+                        }
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                ) {
+                    Text("Capture Cookies & Close")
+                }
             }
         }
     }
@@ -941,7 +991,9 @@ fun BatoTab(
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
+    var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
     var autoRetry by remember { mutableStateOf(true) }
+    var showBrowserDialog by remember { mutableStateOf(false) }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
@@ -1026,9 +1078,9 @@ fun BatoTab(
         withContext(Dispatchers.IO) {
             while(isActive) {
                 if (!Python.isStarted()) { delay(500); continue }
-                val py = Python.getInstance()
-                val bato = py.getModule("bato")
                 try {
+                    val py = Python.getInstance()
+                    val bato = py.getModule("bato")
                     val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
                     val jsonArr = JSONArray(jsonStr)
                     val list = mutableListOf<QueueItem>()
@@ -1229,7 +1281,12 @@ fun BatoTab(
                                     else -> "bato"
                                 }
 
-                                val cookieToUse = if (type == "ridi") cookieInput else if (type == "kakao") kakaoCookieInput else ""
+                                val cookieToUse = when(type) {
+                                    "ridi" -> cookieInput
+                                    "kakao" -> kakaoCookieInput
+                                    "mangago" -> mangagoCookieInput
+                                    else -> ""
+                                }
 
                                 if (type == "naver" && chapterInput.contains("-")) {
                                     // Range support: 1-10
@@ -1301,6 +1358,36 @@ fun BatoTab(
                 label = { Text("KakaoPage Cookie") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3
+            )
+        }
+
+        if (selectedSource == "MangaGo") {
+            Column {
+                OutlinedTextField(
+                    value = mangagoCookieInput,
+                    onValueChange = {
+                        mangagoCookieInput = it
+                        prefs.edit().putString("mangago_cookie", it).apply()
+                    },
+                    label = { Text("MangaGo Cookie (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+                Button(onClick = { showBrowserDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Open Browser to Solve CAPTCHA")
+                }
+            }
+        }
+
+        if (showBrowserDialog) {
+            CookieWebViewDialog(
+                url = "https://www.mangago.me/",
+                onDismiss = { showBrowserDialog = false },
+                onCookiesCaptured = { cookies ->
+                    mangagoCookieInput = cookies
+                    prefs.edit().putString("mangago_cookie", cookies).apply()
+                    Toast.makeText(context, "Cookies Captured!", Toast.LENGTH_SHORT).show()
+                }
             )
         }
 
