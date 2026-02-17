@@ -164,6 +164,9 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
                 with open(target, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
+
+            # Fix extension if needed
+            ssc.fix_image_extension(target)
             return
         except Exception as e:
             if attempt == 2:
