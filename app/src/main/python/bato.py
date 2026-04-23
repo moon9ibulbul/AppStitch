@@ -1,5 +1,5 @@
 """
-Bato & Ridibooks & Naver & XToon Downloader & Queue Manager for AstralStitch.
+Ridibooks & Naver & XToon Downloader & Queue Manager for AstralStitch.
 """
 
 import json
@@ -11,6 +11,8 @@ import uuid
 import fcntl
 import requests
 import urllib3
+from PIL import Image
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from typing import List, Dict, Optional, Tuple
@@ -56,23 +58,11 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", name).strip()
 
 # ============================================================
-# BATO LOGIC
+# DOWNLOADING HELPERS
 # ============================================================
-
-def normalize_bato_url(url: str) -> str:
-    p = urlparse(url)
-    path = p.path.rstrip("/")
-    m = re.match(r"^/chapter/(\d+)$", path)
-    if m:
-        return f"https://xbat.si/title/_/{m.group(1)}"
-    if path.startswith("/title/"):
-        return f"https://xbat.si{path}"
-    return f"https://xbat.si{path}"
 
 def fetch_html(url: str, cookie: str = None) -> str:
     headers = {"User-Agent": USER_AGENT}
-    if "xbat.si" in url:
-        headers["Referer"] = "https://xbat.si/"
     if cookie:
         headers["Cookie"] = cookie
 
@@ -81,43 +71,6 @@ def fetch_html(url: str, cookie: str = None) -> str:
     # Handle encoding
     response.encoding = response.apparent_encoding
     return response.text
-
-IMG_URL_RE = re.compile(r"https://(?:[kn]\d+\.mb|[a-z0-9]+\.zfs\d+\.com)[^\"'\s<>]+", re.IGNORECASE)
-
-def extract_bato_images(html: str) -> List[str]:
-    # 1. Try Qwik JSON (xbat.si)
-    qwik_re = re.search(r'<script type="qwik/json"[^>]*>(.*?)</script>', html, re.DOTALL)
-    if qwik_re:
-        try:
-            content = qwik_re.group(1).replace("\\x3C", "<")
-            data = json.loads(content)
-            objs = data.get("objs", [])
-            images = []
-            for item in objs:
-                # Filter for chapter images (media/mbch)
-                if isinstance(item, str) and "/media/mbch/" in item:
-                    # Resolve relative URLs if any
-                    if item.startswith("//"):
-                        item = "https:" + item
-                    elif item.startswith("/"):
-                        item = "https://xbat.si" + item
-
-                    if item not in images:
-                        images.append(item)
-            if images:
-                return images
-        except Exception as e:
-            print(f"Bato Qwik extraction failed: {e}")
-
-    # 2. Fallback to Regex
-    found = IMG_URL_RE.findall(html)
-    seen = set()
-    images = []
-    for url in found:
-        if url not in seen:
-            seen.add(url)
-            images.append(url)
-    return images
 
 def normalize_image_host(url: str) -> str:
     p = urlparse(url)
@@ -128,7 +81,6 @@ def normalize_image_host(url: str) -> str:
 def clean_title_text(text: str) -> str:
     text = text.replace(" - Read Free Manga Online", "")
     text = text.replace("Read Free Manga Online", "")
-    text = text.replace("Bato.to", "").replace("Xbat", "")
     text = text.replace(" - Ridibooks", "")
     text = re.sub(r"\[.*?\]$", "", text)
     return text.strip()
@@ -140,8 +92,56 @@ def extract_title_from_html(html: str) -> str:
         return sanitize_filename(t)
     return ""
 
+def unscramble_mangago_image(path: Path, desckey: str, cols: int):
+    try:
+        with Image.open(path) as img:
+            img = img.convert("RGBA")
+            width, height = img.size
+            result = Image.new("RGBA", (width, height))
+
+            unit_width = width // cols
+            unit_height = height // cols
+
+            key_array = desckey.split("a")
+
+            for idx in range(cols * cols):
+                keyval_str = key_array[idx] if idx < len(key_array) else "0"
+                keyval = int(keyval_str) if keyval_str else 0
+
+                height_y = keyval // cols
+                dy = height_y * unit_height
+                dx = (keyval - height_y * cols) * unit_width
+
+                width_y = idx // cols
+                sy = width_y * unit_height
+                sx = (idx - width_y * cols) * unit_width
+
+                # box is (left, top, right, bottom)
+                src_box = (sx, sy, sx + unit_width, sy + unit_height)
+                tile = img.crop(src_box)
+                result.paste(tile, (dx, dy))
+
+            # Save back as JPEG to match expected output of MangaGo usually
+            result.convert("RGB").save(path, "JPEG", quality=100)
+    except Exception as e:
+        print(f"Unscramble failed for {path}: {e}")
+
 def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None):
-    url = normalize_image_host(url)
+    # Parse fragment for unscrambling
+    p_url = urlparse(url)
+    fragment = p_url.fragment
+    desckey = None
+    cols = None
+    if fragment:
+        params = dict(item.split("=") for item in fragment.split("&") if "=" in item)
+        desckey = params.get("desckey")
+        cols = params.get("cols")
+        if cols: cols = int(cols)
+
+    # Strip fragment from URL for actual request
+    clean_url = urlunparse(p_url._replace(fragment=""))
+
+    url = normalize_image_host(clean_url)
     path = urlparse(url).path
     _, ext = os.path.splitext(path)
     if not ext: ext = ".jpg"
@@ -151,6 +151,8 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
     # Skip if exists and size > 0 (Resume support)
     if target.exists() and target.stat().st_size > 0:
+        # If it was already downloaded, we still might need to unscramble it
+        # if the previous run was interrupted. But usually we'd assume it's done.
         return
 
     headers = {"User-Agent": USER_AGENT}
@@ -167,55 +169,17 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
             # Fix extension if needed
             ssc.fix_image_extension(target)
+
+            # Apply unscrambling if needed
+            if desckey and cols:
+                unscramble_mangago_image(target, desckey, cols)
+
             return
         except Exception as e:
             if attempt == 2:
                 print(f"Failed to download {url}: {e}")
                 raise
 
-def fetch_bato_series_chapters(url: str) -> List[Dict[str, str]]:
-    html = fetch_html(url)
-    series_title = extract_title_from_html(html) or "Unknown Series"
-
-    chapters = []
-    seen_urls = set()
-    link_re = re.compile(r"href=\"(/title/[^\"]+)\"", re.IGNORECASE)
-
-    for m in link_re.finditer(html):
-        href = m.group(1)
-        parts = [p for p in href.split("/") if p]
-        if len(parts) < 3: continue
-        if not re.match(r"^\d+", parts[2]): continue
-
-        full_url = "https://xbat.si" + href
-        if full_url not in seen_urls:
-            slug = parts[2]
-            slug_parts = slug.split("-", 1)
-            ch_name = slug_parts[1] if len(slug_parts) > 1 else slug
-            ch_name = ch_name.replace("_", " ").title()
-
-            safe_href = re.escape(href)
-            text_re = re.search(fr"href=\"{safe_href}\"[^>]*>(.*?)</a>", html, re.DOTALL | re.IGNORECASE)
-            if text_re:
-                raw_text = text_re.group(1)
-                clean_text = re.sub(r"<[^>]+>", " ", raw_text)
-                clean_text = re.sub(r"\s+", " ", clean_text).strip()
-                if clean_text:
-                    ch_name = clean_text
-
-            seen_urls.add(full_url)
-            chapters.append({
-                "url": full_url,
-                "title": f"{series_title} - {ch_name}"
-            })
-
-    return list(reversed(chapters))
-
-def is_bato_series_url(url: str) -> bool:
-    if "/chapter/" in url: return False
-    parts = [p for p in urlparse(url).path.split("/") if p]
-    if len(parts) >= 3: return False
-    return True
 
 # ============================================================
 # RIDIBOOKS LOGIC
@@ -292,44 +256,15 @@ class BatoQueue:
         with open(self.queue_file, "w") as f:
             json.dump(queue, f, indent=2)
 
-    def add_url(self, url: str, source_type: str = "bato", cookie: str = "") -> Dict:
-        # source_type: "bato", "ridi", "naver", "xtoon"
+    def add_url(self, url: str, source_type: str = "ridi", cookie: str = "") -> Dict:
+        # source_type: "ridi", "naver", "xtoon"
 
         with FileLock(self.lock_path):
             queue = self._load()
             added = 0
 
             try:
-                if source_type == "bato":
-                    url = normalize_bato_url(url)
-                    if is_bato_series_url(url):
-                        chapters = fetch_bato_series_chapters(url)
-                        for ch in chapters:
-                            if not any(q['url'] == ch['url'] for q in queue):
-                                queue.append({
-                                    "id": str(uuid.uuid4()),
-                                    "url": ch['url'],
-                                    "title": ch['title'],
-                                    "status": "pending",
-                                    "added_at": time.time(),
-                                    "type": "bato"
-                                })
-                                added += 1
-                    else:
-                        html = fetch_html(url)
-                        title = extract_title_from_html(html) or "bato_chapter"
-                        if not any(q['url'] == url for q in queue):
-                            queue.append({
-                                "id": str(uuid.uuid4()),
-                                "url": url,
-                                "title": title,
-                                "status": "pending",
-                                "added_at": time.time(),
-                                "type": "bato"
-                            })
-                            added = 1
-
-                elif source_type == "ridi":
+                if source_type == "ridi":
                     book_id = get_ridi_book_id(url)
                     if not book_id:
                         return {"error": "Invalid Ridi URL (No Book ID found)"}
@@ -526,7 +461,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         return json.dumps({"error": "Item not found"})
 
     url = item["url"]
-    source_type = item.get("type", "bato")
+    source_type = item.get("type", "ridi")
     base_dir = Path(cache_dir)
 
     queue_mgr.update_status(item_id, "downloading", 0.0)
@@ -542,13 +477,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         images = []
         referer = None
 
-        if source_type == "bato":
-            normalized_url = normalize_bato_url(url)
-            html = fetch_html(normalized_url)
-            images = extract_bato_images(html)
-            referer = "https://xbat.si/"
-
-        elif source_type == "ridi":
+        if source_type == "ridi":
             book_id = get_ridi_book_id(url)
             cookie = item.get("cookie", "")
             title_prefix, imgs = process_ridi_item(book_id, cookie)
@@ -676,7 +605,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 def get_queue(cache_dir: str) -> str:
     return BatoQueue(cache_dir).get_queue()
 
-def add_to_queue(cache_dir: str, url: str, source_type: str = "bato", cookie: str = "") -> str:
+def add_to_queue(cache_dir: str, url: str, source_type: str = "ridi", cookie: str = "") -> str:
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
 
 def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:

@@ -256,7 +256,48 @@ const val MANGAGO_SCRIPT = """
                                 });
                                 const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+$/, '');
                                 const finalImageList = unscrambleImageList(decryptedImageList, deobfuscatedJs);
-                                method1Images = finalImageList.split(',').filter(u => u.trim());
+                                const rawImages = finalImageList.split(',').filter(u => u.trim());
+
+                                // --- Image Unscrambling Logic ---
+                                let cols = "";
+                                const colsMatch = deobfuscatedJs.match(/var\s+widthnum\s*=\s*heightnum\s*=\s*(\d+);/);
+                                if (colsMatch) cols = colsMatch[1];
+
+                                const renImgStart = deobfuscatedJs.indexOf("var renImg = function(img,width,height,id){");
+                                if (renImgStart !== -1 && cols) {
+                                    const renImgBlock = deobfuscatedJs.substring(renImgStart);
+                                    const bodyStart = renImgBlock.indexOf("{") + 1;
+                                    const keyLogic = renImgBlock.substring(bodyStart, renImgBlock.indexOf("key = key.split("))
+                                        .split("\n")
+                                        .filter(line => !["jQuery", "document", "getContext", "toDataURL", "getImageData", "width", "height"].some(f => line.includes(f)))
+                                        .join("\n")
+                                        .replace(/img\.src/g, "url");
+
+                                    const getDescramblingKey = new Function("url", "replacePos", `
+                                        let key = "";
+                                        ${keyLogic}
+                                        return key;
+                                    `);
+
+                                    const replacePos = (strObj, pos, replacetext) => {
+                                        return strObj.substr(0, pos) + replacetext + strObj.substring(pos + 1, strObj.length);
+                                    };
+
+                                    method1Images = rawImages.map(u => {
+                                        if (u.includes("cspiclink")) {
+                                            try {
+                                                const descKey = getDescramblingKey(u, replacePos);
+                                                return u + "#desckey=" + descKey + "&cols=" + cols;
+                                            } catch(e) {
+                                                log("Error calculating descKey: " + e.message);
+                                                return u;
+                                            }
+                                        }
+                                        return u;
+                                    });
+                                } else {
+                                    method1Images = rawImages;
+                                }
                                 log("Method 1 (Crypto) found " + method1Images.length + " images");
                              }
                         }
