@@ -95,17 +95,18 @@ val MANGAGO_SCRIPT = """
     }
 
     function stringUnscramble(scrambledStr, keys) {
-        let s = scrambledStr;
+        let s = scrambledStr.split('');
         for (let j = keys.length - 1; j >= 0; j--) {
             const keyVal = keys[j];
             for (let i = s.length - 1; i >= keyVal; i--) {
                 if (i % 2 !== 0) {
                     const temp = s[i - keyVal];
-                    s = s.substring(0, i - keyVal) + s[i] + s.substring(i - keyVal + 1, i) + temp + s.substring(i + 1);
+                    s[i - keyVal] = s[i];
+                    s[i] = temp;
                 }
             }
         }
-        return s;
+        return s.join('');
     }
 
     // --- HELPER: Fetch Loop for Pagination ---
