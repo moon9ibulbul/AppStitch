@@ -32,7 +32,7 @@ import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-const val MANGAGO_SCRIPT = """
+val MANGAGO_SCRIPT = """
 (function() {
     'use strict';
 
@@ -148,8 +148,8 @@ const val MANGAGO_SCRIPT = """
             baseUrl = currentUrl.replace(/pg-\d+\/?/, "");
         } else {
             // Check if ends with digit
-            if (/\/(\d+)\/?$/.test(currentUrl)) {
-                 baseUrl = currentUrl.replace(/\/(\d+)\/?$/, "/");
+            if (/\/(\d+)\/?${'$'}/.test(currentUrl)) {
+                 baseUrl = currentUrl.replace(/\/(\d+)\/?${'$'}/, "/");
                  pattern = "slash";
             } else {
                  if (!baseUrl.endsWith('/')) baseUrl += '/';
@@ -254,7 +254,7 @@ const val MANGAGO_SCRIPT = """
                                     mode: CryptoJS.mode.CBC,
                                     padding: CryptoJS.pad.ZeroPadding
                                 });
-                                const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+$/, '');
+                                const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+${'$'}/, '');
                                 const finalImageList = unscrambleImageList(decryptedImageList, deobfuscatedJs);
                                 const rawImages = finalImageList.split(',').filter(u => u.trim());
 
@@ -273,11 +273,7 @@ const val MANGAGO_SCRIPT = """
                                         .join("\n")
                                         .replace(/img\.src/g, "url");
 
-                                    const getDescramblingKey = new Function("url", "replacePos", `
-                                        let key = "";
-                                        ${keyLogic}
-                                        return key;
-                                    `);
+                                    const getDescramblingKey = new Function("url", "replacePos", 'let key = "";' + keyLogic + 'return key;');
 
                                     const replacePos = (strObj, pos, replacetext) => {
                                         return strObj.substr(0, pos) + replacetext + strObj.substring(pos + 1, strObj.length);
@@ -383,7 +379,7 @@ class MangaGoJsInterface(private val onResult: (String, List<String>, String) ->
             result.toString()
         } catch (e: Exception) {
             e.printStackTrace()
-            "ERROR: ${e.message}"
+            "ERROR: " + e.message
         }
     }
 
