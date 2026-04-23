@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -282,7 +283,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.0") },
+                    title = { Text("AstralStitch v1.5.1") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -730,6 +731,7 @@ fun StitchTab(
 
     // Single item state
     var inputUri by remember { mutableStateOf<Uri?>(null) }
+    var outputUri by remember { mutableStateOf<Uri?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var statusText by remember { mutableStateOf("Ready") }
@@ -756,6 +758,13 @@ fun StitchTab(
             inputUri = uri
             val doc = DocumentFile.fromTreeUri(context, uri)
             statusText = "Selected: ${doc?.name ?: "Unknown"}"
+        }
+    }
+
+    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            outputUri = uri
         }
     }
 
@@ -833,6 +842,27 @@ fun StitchTab(
                  overflow = TextOverflow.Ellipsis,
                  maxLines = 2
              )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { pickOutput.launch(null) }, enabled = !isProcessing) { Text("Select Output Folder") }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (outputUri != null) {
+                    DocumentFile.fromTreeUri(context, outputUri!!)?.name ?: "Selected"
+                } else {
+                    "Same as Input"
+                },
+                modifier = Modifier.weight(1f),
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (outputUri != null) {
+                IconButton(onClick = { outputUri = null }, enabled = !isProcessing) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear Output Folder", tint = Color.Red)
+                }
+            }
         }
 
         if (isProcessing) {
@@ -932,7 +962,11 @@ fun StitchTab(
                         val rawFile = File(finalPathStr)
                         val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
 
-                        val targetTree = DocumentFile.fromTreeUri(context, uri)
+                        val targetTree = if (outputUri != null) {
+                            DocumentFile.fromTreeUri(context, outputUri!!)
+                        } else {
+                            DocumentFile.fromTreeUri(context, uri)
+                        }
 
                         if (targetTree != null && targetTree.canWrite()) {
                              if (finalFile.isDirectory) {
@@ -984,7 +1018,7 @@ fun BatoTab(
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
-    var selectedSource by remember { mutableStateOf("Xbat") }
+    var selectedSource by remember { mutableStateOf("Ridibooks") }
     var expandedSource by remember { mutableStateOf(false) }
 
     var urlInput by remember { mutableStateOf("") }
@@ -1234,7 +1268,6 @@ fun BatoTab(
             Box {
                 OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
-                    DropdownMenuItem(text = { Text("Xbat") }, onClick = { selectedSource = "Xbat"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
@@ -1280,7 +1313,7 @@ fun BatoTab(
                                     "XToon" -> "xtoon"
                                     "KakaoPage" -> "kakao"
                                     "MangaGo" -> "mangago"
-                                    else -> "bato"
+                                    else -> "ridi"
                                 }
 
                                 if (type == "mangago") {

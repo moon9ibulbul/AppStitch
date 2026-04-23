@@ -1,42 +1,38 @@
 package com.astral.stitchapp
 
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 import java.net.HttpURLConnection
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-const val MANGAGO_SCRIPT = """
+val MANGAGO_SCRIPT = """
 (function() {
     'use strict';
 
-    function log(msg) { console.log("[MangaGoScraper] " + msg); }
+    function log(msg) {
+        console.log("[MangaGoScraper] " + msg);
+        if (window.Android && window.Android.log) {
+            window.Android.log(msg);
+        }
+    }
 
     // --- HELPER: Load CryptoJS ---
     const loadCryptoJS = () => {
@@ -148,8 +144,8 @@ const val MANGAGO_SCRIPT = """
             baseUrl = currentUrl.replace(/pg-\d+\/?/, "");
         } else {
             // Check if ends with digit
-            if (/\/(\d+)\/?$/.test(currentUrl)) {
-                 baseUrl = currentUrl.replace(/\/(\d+)\/?$/, "/");
+            if (/\/(\d+)\/?${'$'}/.test(currentUrl)) {
+                 baseUrl = currentUrl.replace(/\/(\d+)\/?${'$'}/, "/");
                  pattern = "slash";
             } else {
                  if (!baseUrl.endsWith('/')) baseUrl += '/';
@@ -208,10 +204,6 @@ const val MANGAGO_SCRIPT = """
 
     // --- MAIN EXTRACTION ---
     window.runMangaGoScraper = async function() {
-        // Visual Feedback
-        const fab = document.getElementById('mangago-fab');
-        if (fab) { fab.innerText = '...'; fab.style.background = 'gray'; }
-
         log("Starting Scraper...");
         try {
             await loadCryptoJS();
@@ -254,9 +246,50 @@ const val MANGAGO_SCRIPT = """
                                     mode: CryptoJS.mode.CBC,
                                     padding: CryptoJS.pad.ZeroPadding
                                 });
-                                const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+$/, '');
+                                const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+${'$'}/, '');
                                 const finalImageList = unscrambleImageList(decryptedImageList, deobfuscatedJs);
-                                method1Images = finalImageList.split(',').filter(u => u.trim());
+                                const rawImages = finalImageList.split(',').filter(u => u.trim());
+
+                                // --- Image Unscrambling Logic ---
+                                let cols = "";
+                                const colsMatch = deobfuscatedJs.match(/var\s+widthnum\s*=\s*heightnum\s*=\s*(\d+);/);
+                                if (colsMatch) cols = colsMatch[1];
+
+                                const renImgStart = deobfuscatedJs.indexOf("var renImg = function(img,width,height,id){");
+                                const keySplitIndex = deobfuscatedJs.indexOf("key = key.split(", renImgStart);
+
+                                if (renImgStart !== -1 && keySplitIndex !== -1 && cols) {
+                                    const renImgBlock = deobfuscatedJs.substring(renImgStart, keySplitIndex);
+                                    const bodyStart = renImgBlock.indexOf("{") + 1;
+                                    const keyLogic = renImgBlock.substring(bodyStart)
+                                        .split("\n")
+                                        .filter(line => !["jQuery", "document", "getContext", "toDataURL", "getImageData", "width", "height"].some(f => line.includes(f)))
+                                        .join("\n")
+                                        .replace(/img\.src/g, "url");
+
+                                    log("Extracted keyLogic length: " + keyLogic.length);
+                                    const getDescramblingKey = new Function("url", "replacePos", keyLogic + "\nreturn key;");
+
+                                    const replacePos = (strObj, pos, replacetext) => {
+                                        return strObj.substr(0, pos) + replacetext + strObj.substring(pos + 1, strObj.length);
+                                    };
+
+                                    method1Images = rawImages.map(u => {
+                                        if (u.indexOf("cspiclink") !== -1) {
+                                            try {
+                                                const descKey = getDescramblingKey(u, replacePos);
+                                                return u + "#desckey=" + descKey + "&cols=" + cols;
+                                            } catch(e) {
+                                                log("Error calculating descKey for " + u.substring(0, 20) + ": " + e.message);
+                                                return u;
+                                            }
+                                        }
+                                        return u;
+                                    });
+                                } else {
+                                    log("Could not find renImg or keySplit, skipping unscramble key extraction. renImgStart=" + renImgStart + ", keySplitIndex=" + keySplitIndex);
+                                    method1Images = rawImages;
+                                }
                                 log("Method 1 (Crypto) found " + method1Images.length + " images");
                              }
                         }
@@ -288,8 +321,7 @@ const val MANGAGO_SCRIPT = """
              else finalImages = method1Images; // Fallback
 
              if (finalImages.length === 0) {
-                 alert("No images found! Check logs.");
-                 if (fab) { fab.innerText = 'FAIL'; fab.style.background = 'red'; }
+                 log("No images found!");
                  return;
              }
 
@@ -301,20 +333,26 @@ const val MANGAGO_SCRIPT = """
                  cookie: document.cookie
              };
 
-             if (fab) { fab.innerText = 'OK'; fab.style.background = 'green'; }
              Android.onImagesFound(JSON.stringify(result));
 
         } catch(e) {
             log("Fatal Error: " + e.message);
-            alert("Scrape Failed: " + e.message);
-            if (fab) { fab.innerText = 'ERR'; fab.style.background = 'red'; }
         }
     };
 
 })();
 """
 
-class MangaGoJsInterface(private val onResult: (String, List<String>, String) -> Unit) {
+class MangaGoJsInterface(
+    private val onResult: (String, List<String>, String) -> Unit,
+    private val onLog: (String) -> Unit
+) {
+
+    @JavascriptInterface
+    fun log(msg: String) {
+        Log.d("MangaGoJS", msg)
+        onLog(msg)
+    }
 
     @JavascriptInterface
     fun fetchUrl(urlString: String): String {
@@ -342,12 +380,13 @@ class MangaGoJsInterface(private val onResult: (String, List<String>, String) ->
             result.toString()
         } catch (e: Exception) {
             e.printStackTrace()
-            "ERROR: ${e.message}"
+            "ERROR: " + e.message
         }
     }
 
     @JavascriptInterface
     fun onImagesFound(jsonStr: String) {
+        Log.d("MangaGoUi", "onImagesFound called with: ${jsonStr.take(100)}...")
         try {
             val json = JSONObject(jsonStr)
             val title = json.optString("title", "MangaGo Scan")
@@ -374,6 +413,7 @@ fun MangaGoWebViewDialog(
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var status by remember { mutableStateOf("Loading page...") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -390,43 +430,70 @@ fun MangaGoWebViewDialog(
                             settings.domStorageEnabled = true
                             settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-                            addJavascriptInterface(MangaGoJsInterface { t, i, c ->
-                                onScrapeSuccess(t, i, c)
-                            }, "Android")
+                            addJavascriptInterface(MangaGoJsInterface(
+                                onResult = { t, i, c -> onScrapeSuccess(t, i, c) },
+                                onLog = { msg -> status = msg }
+                            ), "Android")
 
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    Log.d("MangaGoUi", "Injection onPageFinished: $url")
                                     view?.evaluateJavascript(MANGAGO_SCRIPT, null)
+                                }
+                            }
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                    Log.d("MangaGoJS", consoleMessage?.message() ?: "")
+                                    return true
                                 }
                             }
                             loadUrl(url)
                             webView = this
                         }
                     },
-                    modifier = Modifier.fillMaxSize().padding(bottom = 80.dp) // Leave space for buttons
+                    modifier = Modifier.fillMaxSize().padding(bottom = 100.dp) // Leave space for buttons
                 )
 
-                Row(
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                        .padding(8.dp)
                 ) {
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Close")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            webView?.evaluateJavascript("window.runMangaGoScraper();", null)
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Scrape")
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Close")
+                        }
+                        Button(
+                            onClick = {
+                                Log.d("MangaGoUi", "Scrape Button Clicked")
+                                status = "Scraping started..."
+                                if (webView == null) {
+                                    status = "Error: WebView not ready"
+                                } else {
+                                    webView?.evaluateJavascript(MANGAGO_SCRIPT) {
+                                        webView?.evaluateJavascript("window.runMangaGoScraper();", null)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Scrape")
+                        }
                     }
                 }
             }
