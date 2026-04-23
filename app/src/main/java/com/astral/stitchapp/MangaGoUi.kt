@@ -95,18 +95,18 @@ val MANGAGO_SCRIPT = """
     }
 
     function stringUnscramble(scrambledStr, keys) {
-        const sArray = scrambledStr.split('');
+        let s = scrambledStr.split('');
         for (let j = keys.length - 1; j >= 0; j--) {
             const keyVal = keys[j];
-            for (let i = sArray.length - 1; i > keyVal; i--) {
-                if ((i - 1) % 2 !== 0) {
-                    const idx1 = i - keyVal - 1;
-                    const idx2 = i - 1;
-                    [sArray[idx1], sArray[idx2]] = [sArray[idx2], sArray[idx1]];
+            for (let i = s.length - 1; i >= keyVal; i--) {
+                if (i % 2 !== 0) {
+                    const temp = s[i - keyVal];
+                    s[i - keyVal] = s[i];
+                    s[i] = temp;
                 }
             }
         }
-        return sArray.join('');
+        return s.join('');
     }
 
     // --- HELPER: Fetch Loop for Pagination ---
@@ -252,23 +252,18 @@ val MANGAGO_SCRIPT = """
 
                                 // --- Image Unscrambling Logic ---
                                 let cols = "";
-                                const colsMatch = deobfuscatedJs.match(/var\s+widthnum\s*=\s*heightnum\s*=\s*(\d+);/);
+                                const colsMatch = deobfuscatedJs.match(/(?:var\s+)?widthnum\s*=\s*heightnum\s*=\s*(\d+);/);
                                 if (colsMatch) cols = colsMatch[1];
 
-                                const renImgStart = deobfuscatedJs.indexOf("var renImg = function(img,width,height,id){");
-                                const keySplitIndex = deobfuscatedJs.indexOf("key = key.split(", renImgStart);
+                                const renImgMatch = deobfuscatedJs.match(/renImg\s*=\s*function\s*\([^{]+\{([\s\S]+?)key\s*=\s*key\.split\(/);
 
-                                if (renImgStart !== -1 && keySplitIndex !== -1 && cols) {
-                                    const renImgBlock = deobfuscatedJs.substring(renImgStart, keySplitIndex);
-                                    const bodyStart = renImgBlock.indexOf("{") + 1;
-                                    const keyLogic = renImgBlock.substring(bodyStart)
-                                        .split("\n")
-                                        .filter(line => !["jQuery", "document", "getContext", "toDataURL", "getImageData", "width", "height"].some(f => line.includes(f)))
-                                        .join("\n")
+                                if (renImgMatch && cols) {
+                                    const keyLogic = renImgMatch[1]
+                                        .replace(/\b(?:jQuery|document|window|getContext|toDataURL|getImageData|width|height)\b/g, "undefined")
                                         .replace(/img\.src/g, "url");
 
                                     log("Extracted keyLogic length: " + keyLogic.length);
-                                    const getDescramblingKey = new Function("url", "replacePos", keyLogic + "\nreturn key;");
+                                    const getDescramblingKey = new Function("url", "replacePos", "const document={}, window={}, img={}; " + keyLogic + "\nreturn key;");
 
                                     const replacePos = (strObj, pos, replacetext) => {
                                         return strObj.substr(0, pos) + replacetext + strObj.substring(pos + 1, strObj.length);
@@ -277,7 +272,8 @@ val MANGAGO_SCRIPT = """
                                     method1Images = rawImages.map(u => {
                                         if (u.indexOf("cspiclink") !== -1) {
                                             try {
-                                                const descKey = getDescramblingKey(u, replacePos);
+                                                let descKey = getDescramblingKey(u, replacePos);
+                                                if (Array.isArray(descKey)) descKey = descKey.join(",");
                                                 return u + "#desckey=" + descKey + "&cols=" + cols;
                                             } catch(e) {
                                                 log("Error calculating descKey for " + u.substring(0, 20) + ": " + e.message);
@@ -287,7 +283,7 @@ val MANGAGO_SCRIPT = """
                                         return u;
                                     });
                                 } else {
-                                    log("Could not find renImg or keySplit, skipping unscramble key extraction. renImgStart=" + renImgStart + ", keySplitIndex=" + keySplitIndex);
+                                    log("Could not find renImg via regex or missing cols, skipping unscramble key extraction. renImgMatch=" + !!renImgMatch + ", cols=" + cols);
                                     method1Images = rawImages;
                                 }
                                 log("Method 1 (Crypto) found " + method1Images.length + " images");
