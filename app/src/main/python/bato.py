@@ -111,15 +111,15 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
                 keyval_str = key_array[idx] if idx < len(key_array) else "0"
                 keyval = int(keyval_str) if keyval_str else 0
 
-                # Source coordinates from keyval
-                sx_idx = keyval % cols
-                sy_idx = keyval // cols
+                # Source coordinates from idx (Scrambled tile position)
+                sx_idx = idx % cols
+                sy_idx = idx // cols
                 sx = sx_idx * unit_width
                 sy = sy_idx * unit_height
 
-                # Destination coordinates from idx
-                dx_idx = idx % cols
-                dy_idx = idx // cols
+                # Destination coordinates from keyval (Correct tile position)
+                dx_idx = keyval % cols
+                dy_idx = keyval // cols
                 dx = dx_idx * unit_width
                 dy = dy_idx * unit_height
 
