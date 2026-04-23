@@ -102,19 +102,26 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
             unit_width = width // cols
             unit_height = height // cols
 
-            key_array = desckey.split("a")
+            if "a" in desckey:
+                key_array = desckey.split("a")
+            else:
+                key_array = desckey.split(",")
 
             for idx in range(cols * cols):
                 keyval_str = key_array[idx] if idx < len(key_array) else "0"
                 keyval = int(keyval_str) if keyval_str else 0
 
-                height_y = keyval // cols
-                dy = height_y * unit_height
-                dx = (keyval - height_y * cols) * unit_width
+                # Source coordinates from keyval
+                sx_idx = keyval % cols
+                sy_idx = keyval // cols
+                sx = sx_idx * unit_width
+                sy = sy_idx * unit_height
 
-                width_y = idx // cols
-                sy = width_y * unit_height
-                sx = (idx - width_y * cols) * unit_width
+                # Destination coordinates from idx
+                dx_idx = idx % cols
+                dy_idx = idx // cols
+                dx = dx_idx * unit_width
+                dy = dy_idx * unit_height
 
                 # box is (left, top, right, bottom)
                 src_box = (sx, sy, sx + unit_width, sy + unit_height)
@@ -122,7 +129,17 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
                 result.paste(tile, (dx, dy))
 
             # Save back as JPEG to match expected output of MangaGo usually
-            result.convert("RGB").save(path, "JPEG", quality=100)
+            # But preserve extension if it was something else?
+            # Actually MangaGo usually serves JPEGs.
+            ext = path.suffix.lower()
+            if ext in [".jpg", ".jpeg"]:
+                result.convert("RGB").save(path, "JPEG", quality=100)
+            elif ext == ".png":
+                result.save(path, "PNG")
+            elif ext == ".webp":
+                result.save(path, "WEBP", quality=100)
+            else:
+                result.convert("RGB").save(path, "JPEG", quality=100)
     except Exception as e:
         print(f"Unscramble failed for {path}: {e}")
 
@@ -168,7 +185,7 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
                         f.write(chunk)
 
             # Fix extension if needed
-            ssc.fix_image_extension(target)
+            target = Path(ssc.fix_image_extension(target))
 
             # Apply unscrambling if needed
             if desckey and cols:
