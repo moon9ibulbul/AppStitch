@@ -1,0 +1,398 @@
+// ==UserScript==
+// @name         Bomtoon Scrambled Downloader (Lezhin UI Edition)
+// @namespace    bomtoon-lezhin-ui
+// @version      1.0.0
+// @description  Bomtoon downloader dengan UI dan workflow ala Lezhin Scrambled. Mendukung single, range, bulk ZIP.
+// @author       Merged Script (Bomtoon API + Lezhin UI)
+// @match        https://www.bomtoon.com/*
+// @match        https://www.bomtoon.tw/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  // ========== SimpleZip (embedded) ==========
+  let SimpleZip;!function(t){SimpleZip=t()}(function(){return function u(a,s,f){function h(e,t){if(!s[e]){if(!a[e]){var i="function"==typeof require&&require;if(!t&&i)return i(e,!0);if(o)return o(e,!0);var r=new Error("Cannot find module '"+e+"'");throw r.code="MODULE_NOT_FOUND",r}var n=s[e]={exports:{}};a[e][0].call(n.exports,function(t){return h(a[e][1][t]||t)},n,n.exports,u,a,s,f)}return s[e].exports}for(var o="function"==typeof require&&require,t=0;t<f.length;t++)h(f[t]);return h}({1:[function(t,e,i){"use strict";function p(t){return null==t}var c=function(){function t(t){this.array=new Uint8Array(t),this.index=0}return t.prototype.ensureRemaining=function(t){var e=this.index+t;if(e>this.array.byteLength){var i=new Uint8Array(e);i.set(this.array.slice(0,this.index),0),delete this.array,this.array=i}},t.prototype.getArrayBuffer=function(){return this.array.buffer.byteLength===this.index?this.array.buffer:this.array.buffer.slice(0,this.index)},t.prototype.getCapacity=function(){return this.array.byteLength},t.prototype.getIndex=function(){return this.index},t.prototype.writeStr=function(t){for(var e=0;e<t.length;e++)this.array[this.index++]=255&t.charCodeAt(e)},t.prototype.append=function(t){this.array.set(t,this.index),this.index+=t.length},t.prototype.writeu8=function(t){this.array[this.index++]=255&t},t.prototype.writeu16=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255},t.prototype.writeu32=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255,this.array[this.index++]=t>>16&255,this.array[this.index++]=t>>24&255},t.prototype.writeu64=function(t){this.writeu32(t[1]),this.writeu32(t[0])},t}(),b=new Date("01-Jan-1601 00:00:00 UTC"),r=function(){function l(t){this.files=[],this.ntfsTimeSinceEpoch=[],this.cdrAccumulate=0,this.buf=new c(t);var e=new Date,i=e.getHours(),r=e.getMinutes(),n=Math.floor(e.getSeconds()/2),u=e.getFullYear()-1980,a=e.getMonth()+1,s=e.getDate();this.createdTime=(31&i)<<11|(63&r)<<5|31&n,this.createdDate=(127&u)<<9|(15&a)<<5|31&s;var f=e.getTime()-b.getTime(),h=Math.floor(f/429496.7296),o=1e4*(4294967295&f)&4294967295;this.ntfsTimeSinceEpoch.push(h),this.ntfsTimeSinceEpoch.push(o)}return l.prototype.ensureRemainingSpace=function(t){this.buf.ensureRemaining(t)},l.prototype.appendFile=function(t){this.appendFiles([t])},l.prototype.appendFiles=function(t){for(var e=[],i=0,r=0,n=t;r<n.length;r++){var u=n[r];if(p(u)||p(u.name)||p(u.data))throw new Error("Zip file entry missing 'name' or 'data' props");if("string"!=typeof u.name||u.name.length<=0)throw new Error("File name must be a string with >0 characters");var a=void 0;if("string"==typeof u.data){a=new Uint8Array(u.data.length);for(var s=0;s<u.data.length;s++)a[s]=u.data.charCodeAt(s)}else if(u.data instanceof Uint8Array)a=u.data;else{if(!(u.data instanceof ArrayBuffer))throw new Error("Unknown typeof data: "+typeof u.data);a=new Uint8Array(u.data)}var f={name:u.name,size:a.byteLength,crc:l.calcCRC32(a),offset:-1};e.push({zEntry:f,data:a}),i+=30+f.name.length+a.byteLength,this.cdrAccumulate+=46+u.name.length}this.buf.ensureRemaining(i+this.cdrAccumulate+22);for(var h=0,o=e;h<o.length;h++){var c=o[h];f=c.zEntry,a=c.data;f.offset=this.buf.getIndex(),this.buf.writeu32(67324752),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(f.crc),this.buf.writeu32(f.size),this.buf.writeu32(f.size),this.buf.writeu16(f.name.length),this.buf.writeu16(0),this.buf.writeStr(f.name),this.buf.append(a),this.files.push(f)}},l.prototype.generate=function(){for(var t=this.buf.getIndex(),e=22,i=0,r=this.files;i<r.length;i++){e+=82+(a=r[i]).name.length}this.buf.ensureRemaining(e);for(var n=0,u=this.files;n<u.length;n++){var a=u[n];this.buf.writeu32(33639248),this.buf.writeu16(63),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(a.crc),this.buf.writeu32(a.size),this.buf.writeu32(a.size),this.buf.writeu16(a.name.length),this.buf.writeu16(36),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu32(32),this.buf.writeu32(a.offset),this.buf.writeStr(a.name),this.buf.writeu16(10),this.buf.writeu16(32),this.buf.writeu32(0),this.buf.writeu16(1),this.buf.writeu16(24),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch)}var s=this.buf.getIndex();return this.buf.writeu32(101010256),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.files.length),this.buf.writeu16(this.files.length),this.buf.writeu32(s-t),this.buf.writeu32(t),this.buf.writeu16(0),this.buf.getArrayBuffer()},l.GenerateZipFrom=function(t){for(var e=22,i=0,r=t;i<r.length;i++){var n=r[i];"string"==typeof n.data?e+=n.data.length:e+=n.data.byteLength,e+=2*n.name.length+82+30}var u=new l(e);return u.appendFiles(t),u.generate()},l.calcCRC32=function(t){if(l.genCRCTable(),null===l.crcTable)return-1;for(var e=-1,i=0;i<t.length;i++)e=e>>>8^l.crcTable[255&(e^t[i])];return(-1^e)>>>0},l.genCRCTable=function(){if(null===l.crcTable){l.crcTable=Array(256);for(var t=void 0,e=0;e<256;e++){t=e;for(var i=0;i<8;i++)t=1&t?3988292384^t>>>1:t>>>1;l.crcTable[e]=t}}},l.crcTable=null,l}();e.exports=r},{}]},{},[1])(1)});
+
+  // ========== Global States ==========
+  const DOMAIN_KO = "www.bomtoon.com";
+  const DOMAIN_TW = "www.bomtoon.tw";
+  let cache = {};
+  let imageEntries = [];
+  let stopFlag = false;
+  let shadow = null;
+
+  // ========== Bomtoon API Core ==========
+  async function getAuthToken() {
+    var resp = await fetch("/api/auth/session");
+    var data = await resp.json();
+    return data.user ? data.user.accessToken.token : null;
+  }
+
+  async function apiReq(url, method, dataPost) {
+    var authToken = await getAuthToken();
+    var headerBalconyKO = { "x-balcony-id": "BOMTOON_COM", "x-balcony-timezone": "Asia/Seoul", "x-platform": "WEB" };
+    var headerBalconyTW = { "x-balcony-id": "BOMTOON_TW", "x-balcony-timezone": "Asia/Taipei", "x-platform": "WEB" };
+    var headers = DOMAIN_KO === location.host ? headerBalconyKO : headerBalconyTW;
+    headers.accept = "application/json";
+    
+    var body = null;
+    if ("POST" === method.toLocaleUpperCase()) {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify(dataPost);
+    }
+    if (authToken) headers.authorization = "Bearer " + authToken;
+    
+    var resp = await fetch(url, { headers, method, body });
+    return await resp.json();
+  }
+
+  function getBuildId() {
+    var json = document.getElementById("__NEXT_DATA__").innerHTML;
+    var data = JSON.parse(json);
+    return data ? data.buildId : null;
+  }
+
+  async function getBookData() {
+    var buildId = getBuildId();
+    var pathName = location.pathname;
+    var regex = new RegExp(/\/viewer\/(.+?)\/(.+?)(\/|$)/);
+    var urlParam = regex.exec(pathName);
+    var queryParam = new URLSearchParams();
+    queryParam.append("alias", urlParam[1]);
+    queryParam.append("epAlias", urlParam[2]);
+    
+    var dataAPI = `/_next/data/${buildId}${pathName}.json?${queryParam}`;
+    var resp = await fetch(dataAPI, { headers: { "X-Nextjs-Data": 1 } });
+    var respData = await resp.json();
+    if (respData.pageProps.episodeData) {
+      return respData.pageProps.episodeData.result;
+    }
+    dataAPI = `/api/balcony-api-v2/contents${pathName}?isNotLoginAdult=false`;
+    respData = await apiReq(dataAPI, "GET");
+    return respData.data;
+  }
+
+  async function getDecryptScrambleKey(dataLine) {
+    var defaultKey = "thisisBalconyScrambledKey1234!@#";
+    if (!dataLine) cache.scrambleKey = defaultKey;
+    if (cache.scrambleKey) return cache.scrambleKey;
+    
+    var pathName = location.pathname;
+    var regex = new RegExp(/\/viewer\/(.+?)\/(.+?)(\/|$)/);
+    var urlParam = regex.exec(pathName);
+    var pathEpisode = `/${urlParam[1]}/${urlParam[2]}`;
+    var keyAPI = "/api/balcony-api-v2/contents/images" + pathEpisode;
+    
+    var resp = await apiReq(keyAPI, "POST", { line: dataLine });
+    cache.scrambleKey = resp.data ? resp.data : defaultKey;
+    return cache.scrambleKey;
+  }
+
+  async function decryptScramble(cipherText, keyStr) {
+    var iv = keyStr.substring(0, 16);
+    var cipherData = Uint8Array.from(atob(cipherText), c => c.charCodeAt(0)).buffer;
+    var key = new TextEncoder().encode(keyStr);
+    iv = new TextEncoder().encode(iv);
+    
+    var keyObj = await window.crypto.subtle.importKey("raw", key, { name: "AES-CBC", length: 256 }, true, ["decrypt"]);
+    var plainData = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, keyObj, cipherData);
+    var json = new TextDecoder().decode(new Uint8Array(plainData));
+    return JSON.parse(json);
+  }
+
+  // ========== Unscramble Workflow (Direct Blob) ==========
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function blobToDataUrl(blob) { return new Promise(r => { const f = new FileReader(); f.onload = e => r(e.target.result); f.readAsDataURL(blob); }); }
+  function loadImageObj(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  async function fetchBlob(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.blob();
+  }
+
+  async function unscrambleBomtoonToBlob(imgBlob, pageData) {
+    let imgURL = URL.createObjectURL(imgBlob);
+    const img = await loadImageObj(imgURL);
+    
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    
+    pageData.scrambleIndex.forEach(function (i, r) {
+      let s = pageData.width / 4,
+          a = pageData.defaultHeight / 4,
+          d = (r % 4) * s,
+          c = Math.floor(r / 4) * a,
+          u = (i % 4) * s,
+          g = Math.floor(i / 4) * a;
+      ctx.drawImage(img, d, c, s, a, u, g, s, a);
+    });
+    
+    URL.revokeObjectURL(imgURL);
+    return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+  }
+
+  // ========== Download & ZIP Core ==========
+  function getBaseZipName() {
+    try {
+      const title = document.querySelector('title')?.innerText || 'Bomtoon';
+      return title.replace(/[^a-zA-Z0-9_\-\uAC00-\uD7A3\u4E00-\u9FA5]/g, ' ').trim().replace(/\s+/g, '_');
+    } catch { return 'Bomtoon_Chapter'; }
+  }
+
+  async function buildZip(entries, zipName) {
+    const files = [];
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.blob) {
+        const ext = e.blob.type.includes('png') ? 'png' : e.blob.type.includes('webp') ? 'webp' : 'jpg';
+        const fn = `${String(e.index).padStart(3, '0')}.${ext}`;
+        const arrayBuffer = await e.blob.arrayBuffer();
+        files.push({ name: fn, data: new Uint8Array(arrayBuffer) });
+      }
+    }
+    if (!files.length) return;
+    const zipBuf = SimpleZip.GenerateZipFrom(files);
+    const zBlob = new Blob([zipBuf], { type: 'application/zip' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zBlob);
+    a.download = zipName;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // ========== Lezhin UI Renderer ==========
+  function updateRow(idx, entry) {
+    if (!shadow) return;
+    const row = shadow.getElementById(`cr-row-${idx}`);
+    if (!row) return;
+    const st = row.querySelector('.cr-status');
+    const act = row.querySelector('.cr-act');
+    if (entry.error) {
+      st.innerHTML = `<span style="color:red">Error: ${entry.error}</span>`;
+      act.innerHTML = `<button data-idx="${idx}" class="cr-retry-btn">Retry</button>`;
+    } else if (entry.dataUrl) {
+      st.innerHTML = `<img src="${entry.dataUrl}" style="height:40px; border-radius:4px;">`;
+      act.innerHTML = `<button data-idx="${idx}" class="cr-dl-btn">Simpan</button>`;
+    }
+  }
+
+  function renderList() {
+    const tbody = shadow.getElementById('cr-tbody');
+    tbody.innerHTML = '';
+    imageEntries.forEach((e, i) => {
+      const tr = document.createElement('tr');
+      tr.id = `cr-row-${i}`;
+      tr.innerHTML = `
+        <td>#${e.index}</td>
+        <td class="cr-status" style="font-size:11px; word-break:break-all;">Idle</td>
+        <td class="cr-act">-</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    tbody.addEventListener('click', async (ev) => {
+      if (ev.target.classList.contains('cr-dl-btn')) {
+        const idx = ev.target.dataset.idx;
+        const entry = imageEntries[idx];
+        if (entry && entry.blob) {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(entry.blob);
+          a.download = `${String(entry.index).padStart(3, '0')}.png`;
+          a.click();
+        }
+      } else if (ev.target.classList.contains('cr-retry-btn')) {
+        const idx = ev.target.dataset.idx;
+        const entry = imageEntries[idx];
+        entry.error = null;
+        updateRow(idx, entry);
+        // Quick retry logic goes here if needed.
+      }
+    });
+  }
+
+  function setStatus(msg) { if(shadow) shadow.getElementById('cr-status').innerText = msg; }
+  function setProgress(msg) { if(shadow) shadow.getElementById('cr-progress').innerText = msg; }
+
+  async function grabApiData() {
+    setStatus('Loading API data...');
+    try {
+      cache.scrambleKey = null; // Clean key cache
+      const bookData = await getBookData();
+      imageEntries = [];
+      
+      bookData.images.forEach((page, i) => {
+        let scrambleData = null;
+        if (page.point || page.line) {
+          scrambleData = { line: page.line, point: page.point, width: page.width, defaultHeight: page.defaultHeight };
+        }
+        imageEntries.push({
+          index: i + 1,
+          url: page.imagePath,
+          scrambleData: scrambleData,
+          blob: null, dataUrl: null, error: null
+        });
+      });
+      
+      renderList();
+      setStatus(`Terkumpul ${imageEntries.length} URL.`);
+    } catch(e) {
+      setStatus('Gagal fetch API: ' + e.message);
+    }
+  }
+
+  async function dlAll() {
+    stopFlag = false;
+    setStatus('Memulai Batch Download...');
+    for (let i = 0; i < imageEntries.length; i++) {
+      if (stopFlag) break;
+      const entry = imageEntries[i];
+      if (entry.blob) continue; // Skip jika sudah diunduh
+      setProgress(`[${i+1}/${imageEntries.length}] #${entry.index}`);
+      
+      try {
+        let blob = await fetchBlob(entry.url);
+        if (entry.scrambleData) {
+          let decryptKey = await getDecryptScrambleKey(entry.scrambleData.line);
+          let scrambledIdx = entry.scrambleData.point;
+          if (!scrambledIdx && entry.scrambleData.line) {
+             scrambledIdx = await decryptScramble(scrambledIdx, decryptKey); // Note: Fallback or real payload needed per original
+          } else if (entry.scrambleData.line) {
+             entry.scrambleData.scrambleIndex = await decryptScramble(entry.scrambleData.point, decryptKey);
+             blob = await unscrambleBomtoonToBlob(blob, entry.scrambleData);
+          }
+        }
+        entry.blob = blob; 
+        entry.dataUrl = await blobToDataUrl(blob);
+        updateRow(i, entry);
+      } catch(e) {
+        entry.error = e.message;
+        updateRow(i, entry);
+      }
+      await sleep(500); // Delay ala Bomtoon untuk cegah rate-limit
+    }
+    setProgress('');
+    await buildZip(imageEntries, `${getBaseZipName()}_All.zip`);
+    setStatus('Selesai.');
+  }
+
+  async function dlRange() {
+    stopFlag = false;
+    const v = shadow.getElementById('cr-range').value.trim();
+    const m = v.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (!m) { alert('Format: 1-20'); return; }
+    const start = parseInt(m[1]), end = parseInt(m[2]);
+    const entries = imageEntries.filter(e => e.index >= start && e.index <= end);
+    if (!entries.length) return;
+
+    setStatus(`Fetching range ${start}-${end}...`);
+    for (let i = 0; i < entries.length; i++) {
+      if (stopFlag) break;
+      const entry = entries[i];
+      if (entry.blob) continue;
+      const realIdx = imageEntries.indexOf(entry);
+      setProgress(`[${i+1}/${entries.length}] #${entry.index}`);
+      
+      try {
+        let blob = await fetchBlob(entry.url);
+        if (entry.scrambleData) {
+          let decryptKey = await getDecryptScrambleKey(entry.scrambleData.line);
+          entry.scrambleData.scrambleIndex = await decryptScramble(entry.scrambleData.point, decryptKey);
+          blob = await unscrambleBomtoonToBlob(blob, entry.scrambleData);
+        }
+        entry.blob = blob; entry.dataUrl = await blobToDataUrl(blob);
+        updateRow(realIdx, entry);
+      } catch(e) { entry.error = e.message; updateRow(realIdx, entry); }
+      await sleep(500);
+    }
+    setProgress('');
+    await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
+    setStatus('');
+  }
+
+  // ========== UI Injector ==========
+  function createUI() {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed; top:10px; right:10px; z-index:9999999; font-family:sans-serif;';
+    document.body.appendChild(host);
+    shadow = host.attachShadow({ mode: 'open' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .cr-panel { background:#fff; border:1px solid #ccc; border-radius:8px; width:340px; box-shadow:0 4px 12px rgba(0,0,0,0.15); display:flex; flex-direction:column; max-height:85vh; overflow:hidden; }
+      .cr-header { background:#333; color:#fff; padding:10px; font-weight:bold; font-size:14px; display:flex; justify-content:space-between; cursor:pointer;}
+      .cr-body { padding:10px; overflow-y:auto; font-size:13px; display:none; }
+      .cr-panel.open .cr-body { display:block; }
+      button { cursor:pointer; background:#007bff; color:#fff; border:none; padding:6px 10px; border-radius:4px; font-size:12px; margin-right:4px; margin-bottom:4px;}
+      button:hover { background:#0056b3; }
+      button:disabled { background:#aaa; }
+      input { padding:4px; font-size:12px; width:50px; border:1px solid #ccc; border-radius:4px; }
+      table { width:100%; border-collapse:collapse; margin-top:10px; }
+      th, td { border:1px solid #eee; padding:4px; text-align:center; }
+      .cr-status-bar { margin-top:8px; font-weight:bold; color:#d93025; }
+    `;
+    shadow.appendChild(style);
+
+    const panel = document.createElement('div');
+    panel.className = 'cr-panel';
+    panel.innerHTML = `
+      <div class="cr-header" id="cr-head">
+        <span>Bomtoon Scrambled Downloader</span>
+        <span id="cr-toggle">▼</span>
+      </div>
+      <div class="cr-body">
+        <div style="margin-bottom:8px;">
+          <button id="cr-btn-api">Grab API Data</button>
+          <button id="cr-btn-all">Download All ZIP</button>
+          <button id="cr-btn-stop" style="background:#dc3545;">Stop</button>
+        </div>
+        <div style="margin-bottom:8px; display:flex; align-items:center;">
+          <input type="text" id="cr-range" placeholder="1-10">
+          <button id="cr-btn-range" style="margin-left:4px;">Download Range</button>
+        </div>
+        <div class="cr-status-bar">
+          <div id="cr-status">Awaiting API Grab...</div>
+          <div id="cr-progress" style="color:#007bff;"></div>
+        </div>
+        <div style="max-height:300px; overflow-y:auto; margin-top:10px;">
+          <table>
+            <thead><tr><th width="30">No</th><th>Status / Preview</th><th width="60">Aksi</th></tr></thead>
+            <tbody id="cr-tbody"></tbody>
+          </table>
+        </div>
+        <div id="cr-manual" style="margin-top:10px; font-size:11px;"></div>
+      </div>
+    `;
+    shadow.appendChild(panel);
+
+    shadow.getElementById('cr-head').onclick = () => {
+      panel.classList.toggle('open');
+      shadow.getElementById('cr-toggle').innerText = panel.classList.contains('open') ? '▲' : '▼';
+    };
+
+    shadow.getElementById('cr-btn-api').onclick = grabApiData;
+    shadow.getElementById('cr-btn-all').onclick = dlAll;
+    shadow.getElementById('cr-btn-range').onclick = dlRange;
+    shadow.getElementById('cr-btn-stop').onclick = () => { stopFlag = true; setStatus('Stopping...'); };
+  }
+
+  // Cek inisiasi spesifik Bomtoon / Halaman Reader
+  setInterval(function () {
+      if (location.pathname.startsWith("/viewer/") && !shadow) {
+          createUI();
+      }
+  }, 1500);
+
+})();
