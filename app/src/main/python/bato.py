@@ -94,35 +94,54 @@ def extract_title_from_html(html: str) -> str:
 
 def unscramble_mangago_image(path: Path, desckey: str, cols: int):
     try:
-        with Image.open(path) as img:
-            img = img.convert("RGBA")
-            width, height = img.size
-            result = Image.new("RGBA", (width, height))
+        print(f"Unscrambling {path.name} with cols={cols}")
+        # Load the image and close the file quickly to avoid locks
+        with Image.open(path) as img_file:
+            img = img_file.convert("RGBA")
 
-            unit_width = width // cols
-            unit_height = height // cols
+        width, height = img.size
+        result = Image.new("RGBA", (width, height))
 
+        unit_width = width // cols
+        unit_height = height // cols
+
+        if "a" in desckey:
             key_array = desckey.split("a")
+        else:
+            key_array = desckey.split(",")
 
-            for idx in range(cols * cols):
-                keyval_str = key_array[idx] if idx < len(key_array) else "0"
-                keyval = int(keyval_str) if keyval_str else 0
+        for idx in range(cols * cols):
+            keyval_str = key_array[idx] if idx < len(key_array) else "0"
+            keyval = int(keyval_str) if keyval_str else 0
 
-                height_y = keyval // cols
-                dy = height_y * unit_height
-                dx = (keyval - height_y * cols) * unit_width
+            # Source coordinates from idx (Scrambled tile position)
+            sx_idx = idx % cols
+            sy_idx = idx // cols
+            sx = sx_idx * unit_width
+            sy = sy_idx * unit_height
 
-                width_y = idx // cols
-                sy = width_y * unit_height
-                sx = (idx - width_y * cols) * unit_width
+            # Destination coordinates from keyval (Correct tile position)
+            dx_idx = keyval % cols
+            dy_idx = keyval // cols
+            dx = dx_idx * unit_width
+            dy = dy_idx * unit_height
 
-                # box is (left, top, right, bottom)
-                src_box = (sx, sy, sx + unit_width, sy + unit_height)
-                tile = img.crop(src_box)
-                result.paste(tile, (dx, dy))
+            # box is (left, top, right, bottom)
+            src_box = (sx, sy, sx + unit_width, sy + unit_height)
+            tile = img.crop(src_box)
+            result.paste(tile, (dx, dy))
 
-            # Save back as JPEG to match expected output of MangaGo usually
+        # Save back to the same path
+        ext = path.suffix.lower()
+        if ext in [".jpg", ".jpeg"]:
             result.convert("RGB").save(path, "JPEG", quality=100)
+        elif ext == ".png":
+            result.save(path, "PNG")
+        elif ext == ".webp":
+            result.save(path, "WEBP", quality=100)
+        else:
+            result.convert("RGB").save(path, "JPEG", quality=100)
+        print(f"Successfully unscrambled {path.name}")
     except Exception as e:
         print(f"Unscramble failed for {path}: {e}")
 
@@ -168,7 +187,7 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
                         f.write(chunk)
 
             # Fix extension if needed
-            ssc.fix_image_extension(target)
+            target = Path(ssc.fix_image_extension(target))
 
             # Apply unscrambling if needed
             if desckey and cols:
