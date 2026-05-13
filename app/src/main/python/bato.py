@@ -31,7 +31,7 @@ try:
 except ImportError:
     MainActivity = None
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
 # Suppress SSL warnings for MangaGo
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -565,17 +565,23 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                 images = mangago_downloader.get_images(url, item.get("cookie"))
             referer = "https://www.mangago.zone/"
 
-        elif source_type in ["ridi", "kakao", "bomtoon", "lezhin", "newtoki", "myreadingmanga"]:
+        elif source_type in ["ridi", "bomtoon", "lezhin", "newtoki", "myreadingmanga"]:
             if "pre_scraped_images" in item:
                 images = item["pre_scraped_images"]
             else:
                 raise Exception(f"Source {source_type} requires pre-scraped images (Scrape button)")
 
             if source_type == "ridi": referer = "https://ridibooks.com/"
-            elif source_type == "kakao": referer = "https://page.kakao.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
             elif source_type in ["newtoki", "myreadingmanga"]: referer = url
+
+        elif source_type == "kakao":
+            if "pre_scraped_images" in item:
+                images = item["pre_scraped_images"]
+            else:
+                images = kakaopage_downloader.get_images(url, item.get("cookie"))
+            referer = "https://page.kakao.com/"
 
         if len(images) == 0:
             raise Exception("No images found")

@@ -378,10 +378,45 @@ object ScraperScripts {
             return JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
         }
 
-        window.runScraper = async function() {
-            log("Starting Bomtoon Scraper...");
+        window.grabApiData = async function() {
+            log("Bomtoon: Grabbing API data...");
             try {
                 await loadCryptoJS();
+                const buildId = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML).buildId;
+                const pathName = location.pathname;
+                const dataUrl = `/_next/data/${"$"}{buildId}${"$"}{pathName}.json`;
+                const resp = await fetch(dataUrl, { headers: { "X-Nextjs-Data": 1 } });
+                const json = await resp.json();
+                const episodeData = json.pageProps.episodeData.result;
+
+                // Get Scramble Key
+                const urlParam = location.pathname.match(/\/viewer\/(.+?)\/(.+?)(\/|${"$"})/);
+                const keyApi = "/api/balcony-api-v2/contents/images/" + urlParam[1] + "/" + urlParam[2];
+                const keyResp = await apiReq(keyApi, "POST", { line: episodeData.images[0].line });
+                const scrambleKey = keyResp.data;
+
+                window._scrapedImages = await Promise.all(episodeData.images.map(async (img) => {
+                    let url = img.imagePath;
+                    if (img.point || img.line) {
+                        const scrambleIndex = await decryptScramble(img.point, scrambleKey);
+                        url += "#scramble=" + encodeURIComponent(JSON.stringify({
+                            scrambleIndex: scrambleIndex,
+                            width: img.width,
+                            defaultHeight: img.defaultHeight
+                        }));
+                    }
+                    return url;
+                }));
+                log("Bomtoon: " + window._scrapedImages.length + " images grabbed!");
+            } catch(e) { log("Error grabbing API data: " + e.message); }
+        };
+
+        window.runScraper = async function() {
+            log("Starting Bomtoon Scraper...");
+            if (!window._scrapedImages) {
+                await window.grabApiData();
+            }
+            try {
                 const buildId = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML).buildId;
                 const pathName = location.pathname;
                 const dataUrl = `/_next/data/${"$"}{buildId}${"$"}{pathName}.json`;
@@ -410,7 +445,7 @@ object ScraperScripts {
 
                 const result = {
                     title: document.title.trim(),
-                    images: images,
+                    images: window._scrapedImages,
                     cookie: document.cookie
                 };
                 Android.onImagesFound(JSON.stringify(result));
@@ -432,20 +467,28 @@ object ScraperScripts {
             const images = [];
             const candidates = new Set();
             document.querySelectorAll('img').forEach(img => {
-                let src = img.src || img.getAttribute('data-src');
-                if (src && (src.includes('img.') || src.includes('toon') || src.includes('manhwa'))) {
-                    candidates.add(new URL(src, location.href).href);
+                let src = img.src || img.getAttribute('data-src') || img.getAttribute('data-original');
+                if (src) candidates.add(new URL(src, location.href).href);
+            });
+
+            document.querySelectorAll('div, section, figure').forEach(el => {
+                const bg = getComputedStyle(el).backgroundImage;
+                if (bg && bg.includes('url(')) {
+                    const m = bg.match(/url\(["']?(.+?)["']?\)/);
+                    if (m) candidates.add(new URL(m[1], location.href).href);
+                }
+                // Custom data attributes often used in galleries
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('data-') && /\.(jpe?g|png|webp|avif)/i.test(attr.value)) {
+                        candidates.add(new URL(attr.value, location.href).href);
+                    }
                 }
             });
 
-            // Special handling for Newtoki background images if any
-            document.querySelectorAll('div[style*="background-image"]').forEach(div => {
-                const bg = div.style.backgroundImage;
-                const m = bg.match(/url\(['"]?(.+?)['"]?\)/);
-                if (m) candidates.add(new URL(m[1], location.href).href);
+            const filtered = Array.from(candidates).filter(u => {
+                if (u.includes('logo') || u.includes('avatar') || u.includes('banner')) return false;
+                return /\.(jpe?g|png|webp|gif|avif|bmp)(?:${"$"}|\?)/i.test(u);
             });
-
-            const filtered = Array.from(candidates).filter(u => /\.(jpe?g|png|webp|gif|avif|bmp)(?:${"$" }|\?)/i.test(u));
             const result = {
                 title: document.title.trim(),
                 images: filtered,
@@ -464,10 +507,30 @@ object ScraperScripts {
             if (window.Android && window.Android.log) { window.Android.log(msg); }
         }
 
+        window.fetchAll = async function() {
+            log("Lezhin: Scanning DOM for images...");
+            const images = [];
+            document.querySelectorAll('img[data-src], img.comic-image').forEach(img => {
+                images.push(img.getAttribute('data-src') || img.src);
+            });
+
+            if (images.length === 0) {
+               document.querySelectorAll('img').forEach(img => {
+                   if (img.src && !img.src.includes('avatar') && !img.src.includes('logo')) {
+                       images.push(img.src);
+                   }
+               });
+            }
+            window._scrapedImages = images;
+            log("Lezhin: " + images.length + " images found.");
+        };
+
         window.runScraper = async function() {
             log("Starting Lezhin Scraper...");
+            if (!window._scrapedImages) {
+                await window.fetchAll();
+            }
             try {
-                // Try finding data in script tags first
                 const scripts = Array.from(document.querySelectorAll('script'));
                 let viewerData = null;
                 for (let s of scripts) {
@@ -500,7 +563,7 @@ object ScraperScripts {
 
                 const result = {
                     title: document.title.trim(),
-                    images: images,
+                    images: window._scrapedImages,
                     cookie: document.cookie
                 };
                 Android.onImagesFound(JSON.stringify(result));
@@ -528,9 +591,9 @@ class ScraperJsInterface(
             conn.requestMethod = "GET"
             conn.connectTimeout = 10000
             conn.readTimeout = 10000
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             val cookie = CookieManager.getInstance().getCookie(urlString)
             if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36")
 
             val reader = BufferedReader(InputStreamReader(conn.inputStream))
             val result = StringBuilder()
@@ -586,7 +649,12 @@ fun ScraperWebViewDialog(
                         WebView(context).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
-                            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            settings.databaseEnabled = true
+                            settings.setSupportMultipleWindows(true)
+                            settings.javaScriptCanOpenWindowsAutomatically = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
                             addJavascriptInterface(ScraperJsInterface(
                                 onResult = { t, i, c -> onScrapeSuccess(t, i, c) },
@@ -596,6 +664,10 @@ fun ScraperWebViewDialog(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    // Anti-bot: hide webdriver
+                                    view?.evaluateJavascript("""
+                                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                                    """.trimIndent(), null)
                                     view?.evaluateJavascript(script, null)
                                 }
                             }
@@ -619,6 +691,22 @@ fun ScraperWebViewDialog(
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        // Show "Fetch" button for Bomtoon and Lezhin
+                        val showFetch = url.contains("bomtoon") || url.contains("lezhin")
+                        if (showFetch) {
+                            Button(
+                                onClick = {
+                                    status = "Fetching started..."
+                                    val fetchFunc = if (url.contains("bomtoon")) "window.grabApiData()" else "window.fetchAll()"
+                                    webView?.evaluateJavascript(script) {
+                                        webView?.evaluateJavascript(fetchFunc, null)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Fetch") }
+                        }
+
                         Button(
                             onClick = {
                                 status = "Scraping started..."
