@@ -379,7 +379,8 @@ object ScraperScripts {
             log("Bomtoon: Grabbing API data...");
             try {
                 await loadCryptoJS();
-                const buildId = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML).buildId;
+                const nextData = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML);
+                const buildId = nextData.buildId;
                 const pathName = location.pathname;
                 const urlParam = pathName.match(/\/viewer\/(.+?)\/(.+?)(\/|${"$"})/);
                 if (!urlParam) throw new Error("Could not parse URL parameters");
@@ -393,14 +394,15 @@ object ScraperScripts {
                 const json = await resp.json();
                 const episodeData = json.pageProps.episodeData ? json.pageProps.episodeData.result : null;
 
+                let episodeInfo;
                 if (!episodeData) {
                     log("Fallback to direct API...");
                     const apiEndpoint = `/api/balcony-api-v2/contents${"$"}{pathName}?isNotLoginAdult=false`;
                     const apiResp = await apiReq(apiEndpoint, "GET");
                     if (!apiResp.data) throw new Error("API failed");
-                    var episodeInfo = apiResp.data;
+                    episodeInfo = apiResp.data;
                 } else {
-                    var episodeInfo = episodeData;
+                    episodeInfo = episodeData;
                 }
 
                 // Get Scramble Key
@@ -408,7 +410,11 @@ object ScraperScripts {
                 const keyResp = await apiReq(keyApi, "POST", { line: episodeInfo.images[0].line });
                 const scrambleKey = keyResp.data || "thisisBalconyScrambledKey1234!@#";
 
-                window._scrapedImages = await Promise.all(episodeInfo.images.map(async (img) => {
+                const scrapedImages = [];
+                const total = episodeInfo.images.length;
+                for (let i = 0; i < total; i++) {
+                    const img = episodeInfo.images[i];
+                    log(`Processing index ${"$"}{i+1}/${"$"}{total}...`);
                     let url = img.imagePath;
                     if (img.point || img.line) {
                         try {
@@ -418,10 +424,11 @@ object ScraperScripts {
                                 width: img.width,
                                 defaultHeight: img.defaultHeight
                             }));
-                        } catch(e) { log("Unscramble error: " + e.message); }
+                        } catch(e) { log(`Unscramble error on img ${"$"}{i+1}: ` + e.message); }
                     }
-                    return url;
-                }));
+                    scrapedImages.push(url);
+                }
+                window._scrapedImages = scrapedImages;
                 log("Bomtoon: " + window._scrapedImages.length + " images grabbed!");
             } catch(e) { log("Error grabbing API data: " + e.message); }
         };
@@ -476,7 +483,9 @@ object ScraperScripts {
 
             const filtered = Array.from(candidates).filter(u => {
                 if (u.includes('logo') || u.includes('avatar') || u.includes('banner')) return false;
-                return /\.(jpe?g|png|webp|gif|avif|bmp)(?:${"$"}|\?)/i.test(u);
+                // Requirement 4: Skip .avif files
+                if (u.toLowerCase().includes(".avif")) return false;
+                return /\.(jpe?g|png|webp|gif|bmp)(?:${"$"}|\?)/i.test(u);
             });
             const result = {
                 title: document.title.trim(),
@@ -496,17 +505,29 @@ object ScraperScripts {
         window.fetchAll = async function() {
             log("Lezhin: Starting Panel-by-Panel Scraping...");
             try {
-                const scripts = Array.from(document.querySelectorAll('script'));
-                let productData = null;
-                for (let s of scripts) {
-                    if (s.textContent.includes('__LZ_PRODUCT__')) {
-                        const m = s.textContent.match(/__LZ_PRODUCT__\s*=\s*({.+?});/);
-                        if (m) { productData = JSON.parse(m[1]); break; }
+                let productData = window.__LZ_PRODUCT__;
+                if (!productData) {
+                    const scripts = Array.from(document.querySelectorAll('script'));
+                    for (let s of scripts) {
+                        if (s.textContent.includes('__LZ_PRODUCT__')) {
+                            const m = s.textContent.match(/__LZ_PRODUCT__\s*=\s*({.+?});/);
+                            if (m) { productData = JSON.parse(m[1]); break; }
+                        }
                     }
                 }
+                if (!productData) {
+                    const nextDataEl = document.getElementById("__NEXT_DATA__");
+                    if (nextDataEl) {
+                        const nextData = JSON.parse(nextDataEl.innerHTML);
+                        productData = nextData.props?.pageProps?.product || nextData.props?.product;
+                    }
+                }
+
                 if (!productData) throw new Error("Could not find product data");
 
-                const episode = productData.currentEpisode;
+                const episode = productData.currentEpisode || productData.episode;
+                if (!episode) throw new Error("Could not find episode data");
+
                 const totalPanels = episode.p_count || 100;
                 log("Total panels: " + totalPanels);
 

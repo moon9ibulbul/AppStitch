@@ -188,7 +188,7 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
     except Exception as e:
         print(f"Unscramble failed for {path}: {e}")
 
-def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None):
+def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None, source_type: str = None):
     # Parse fragment for unscrambling
     p_url = urlparse(url)
     fragment = p_url.fragment
@@ -238,6 +238,17 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
             # Fix extension if needed
             target = Path(ssc.fix_image_extension(target))
+
+            # Requirement 4: Skip file berdimensi 200x280 khusus untuk Myreadingmanga dan Newtoki
+            if source_type in ["newtoki", "myreadingmanga"]:
+                try:
+                    with Image.open(target) as img:
+                        if img.size == (200, 280):
+                            print(f"Skipping 200x280 image: {target.name}")
+                            target.unlink()
+                            return
+                except Exception as e:
+                    print(f"Error checking dimensions for {target.name}: {e}")
 
             # Apply unscrambling if needed
             if desckey and cols:
@@ -605,7 +616,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                     if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
                     return json.dumps({"status": "removed"})
 
-                download_image(img, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer)
+                download_image(img, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer, source_type=source_type)
 
                 if i % 5 == 0:
                     queue_mgr.update_status(item_id, "downloading", i/total)
@@ -623,8 +634,12 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
         # Verify integrity
         final_files = [f for f in dl_dir.iterdir() if f.is_file()]
-        if len(final_files) < len(images):
-            raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
+        # Requirement 4: Relaxation for sources that might skip files
+        if source_type not in ["newtoki", "myreadingmanga"]:
+            if len(final_files) < len(images):
+                raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
+        elif len(final_files) == 0:
+            raise Exception("No valid images downloaded (all might have been skipped)")
 
         queue_mgr.update_status(item_id, "stitching", 0.0)
 
