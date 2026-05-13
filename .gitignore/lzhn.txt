@@ -1,1 +1,499 @@
+// ==UserScript==
+// @namespace    https://viayoo.com/
+// @match        https://www.lezhin.com/ko/comic/*/*
+// @match        https://www.lezhinus.com/en/comic/*/*
+// @grant        none
+// @name         Lezhin Scrambled v2
+// @version      2.0.1
+// @author       nutzlos + Astral + merged
+// @run-at       document-start
+// @description  Direct API fetch + unscramble + full download suite (single, range, bulk ZIP). No scrolling needed. Works on VIA Browser.
+// ==/UserScript==
 
+(function () {
+  'use strict';
+
+  // ========== SimpleZip (embedded) ==========
+  let SimpleZip;!function(t){SimpleZip=t()}(function(){return function u(a,s,f){function h(e,t){if(!s[e]){if(!a[e]){var i="function"==typeof require&&require;if(!t&&i)return i(e,!0);if(o)return o(e,!0);var r=new Error("Cannot find module '"+e+"'");throw r.code="MODULE_NOT_FOUND",r}var n=s[e]={exports:{}};a[e][0].call(n.exports,function(t){return h(a[e][1][t]||t)},n,n.exports,u,a,s,f)}return s[e].exports}for(var o="function"==typeof require&&require,t=0;t<f.length;t++)h(f[t]);return h}({1:[function(t,e,i){"use strict";function p(t){return null==t}var c=function(){function t(t){this.array=new Uint8Array(t),this.index=0}return t.prototype.ensureRemaining=function(t){var e=this.index+t;if(e>this.array.byteLength){var i=new Uint8Array(e);i.set(this.array.slice(0,this.index),0),delete this.array,this.array=i}},t.prototype.getArrayBuffer=function(){return this.array.buffer.byteLength===this.index?this.array.buffer:this.array.buffer.slice(0,this.index)},t.prototype.getCapacity=function(){return this.array.byteLength},t.prototype.getIndex=function(){return this.index},t.prototype.writeStr=function(t){for(var e=0;e<t.length;e++)this.array[this.index++]=255&t.charCodeAt(e)},t.prototype.append=function(t){this.array.set(t,this.index),this.index+=t.length},t.prototype.writeu8=function(t){this.array[this.index++]=255&t},t.prototype.writeu16=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255},t.prototype.writeu32=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255,this.array[this.index++]=t>>16&255,this.array[this.index++]=t>>24&255},t.prototype.writeu64=function(t){this.writeu32(t[1]),this.writeu32(t[0])},t}(),b=new Date("01-Jan-1601 00:00:00 UTC"),r=function(){function l(t){this.files=[],this.ntfsTimeSinceEpoch=[],this.cdrAccumulate=0,this.buf=new c(t);var e=new Date,i=e.getHours(),r=e.getMinutes(),n=Math.floor(e.getSeconds()/2),u=e.getFullYear()-1980,a=e.getMonth()+1,s=e.getDate();this.createdTime=(31&i)<<11|(63&r)<<5|31&n,this.createdDate=(127&u)<<9|(15&a)<<5|31&s;var f=e.getTime()-b.getTime(),h=Math.floor(f/429496.7296),o=1e4*(4294967295&f)&4294967295;this.ntfsTimeSinceEpoch.push(h),this.ntfsTimeSinceEpoch.push(o)}return l.prototype.ensureRemainingSpace=function(t){this.buf.ensureRemaining(t)},l.prototype.appendFile=function(t){this.appendFiles([t])},l.prototype.appendFiles=function(t){for(var e=[],i=0,r=0,n=t;r<n.length;r++){var u=n[r];if(p(u)||p(u.name)||p(u.data))throw new Error("Zip file entry missing 'name' or 'data' props");if("string"!=typeof u.name||u.name.length<=0)throw new Error("File name must be a string with >0 characters");var a=void 0;if("string"==typeof u.data){a=new Uint8Array(u.data.length);for(var s=0;s<u.data.length;s++)a[s]=u.data.charCodeAt(s)}else if(u.data instanceof Uint8Array)a=u.data;else{if(!(u.data instanceof ArrayBuffer))throw new Error("Unknown typeof data: "+typeof u.data);a=new Uint8Array(u.data)}var f={name:u.name,size:a.byteLength,crc:l.calcCRC32(a),offset:-1};e.push({zEntry:f,data:a}),i+=30+f.name.length+a.byteLength,this.cdrAccumulate+=46+u.name.length}this.buf.ensureRemaining(i+this.cdrAccumulate+22);for(var h=0,o=e;h<o.length;h++){var c=o[h];f=c.zEntry,a=c.data;f.offset=this.buf.getIndex(),this.buf.writeu32(67324752),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(f.crc),this.buf.writeu32(f.size),this.buf.writeu32(f.size),this.buf.writeu16(f.name.length),this.buf.writeu16(0),this.buf.writeStr(f.name),this.buf.append(a),this.files.push(f)}},l.prototype.generate=function(){for(var t=this.buf.getIndex(),e=22,i=0,r=this.files;i<r.length;i++){e+=82+(a=r[i]).name.length}this.buf.ensureRemaining(e);for(var n=0,u=this.files;n<u.length;n++){var a=u[n];this.buf.writeu32(33639248),this.buf.writeu16(63),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(a.crc),this.buf.writeu32(a.size),this.buf.writeu32(a.size),this.buf.writeu16(a.name.length),this.buf.writeu16(36),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu32(32),this.buf.writeu32(a.offset),this.buf.writeStr(a.name),this.buf.writeu16(10),this.buf.writeu16(32),this.buf.writeu32(0),this.buf.writeu16(1),this.buf.writeu16(24),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch)}var s=this.buf.getIndex();return this.buf.writeu32(101010256),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.files.length),this.buf.writeu16(this.files.length),this.buf.writeu32(s-t),this.buf.writeu32(t),this.buf.writeu16(0),this.buf.getArrayBuffer()},l.GenerateZipFrom=function(t){for(var e=22,i=0,r=t;i<r.length;i++){var n=r[i];"string"==typeof n.data?e+=n.data.length:e+=n.data.byteLength,e+=2*n.name.length+82+30}var u=new l(e);return u.appendFiles(t),u.generate()},l.calcCRC32=function(t){if(l.genCRCTable(),null===l.crcTable)return-1;for(var e=-1,i=0;i<t.length;i++)e=e>>>8^l.crcTable[255&(e^t[i])];return(-1^e)>>>0},l.genCRCTable=function(){if(null===l.crcTable){l.crcTable=Array(256);for(var t=void 0,e=0;e<256;e++){t=e;for(var i=0;i<8;i++)t=1&t?3988292384^t>>>1:t>>>1;l.crcTable[e]=t}}},l.crcTable=null,l}();e.exports=r},{}]},{},[1])(1)});
+
+  // ========== Direct download helpers ==========
+  function showBackup(sh, name, href) {
+    try {
+      const b = sh.getElementById('cr-manual');
+      const d = document.createElement('div');
+      d.className = 'cr-manual-item';
+      d.innerHTML = `<a href="${href}" download="${name}" rel="noopener">Ketuk untuk simpan: <b>${name}</b></a>`;
+      b.appendChild(d);
+    } catch {}
+  }
+  function triggerDirect({ blob, url, filename, sh }) {
+    try {
+      let href = url || ''; let revoke = null;
+      if (!href && blob) { href = URL.createObjectURL(blob); revoke = href; }
+      const a = document.createElement('a');
+      a.href = href; a.download = filename || '';
+      a.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { try { a.remove(); } catch {} }, 4000);
+      if (sh) showBackup(sh, filename, href);
+      if (revoke) setTimeout(() => { try { URL.revokeObjectURL(revoke); } catch {} }, 120000);
+    } catch (e) { console.error('triggerDirect fail', e); }
+  }
+
+  // ========== Unscramble engine (Lezhin-Rip 3.1) ==========
+  function buildUnscrambleMap(shuffleKey, w, h) {
+    const G = 5, total = G * G;
+    const seed = { value: BigInt(shuffleKey) };
+    const arr = Array.from({ length: total }, (_, i) => i);
+    const xd = (v, d) => [{ value: v.value / BigInt(d) }, { value: v.value % BigInt(d) }];
+    const xor = (a, b) => {
+      let v1 = { value: a.value }, v2 = { value: b.value }, res = [];
+      while (v1.value !== 0n || v2.value !== 0n) {
+        let r1 = xd(v1, 0x800000), r2 = xd(v2, 0x800000);
+        v1 = r1[0]; v2 = r2[0]; res.push(Number(r1[1].value) ^ Number(r2[1].value));
+      }
+      let out = 0n;
+      for (let i = res.length - 1; i >= 0; i--) out = out * 8388608n + BigInt(res[i]);
+      return { value: out };
+    };
+    const rand = (max) => {
+      seed.value = xor(seed, { value: seed.value / 4096n }).value;
+      seed.value = xor(seed, { value: (seed.value * 33554432n) & 18446744073709551615n }).value;
+      seed.value = xor(seed, { value: seed.value / 134217728n }).value;
+      return Number((seed.value / 4294967296n) % BigInt(max));
+    };
+    for (let i = 0; i < arr.length; i++) { const r = rand(total); [arr[i], arr[r]] = [arr[r], arr[i]]; }
+    const tw = Math.floor(w / G), th = Math.floor(h / G);
+    const area = (idx) => {
+      if (idx < total) return { left: (idx % G) * tw, top: Math.floor(idx / G) * th, width: tw, height: th };
+      if (idx === total) return w % G === 0 ? null : { left: w - w % G, top: 0, width: w % G, height: h };
+      return h % G === 0 ? null : { left: 0, top: h - h % G, width: w - w % G, height: h % G };
+    };
+    return [...arr.map((v, k) => ({ from: area(k), to: area(v) })),
+            { from: area(total), to: area(total) },
+            { from: area(total+1), to: area(total+1) }].filter(m => m.from && m.to);
+  }
+
+  async function unscrambleBlob(blob, shuffleKey) {
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d');
+    buildUnscrambleMap(shuffleKey, bmp.width, bmp.height).forEach(m =>
+      ctx.drawImage(bmp, m.to.left, m.to.top, m.to.width, m.to.height,
+                        m.from.left, m.from.top, m.from.width, m.from.height));
+    bmp.close();
+    return new Promise(r => c.toBlob(r, 'image/webp', 0.95));
+  }
+
+    // ========== Core strategy: intercept ONE real URL, then synthesize others ==========
+  // Ambil 1 URL asli (biasanya 1.webp) lengkap dengan query token.
+  // Setelah itu cukup ganti nomor file → 2.webp, 3.webp dst.
+  // Tidak perlu scroll semua gambar.
+
+  let baseTemplate = null; // ".../__IDX__.webp?Policy=..."
+  const availableIndexes = new Set();
+  const shuffleKeys = new Map();
+
+  function makeBasePrefix(raw) {
+    const m = raw && raw.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)$/i);
+    if (!m) return null;
+    return m[1] + '__IDX__' + m[3] + m[4];
+  }
+
+  function buildUrl(base, i) {
+    return base.replace('__IDX__', String(i));
+  }
+
+  function installInterceptors() {
+    const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+    if (imgSrcDesc && imgSrcDesc.set) {
+      const origSet = imgSrcDesc.set;
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        set(v) { tryRecordUrl(v); return origSet.call(this, v); },
+        get: imgSrcDesc.get,
+        configurable: true
+      });
+    }
+
+    const origFetch = window.fetch;
+    window.fetch = function(input) {
+      try { tryRecordUrl(typeof input === 'string' ? input : input && input.url); } catch {}
+      return origFetch.apply(this, arguments);
+    };
+
+    const origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      try { tryRecordUrl(url); } catch {}
+      return origOpen.apply(this, arguments);
+    };
+
+    const origSetAttr = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+      if (name && name.toLowerCase() === 'src') tryRecordUrl(value);
+      return origSetAttr.apply(this, arguments);
+    };
+
+    window.addEventListener('load', () => {
+      document.querySelectorAll('img').forEach(img => tryRecordUrl(img.src || img.currentSrc));
+    });
+  }
+
+  function tryRecordUrl(url) {
+    if (!url || typeof url !== 'string') return;
+
+    const m = url.match(/rcdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(\?.*)?$/i);
+    if (!m) return;
+
+    const idx = parseInt(m[1]);
+
+    availableIndexes.add(idx);
+
+    if (!baseTemplate) {
+      baseTemplate = makeBasePrefix(url);
+      console.log('[LezhinV2] Base URL captured:', baseTemplate);
+    }
+
+    if (imageEntries.length) {
+      updateOverlayRow(idx);
+    }
+  }
+
+  function extractShuffleKeys() {
+    const html = document.documentElement.innerHTML;
+    shuffleKeys.clear();
+
+    const patterns = [
+      /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\$undefined\\"?)/g,
+      /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\$undefined"|null)/g,
+    ];
+
+    for (const pat of patterns) {
+      let m;
+      while ((m = pat.exec(html)) !== null) {
+        const path = m[1].replace(/\\+/g, '');
+        const rawKey = m[2].replace(/["\\]/g, '').replace('$undefined', '').trim();
+        const idxMatch = path.split('/').pop().match(/^(\d+)/);
+        if (!idxMatch) continue;
+
+        const index = parseInt(idxMatch[1]);
+        shuffleKeys.set(index, rawKey || null);
+      }
+      if (shuffleKeys.size > 0) break;
+    }
+
+    console.log(`[LezhinV2] shuffleKeys extracted: ${shuffleKeys.size}`);
+    return shuffleKeys.size;
+  }
+
+  // ========== State ==========
+  const previewSize = 60;
+  const imageEntries = []; // ordered list of { index, url, shuffleKey, blob, dataUrl, error }
+  let shadow = null, overlay = null, stopFlag = false;
+
+  // ========== UI ==========
+  function mountUI() {
+    const host = document.createElement('div');
+    shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
+      <style>
+        #_cr{position:fixed;bottom:0;left:0;background:#1a1a2e;color:#eee;font-size:12px;z-index:100100;
+             border:1px solid #444;border-left:none;border-bottom:none;border-radius:0 8px 0 0;font-family:system-ui,sans-serif}
+        .head{position:sticky;top:0;background:#1a1a2e;z-index:1;border-bottom:1px solid #333;padding:6px}
+        #cr-manual{padding:6px;border-top:1px dashed #444;max-height:72px;overflow:auto;font-size:10px;color:#888}
+        .cr-manual-item{margin:3px 0}
+        .btn{padding:3px 8px;margin:0 2px;background:#e63946;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px}
+        .btn:hover{background:#c1121f} .btn.sec{background:#2d2d4e} .btn.sec:hover{background:#404070}
+        .row{display:flex;gap:5px;align-items:center;padding:2px 0;flex-wrap:wrap}
+        #cr-status{color:#aaa;font-size:10px;padding:2px 0;min-height:14px;white-space:pre-wrap;word-break:break-all}
+        #cr-prog{color:#b2ff59;font-size:10px;font-weight:bold;padding:2px 0}
+        summary{cursor:pointer;padding:4px 8px;background:#e63946;color:#fff;font-weight:bold;user-select:none}
+        input[type=text]{background:#2a2a40;color:#eee;border:1px solid #555;border-radius:4px;padding:2px 5px;width:70px}
+        .irow{display:flex;align-items:center;gap:4px;padding:2px 4px;border-bottom:1px solid #252545}
+        .irow:hover{background:#252545}
+        .thumb{width:${previewSize}px;height:${previewSize}px;object-fit:contain;background:#111;border-radius:3px;flex-shrink:0}
+        .lbl{flex:1;color:#ccc;font-size:11px}
+        .bscr{font-size:9px;background:#e63946;color:#fff;padding:1px 4px;border-radius:3px}
+        .bok{font-size:9px;background:#2a9d8f;color:#fff;padding:1px 4px;border-radius:3px}
+        .berr{font-size:9px;background:#e76f51;color:#fff;padding:1px 4px;border-radius:3px}
+        .bwait{font-size:9px;background:#444;color:#aaa;padding:1px 4px;border-radius:3px}
+      </style>
+      <details id="_cr">
+        <summary>📦 Lezhin Ripper v2</summary>
+        <div style="width:340px;height:400px;display:flex;flex-direction:column">
+          <div class="head">
+            <div class="row">
+              <button class="btn" id="cr-fetch">🔍 Fetch All</button>
+              <button class="btn sec" id="cr-scan">📋 Scan Page</button>
+              <button class="btn sec" id="cr-stop">■ Stop</button>
+            </div>
+            <div id="cr-status">Buka chapter, lalu klik Scan Page atau Fetch All.</div>
+            <div id="cr-prog"></div>
+            <div class="row" style="margin-top:3px">
+              Range: <input type="text" id="cr-range" placeholder="1-20">
+              <button class="btn" id="cr-dlrange">⬇ DL Range</button>
+            </div>
+            <div class="row">
+              <button class="btn" id="cr-dlsel">⬇ DL Selected</button>
+              <button class="btn sec" id="cr-all">All</button>
+              <button class="btn sec" id="cr-none">None</button>
+            </div>
+          </div>
+          <div id="cr-overlay" style="flex:1;overflow-y:auto"></div>
+          <div id="cr-manual"><i>Backup links jika auto-download diblokir:</i></div>
+        </div>
+      </details>`;
+
+    overlay = shadow.getElementById('cr-overlay');
+    shadow.getElementById('cr-fetch').addEventListener('click', doFetchAll);
+    shadow.getElementById('cr-scan').addEventListener('click', doScanPage);
+    shadow.getElementById('cr-stop').addEventListener('click', () => { stopFlag = true; });
+    shadow.getElementById('cr-dlsel').addEventListener('click', dlSelected);
+    shadow.getElementById('cr-dlrange').addEventListener('click', dlRange);
+    shadow.getElementById('cr-all').addEventListener('click', () => selectAll(true));
+    shadow.getElementById('cr-none').addEventListener('click', () => selectAll(false));
+    document.body.appendChild(host);
+  }
+
+  const setStatus = msg => { const e = shadow && shadow.getElementById('cr-status'); if (e) e.textContent = msg; };
+  const setProgress = msg => { const e = shadow && shadow.getElementById('cr-prog'); if (e) e.textContent = msg; };
+
+  // ========== Scan Page: show intercepted URLs + shuffleKeys without fetching ==========
+    function doScanPage() {
+    const nKeys = extractShuffleKeys();
+
+    if (!shuffleKeys.size && !availableIndexes.size) {
+      setStatus('Belum ada data.\nBuka chapter lalu tunggu 1 gambar tampil.');
+      return;
+    }
+
+    imageEntries.length = 0;
+    overlay.innerHTML = '';
+
+    const maxIdx = shuffleKeys.size
+      ? Math.max(...shuffleKeys.keys())
+      : Math.max(...availableIndexes);
+
+    for (let idx = 1; idx <= maxIdx; idx++) {
+      const entry = {
+        index: idx,
+        url: baseTemplate ? buildUrl(baseTemplate, idx) : null,
+        shuffleKey: shuffleKeys.get(idx) ?? null,
+        blob: null,
+        dataUrl: null,
+        error: null,
+      };
+
+      imageEntries.push(entry);
+      appendRow(entry, imageEntries.length - 1);
+    }
+
+    setStatus(
+      `Template: ${baseTemplate ? 'OK' : 'belum'}\n` +
+      `ShuffleKey: ${nKeys}\n` +
+      `Total halaman: ${maxIdx}`
+    );
+  }
+
+  // ========== Fetch All: fetch + unscramble every entry ==========
+  async function doFetchAll() {
+    stopFlag = false;
+
+    // Run scan first to populate entries if empty
+    if (imageEntries.length === 0) doScanPage();
+    if (imageEntries.length === 0) return;
+
+    setStatus(`Fetching ${imageEntries.length} gambar...`);
+
+    for (let i = 0; i < imageEntries.length; i++) {
+      if (stopFlag) { setStatus('Dihentikan.'); return; }
+      const entry = imageEntries[i];
+      if (entry.dataUrl) continue; // already done
+
+      if (!entry.url) {
+        entry.error = 'URL tidak ada — scroll halaman agar gambar ter-intercept';
+        updateRow(i, entry);
+        continue;
+      }
+
+      setProgress(`[${i+1}/${imageEntries.length}] #${entry.index}`);
+
+      try {
+        let blob = await fetchBlob(entry.url);
+        if (entry.shuffleKey) blob = await unscrambleBlob(blob, entry.shuffleKey);
+        entry.blob = blob;
+        entry.dataUrl = await blobToDataUrl(blob);
+        updateRow(i, entry);
+      } catch(e) {
+        entry.error = e.message || String(e);
+        updateRow(i, entry);
+        console.error(`[LezhinV2] Error #${entry.index}:`, e);
+      }
+
+      await sleep(50);
+    }
+
+    setProgress('');
+    const ok = imageEntries.filter(e => e.dataUrl).length;
+    setStatus(`Selesai. ${ok}/${imageEntries.length} berhasil.`);
+  }
+
+  // ========== Fetch helper — same as Lezhin Unscrambled 2.4.0 fetchGet ==========
+  function fetchBlob(url, timeout = 20000) {
+    return new Promise((resolve, reject) => {
+      const ctl = new AbortController();
+      const id = setTimeout(() => ctl.abort(), timeout);
+      fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store',
+                   referrer: document.referrer || location.href, signal: ctl.signal })
+        .then(r => { clearTimeout(id); if (!r.ok) return reject(new Error('HTTP ' + r.status)); r.blob().then(resolve); })
+        .catch(e => { clearTimeout(id); reject(e); });
+    });
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob);
+    });
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ========== Overlay rows ==========
+  function appendRow(entry, rowIdx) {
+    const div = document.createElement('div');
+    div.className = 'irow'; div.dataset.row = rowIdx;
+    const hasScr = entry.shuffleKey ? 'bscr' : 'bwait';
+    const hasUrl = entry.url ? '' : ' style="opacity:.5"';
+    div.innerHTML = `
+      <input type="checkbox">
+      <img class="thumb" src="" alt="">
+      <span class="lbl"${hasUrl}>#${String(entry.index).padStart(4,'0')} <span class="${hasScr}">${entry.shuffleKey ? 'SCR' : (entry.url ? 'RAW' : 'NO URL')}</span></span>
+      <button class="btn">DL</button>`;
+    div.querySelector('button').addEventListener('click', () => dlSingle(rowIdx));
+    overlay.appendChild(div);
+  }
+
+  function updateRow(rowIdx, entry) {
+    const div = overlay.querySelector(`[data-row="${rowIdx}"]`);
+    if (!div) return;
+    const img = div.querySelector('img');
+    const lbl = div.querySelector('.lbl');
+    if (entry.error) {
+      lbl.innerHTML = `#${String(entry.index).padStart(4,'0')} <span class="berr" title="${entry.error}">ERR</span>`;
+    } else if (entry.dataUrl) {
+      img.src = entry.dataUrl;
+      lbl.innerHTML = `#${String(entry.index).padStart(4,'0')} <span class="bok">${entry.shuffleKey ? 'UNSCR' : 'OK'}</span>`;
+    }
+  }
+
+    function updateOverlayRow(index) {
+    const rowIdx = imageEntries.findIndex(e => e.index === index);
+    if (rowIdx < 0 || !baseTemplate) return;
+
+    imageEntries[rowIdx].url = buildUrl(baseTemplate, index);
+
+    const div = overlay.querySelector(`[data-row="${rowIdx}"]`);
+    if (!div) return;
+
+    const lbl = div.querySelector('.lbl');
+    const entry = imageEntries[rowIdx];
+
+    lbl.innerHTML =
+      `#${String(entry.index).padStart(4,'0')} ` +
+      `<span class="${entry.shuffleKey ? 'bscr' : 'bwait'}">` +
+      `${entry.shuffleKey ? 'SCR' : 'RAW'}</span>`;
+  }
+
+  // ========== Selection ==========
+  function selectAll(v) { overlay.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = v); }
+
+  // ========== Filename helpers ==========
+  function getBaseZipName() {
+    let t = document.title || 'lezhin';
+    t = t.replace(/\s*-\s*\d+\s*-\s*웹툰.*$/i,'').replace(/\s*-\s*웹툰.*$/i,'')
+         .replace(/\s*-\s*레진코믹스.*$/i,'').replace(/\s*-\s*Lezhin.*$/i,'')
+         .replace(/[<>:"/\\|?*\x00-\x1f]/g,'').trim();
+    return (t.length > 100 ? t.substring(0,100) : t) || 'lezhin';
+  }
+  function entryExt(entry) { return entry.blob && entry.blob.type.includes('png') ? 'png' : 'webp'; }
+  function entryName(entry) { return `#${String(entry.index).padStart(4,'0')}.${entryExt(entry)}`; }
+
+  // ========== Download single ==========
+  async function dlSingle(rowIdx) {
+    const entry = imageEntries[rowIdx];
+    if (!entry) return;
+    if (!entry.blob) {
+      // Fetch on demand
+      if (!entry.url) { alert('URL belum ter-intercept. Scroll halaman agar gambar ini ter-load.'); return; }
+      setStatus(`Fetching #${entry.index}...`);
+      try {
+        let blob = await fetchBlob(entry.url);
+        if (entry.shuffleKey) blob = await unscrambleBlob(blob, entry.shuffleKey);
+        entry.blob = blob; entry.dataUrl = await blobToDataUrl(blob);
+        updateRow(rowIdx, entry); setStatus('');
+      } catch(e) { entry.error = e.message; updateRow(rowIdx, entry); setStatus('Error: ' + e.message); return; }
+    }
+    triggerDirect({ blob: entry.blob, filename: entryName(entry), sh: shadow });
+  }
+
+  // ========== Build ZIP from entries ==========
+  async function buildZip(entries, filename) {
+    const files = [];
+    for (const entry of entries) {
+      if (!entry.blob) continue;
+      files.push({ name: entryName(entry), data: await entry.blob.arrayBuffer() });
+    }
+    if (!files.length) { alert('Tidak ada gambar yang siap didownload.'); return; }
+    const zipData = SimpleZip.GenerateZipFrom(files);
+    triggerDirect({ blob: new Blob([zipData], { type: 'application/zip' }), filename, sh: shadow });
+  }
+
+  // ========== Download selected ==========
+  async function dlSelected() {
+    const rows = Array.from(overlay.querySelectorAll('.irow')).filter(r => r.querySelector('input').checked);
+    if (!rows.length) { alert('Pilih gambar dulu.'); return; }
+    const entries = rows.map(r => imageEntries[parseInt(r.dataset.row)]).filter(Boolean);
+    await buildZip(entries, getBaseZipName() + '.zip');
+  }
+
+  // ========== Download by range ==========
+  async function dlRange() {
+    const v = shadow.getElementById('cr-range').value.trim();
+    const m = v.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (!m) { alert('Format: 1-20'); return; }
+    const start = parseInt(m[1]), end = parseInt(m[2]);
+    const entries = imageEntries.filter(e => e.index >= start && e.index <= end);
+    if (!entries.length) { alert(`Tidak ada gambar di range ${start}-${end}`); return; }
+
+    // Fetch any missing
+    setStatus(`Fetching range ${start}-${end}...`);
+    for (let i = 0; i < entries.length; i++) {
+      if (stopFlag) break;
+      const entry = entries[i];
+      if (entry.blob || !entry.url) continue;
+      setProgress(`[${i+1}/${entries.length}] #${entry.index}`);
+      try {
+        let blob = await fetchBlob(entry.url);
+        if (entry.shuffleKey) blob = await unscrambleBlob(blob, entry.shuffleKey);
+        entry.blob = blob; entry.dataUrl = await blobToDataUrl(blob);
+        const rowIdx = imageEntries.indexOf(entry);
+        updateRow(rowIdx, entry);
+      } catch(e) { entry.error = e.message; }
+      await sleep(50);
+    }
+    setProgress('');
+    await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
+    setStatus('');
+  }
+
+  // ========== Boot ==========
+  installInterceptors(); // install ASAP, before DOM ready
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountUI);
+  } else {
+    mountUI();
+  }
+
+  console.log('Lezhin Scrambled v2.1 – Intercept + Unscramble + Full Download Suite');
+})();
