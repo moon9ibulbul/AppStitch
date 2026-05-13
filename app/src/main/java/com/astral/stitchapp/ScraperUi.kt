@@ -25,9 +25,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 
 object ScraperScripts {
-    val MANGAGO = """
-    (function() {
-        'use strict';
+    private val COMMON_SCRIPTS = """
         function log(msg) {
             console.log("[Scraper] " + msg);
             if (window.Android && window.Android.log) { window.Android.log(msg); }
@@ -43,6 +41,14 @@ object ScraperScripts {
                 document.head.appendChild(script);
             });
         };
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    """.trimIndent()
+
+    val MANGAGO = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
 
         function soJsonV4Deobfuscator(obfuscatedJs) {
             if (!obfuscatedJs.includes("['sojson.v4']")) return obfuscatedJs;
@@ -235,10 +241,7 @@ object ScraperScripts {
     val RIDIBOOKS = """
     (function() {
         'use strict';
-        function log(msg) {
-            console.log("[RidiScraper] " + msg);
-            if (window.Android && window.Android.log) { window.Android.log(msg); }
-        }
+        $COMMON_SCRIPTS
 
         window.runScraper = async function() {
             log("Starting Ridibooks Scraper...");
@@ -273,10 +276,7 @@ object ScraperScripts {
     val KAKAOPAGE = """
     (function() {
         'use strict';
-        function log(msg) {
-            console.log("[KakaoScraper] " + msg);
-            if (window.Android && window.Android.log) { window.Android.log(msg); }
-        }
+        $COMMON_SCRIPTS
 
         let capturedData = null;
 
@@ -341,10 +341,7 @@ object ScraperScripts {
     val BOMTOON = """
     (function() {
         'use strict';
-        function log(msg) {
-            console.log("[BomtoonScraper] " + msg);
-            if (window.Android && window.Android.log) { window.Android.log(msg); }
-        }
+        $COMMON_SCRIPTS
 
         async function getAuthToken() {
             const resp = await fetch("/api/auth/session");
@@ -384,26 +381,44 @@ object ScraperScripts {
                 await loadCryptoJS();
                 const buildId = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML).buildId;
                 const pathName = location.pathname;
-                const dataUrl = `/_next/data/${"$"}{buildId}${"$"}{pathName}.json`;
+                const urlParam = pathName.match(/\/viewer\/(.+?)\/(.+?)(\/|${"$"})/);
+                if (!urlParam) throw new Error("Could not parse URL parameters");
+
+                const queryParam = new URLSearchParams();
+                queryParam.append("alias", urlParam[1]);
+                queryParam.append("epAlias", urlParam[2]);
+
+                const dataUrl = `/_next/data/${"$"}{buildId}${"$"}{pathName}.json?${"$"}{queryParam.toString()}`;
                 const resp = await fetch(dataUrl, { headers: { "X-Nextjs-Data": 1 } });
                 const json = await resp.json();
-                const episodeData = json.pageProps.episodeData.result;
+                const episodeData = json.pageProps.episodeData ? json.pageProps.episodeData.result : null;
+
+                if (!episodeData) {
+                    log("Fallback to direct API...");
+                    const apiEndpoint = `/api/balcony-api-v2/contents${"$"}{pathName}?isNotLoginAdult=false`;
+                    const apiResp = await apiReq(apiEndpoint, "GET");
+                    if (!apiResp.data) throw new Error("API failed");
+                    var episodeInfo = apiResp.data;
+                } else {
+                    var episodeInfo = episodeData;
+                }
 
                 // Get Scramble Key
-                const urlParam = location.pathname.match(/\/viewer\/(.+?)\/(.+?)(\/|${"$"})/);
                 const keyApi = "/api/balcony-api-v2/contents/images/" + urlParam[1] + "/" + urlParam[2];
-                const keyResp = await apiReq(keyApi, "POST", { line: episodeData.images[0].line });
-                const scrambleKey = keyResp.data;
+                const keyResp = await apiReq(keyApi, "POST", { line: episodeInfo.images[0].line });
+                const scrambleKey = keyResp.data || "thisisBalconyScrambledKey1234!@#";
 
-                window._scrapedImages = await Promise.all(episodeData.images.map(async (img) => {
+                window._scrapedImages = await Promise.all(episodeInfo.images.map(async (img) => {
                     let url = img.imagePath;
                     if (img.point || img.line) {
-                        const scrambleIndex = await decryptScramble(img.point, scrambleKey);
-                        url += "#scramble=" + encodeURIComponent(JSON.stringify({
-                            scrambleIndex: scrambleIndex,
-                            width: img.width,
-                            defaultHeight: img.defaultHeight
-                        }));
+                        try {
+                            const scrambleIndex = await decryptScramble(img.point, scrambleKey);
+                            url += "#scramble=" + encodeURIComponent(JSON.stringify({
+                                scrambleIndex: scrambleIndex,
+                                width: img.width,
+                                defaultHeight: img.defaultHeight
+                            }));
+                        } catch(e) { log("Unscramble error: " + e.message); }
                     }
                     return url;
                 }));
@@ -417,36 +432,13 @@ object ScraperScripts {
                 await window.grabApiData();
             }
             try {
-                const buildId = JSON.parse(document.getElementById("__NEXT_DATA__").innerHTML).buildId;
-                const pathName = location.pathname;
-                const dataUrl = `/_next/data/${"$"}{buildId}${"$"}{pathName}.json`;
-                const resp = await fetch(dataUrl, { headers: { "X-Nextjs-Data": 1 } });
-                const json = await resp.json();
-                const episodeData = json.pageProps.episodeData.result;
-
-                // Get Scramble Key
-                const urlParam = location.pathname.match(/\/viewer\/(.+?)\/(.+?)(\/|${"$"})/);
-                const keyApi = "/api/balcony-api-v2/contents/images/" + urlParam[1] + "/" + urlParam[2];
-                const keyResp = await apiReq(keyApi, "POST", { line: episodeData.images[0].line });
-                const scrambleKey = keyResp.data;
-
-                const images = await Promise.all(episodeData.images.map(async (img) => {
-                    let url = img.imagePath;
-                    if (img.point || img.line) {
-                        const scrambleIndex = await decryptScramble(img.point, scrambleKey);
-                        url += "#scramble=" + encodeURIComponent(JSON.stringify({
-                            scrambleIndex: scrambleIndex,
-                            width: img.width,
-                            defaultHeight: img.defaultHeight
-                        }));
-                    }
-                    return url;
-                }));
+                if (!window._scrapedImages || window._scrapedImages.length === 0) {
+                    throw new Error("No images found. Try clicking 'Fetch' first.");
+                }
 
                 const result = {
                     title: document.title.trim(),
-                    images: window._scrapedImages,
-                    cookie: document.cookie
+                    images: window._scrapedImages
                 };
                 Android.onImagesFound(JSON.stringify(result));
             } catch(e) { log("Error: " + e.message); }
@@ -457,10 +449,7 @@ object ScraperScripts {
     val NEWTOKI = """
     (function() {
         'use strict';
-        function log(msg) {
-            console.log("[NewtokiScraper] " + msg);
-            if (window.Android && window.Android.log) { window.Android.log(msg); }
-        }
+        $COMMON_SCRIPTS
 
         window.runScraper = function() {
             log("Starting Newtoki Scraper...");
@@ -502,27 +491,51 @@ object ScraperScripts {
     val LEZHIN = """
     (function() {
         'use strict';
-        function log(msg) {
-            console.log("[LezhinScraper] " + msg);
-            if (window.Android && window.Android.log) { window.Android.log(msg); }
-        }
+        $COMMON_SCRIPTS
 
         window.fetchAll = async function() {
-            log("Lezhin: Scanning DOM for images...");
-            const images = [];
-            document.querySelectorAll('img[data-src], img.comic-image').forEach(img => {
-                images.push(img.getAttribute('data-src') || img.src);
-            });
+            log("Lezhin: Starting Panel-by-Panel Scraping...");
+            try {
+                const scripts = Array.from(document.querySelectorAll('script'));
+                let productData = null;
+                for (let s of scripts) {
+                    if (s.textContent.includes('__LZ_PRODUCT__')) {
+                        const m = s.textContent.match(/__LZ_PRODUCT__\s*=\s*({.+?});/);
+                        if (m) { productData = JSON.parse(m[1]); break; }
+                    }
+                }
+                if (!productData) throw new Error("Could not find product data");
 
-            if (images.length === 0) {
-               document.querySelectorAll('img').forEach(img => {
-                   if (img.src && !img.src.includes('avatar') && !img.src.includes('logo')) {
-                       images.push(img.src);
-                   }
-               });
+                const episode = productData.currentEpisode;
+                const totalPanels = episode.p_count || 100;
+                log("Total panels: " + totalPanels);
+
+                const images = new Set();
+                for (let i = 1; i <= totalPanels; i++) {
+                    log("Switching to Panel " + i);
+                    location.hash = '#!/panel/' + i;
+                    await sleep(300); // Wait for lazy load
+
+                    const currentImgs = document.querySelectorAll('img[data-src], img.comic-image');
+                    currentImgs.forEach(img => {
+                        const src = img.getAttribute('data-src') || img.src;
+                        if (src && !src.includes('avatar') && !src.includes('logo')) {
+                             images.add(src);
+                        }
+                    });
+                }
+
+                window._scrapedImages = Array.from(images);
+                log("Lezhin: " + window._scrapedImages.length + " images found.");
+            } catch(e) {
+                log("Lezhin Error: " + e.message);
+                // Fallback to DOM Scanning
+                const images = [];
+                document.querySelectorAll('img[data-src], img.comic-image').forEach(img => {
+                    images.push(img.getAttribute('data-src') || img.src);
+                });
+                window._scrapedImages = images;
             }
-            window._scrapedImages = images;
-            log("Lezhin: " + images.length + " images found.");
         };
 
         window.runScraper = async function() {
@@ -531,40 +544,13 @@ object ScraperScripts {
                 await window.fetchAll();
             }
             try {
-                const scripts = Array.from(document.querySelectorAll('script'));
-                let viewerData = null;
-                for (let s of scripts) {
-                    if (s.textContent.includes('__LZ_PRODUCT__')) {
-                        const m = s.textContent.match(/__LZ_PRODUCT__\s*=\s*({.+?});/);
-                        if (m) { viewerData = JSON.parse(m[1]); break; }
-                    }
-                }
-
-                if (viewerData && viewerData.episodes) {
-                    // Logic to extract images from viewerData
-                    // This is just a placeholder as Lezhin API is complex
-                    log("Found viewer data. Implementation pending full reverse engineering.");
-                }
-
-                // Fallback to DOM Scanning
-                const images = [];
-                document.querySelectorAll('img[data-src], img.comic-image').forEach(img => {
-                    images.push(img.getAttribute('data-src') || img.src);
-                });
-
-                if (images.length === 0) {
-                   log("No images found via DOM. Try generic scanner.");
-                   document.querySelectorAll('img').forEach(img => {
-                       if (img.src && !img.src.includes('avatar') && !img.src.includes('logo')) {
-                           images.push(img.src);
-                       }
-                   });
+                if (!window._scrapedImages || window._scrapedImages.length === 0) {
+                    throw new Error("No images found. Try clicking 'Fetch' first.");
                 }
 
                 const result = {
                     title: document.title.trim(),
-                    images: window._scrapedImages,
-                    cookie: document.cookie
+                    images: window._scrapedImages
                 };
                 Android.onImagesFound(JSON.stringify(result));
             } catch(e) { log("Error: " + e.message); }
@@ -614,14 +600,13 @@ class ScraperJsInterface(
             val json = JSONObject(jsonStr)
             val title = json.optString("title", "Scraped Content")
             val imgArray = json.optJSONArray("images")
-            val cookie = json.optString("cookie", "")
             val list = mutableListOf<String>()
             if (imgArray != null) {
                 for (i in 0 until imgArray.length()) {
                     list.add(imgArray.getString(i))
                 }
             }
-            onResult(title, list, cookie)
+            onResult(title, list, "")
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -657,7 +642,11 @@ fun ScraperWebViewDialog(
                             settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
                             addJavascriptInterface(ScraperJsInterface(
-                                onResult = { t, i, c -> onScrapeSuccess(t, i, c) },
+                                onResult = { t, i, _ ->
+                                    val cm = CookieManager.getInstance()
+                                    val currentCookie = cm.getCookie(url) ?: ""
+                                    onScrapeSuccess(t, i, currentCookie)
+                                },
                                 onLog = { msg -> status = msg }
                             ), "Android")
 

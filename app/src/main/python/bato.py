@@ -574,7 +574,12 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if source_type == "ridi": referer = "https://ridibooks.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
-            elif source_type in ["newtoki", "myreadingmanga"]: referer = url
+            elif source_type == "myreadingmanga": referer = "https://myreadingmanga.info/"
+            elif source_type == "newtoki":
+                if url.startswith("direct://"):
+                    referer = "https://newtoki.com/"
+                else:
+                    referer = url
 
         elif source_type == "kakao":
             if "pre_scraped_images" in item:
