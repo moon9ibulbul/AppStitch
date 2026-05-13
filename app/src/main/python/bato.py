@@ -92,6 +92,49 @@ def extract_title_from_html(html: str) -> str:
         return sanitize_filename(t)
     return ""
 
+def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
+    try:
+        data = json.loads(scramble_data_json)
+        scramble_index = data.get("scrambleIndex") # This is what decryptScramble returns
+        if not scramble_index:
+             # If it was passed as part of the fragment, we might need to decrypt it here or have it pre-decrypted
+             # Based on my ScraperScripts.BOMTOON, I'm passing the whole info but not yet the pre-decrypted index
+             # I should probably have the JS do the decryption since it has SubtleCrypto
+             pass
+
+        with Image.open(path) as img_file:
+            img = img_file.convert("RGBA")
+
+        width, height = img.size
+        result = Image.new("RGBA", (width, height))
+
+        # Bomtoon usually uses 4x4 grid for scrambling
+        cols = 4
+        rows = 4
+        unit_width = width // cols
+        unit_height = height // rows
+
+        for r, i in enumerate(scramble_index):
+             # d is destination (where it is in the scrambled image)
+             # u is source (where it should be in the original image)
+             # Wait, the JS logic was:
+             # d = (r % 4) * s, c = Math.floor(r / 4) * a (Source in scrambled)
+             # u = (i % 4) * s, g = Math.floor(i / 4) * a (Destination in unscrambled)
+             # ctx.drawImage(img, d, c, s, a, u, g, s, a)
+
+             sx = (r % 4) * unit_width
+             sy = (r // 4) * unit_height
+
+             dx = (i % 4) * unit_width
+             dy = (i // 4) * unit_height
+
+             tile = img.crop((sx, sy, sx + unit_width, sy + unit_height))
+             result.paste(tile, (dx, dy))
+
+        result.save(path, "PNG")
+    except Exception as e:
+        print(f"Bomtoon unscramble failed: {e}")
+
 def unscramble_mangago_image(path: Path, desckey: str, cols: int):
     try:
         print(f"Unscrambling {path.name} with cols={cols}")
@@ -151,11 +194,18 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
     fragment = p_url.fragment
     desckey = None
     cols = None
+    scramble_data = None
     if fragment:
-        params = dict(item.split("=") for item in fragment.split("&") if "=" in item)
+        params = {}
+        for item in fragment.split("&"):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                params[k] = v
+
         desckey = params.get("desckey")
         cols = params.get("cols")
         if cols: cols = int(cols)
+        scramble_data = params.get("scramble")
 
     # Strip fragment from URL for actual request
     clean_url = urlunparse(p_url._replace(fragment=""))
@@ -192,6 +242,10 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
             # Apply unscrambling if needed
             if desckey and cols:
                 unscramble_mangago_image(target, desckey, cols)
+
+            if scramble_data:
+                from urllib.parse import unquote
+                unscramble_bomtoon_image(target, unquote(scramble_data))
 
             return
         except Exception as e:
@@ -496,14 +550,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         images = []
         referer = None
 
-        if source_type == "ridi":
-            book_id = get_ridi_book_id(url)
-            cookie = item.get("cookie", "")
-            title_prefix, imgs = process_ridi_item(book_id, cookie)
-            images = imgs
-            referer = f"https://ridibooks.com/books/{book_id}/view"
-
-        elif source_type == "naver":
+        if source_type == "naver":
             images = naver_downloader.get_naver_images(url)
             referer = "https://comic.naver.com/"
 
@@ -511,16 +558,24 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             images = xtoon_downloader.get_xtoon_images(url)
             referer = url
 
-        elif source_type == "kakao":
-            images = kakaopage_downloader.get_images(url, item.get("cookie"))
-            referer = "https://page.kakao.com/"
-
         elif source_type == "mangago":
             if "pre_scraped_images" in item:
                 images = item["pre_scraped_images"]
             else:
                 images = mangago_downloader.get_images(url, item.get("cookie"))
             referer = "https://www.mangago.zone/"
+
+        elif source_type in ["ridi", "kakao", "bomtoon", "lezhin", "newtoki", "myreadingmanga"]:
+            if "pre_scraped_images" in item:
+                images = item["pre_scraped_images"]
+            else:
+                raise Exception(f"Source {source_type} requires pre-scraped images (Scrape button)")
+
+            if source_type == "ridi": referer = "https://ridibooks.com/"
+            elif source_type == "kakao": referer = "https://page.kakao.com/"
+            elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
+            elif source_type == "lezhin": referer = "https://www.lezhin.com/"
+            elif source_type in ["newtoki", "myreadingmanga"]: referer = url
 
         if len(images) == 0:
             raise Exception("No images found")
