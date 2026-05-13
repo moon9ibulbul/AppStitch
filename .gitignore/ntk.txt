@@ -1,0 +1,591 @@
+// ==UserScript==
+// @name         Newtoki, Myreadingmanga Downloader
+// @namespace    astralexpress-helper
+// @match        https://*.newtoki*.org/*
+// @match        https://*.newtoki*.com/*
+// @match        https://myreadingmanga.info/*
+// @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @connect      *
+// @require      https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js
+// @version      1.2.0
+// @author       Astral (Modified)
+// @description  Ambil gambar webtoon dari Newtoki dengan retry, fallback, dan better error handling
+// ==/UserScript==
+
+(function(){
+  'use strict';
+
+  // ========= Konstanta =========
+  const STATE = {
+    items: new Map(),
+    order: [],
+    busy: false,
+    titleHint: null,
+    cookies: GM_getValue('newtoki_cookies', '') || '',
+    referer: GM_getValue('newtoki_referer', '') || '',
+    userAgent: GM_getValue('newtoki_ua', '') || '',
+    log: [],
+    retryCount: 3, // jumlah retry per gambar
+    timeout: 45000, // timeout ditambah jadi 45 detik
+  };
+
+  // ========= UI =========
+  const ui = (() => {
+    const box = document.createElement('div');
+    box.id = 'newtoki-grab-box';
+    box.innerHTML = `
+      <div class="ntg-head">Newtoki Webtoon Grabber</div>
+      <div class="ntg-body">
+        <div class="ntg-row"><b>Status:</b> <span id="ntg-status">Menunggu…</span></div>
+        <div class="ntg-row"><b>Terdeteksi:</b> <span id="ntg-count">0</span> gambar</div>
+        <div class="ntg-progress"><div class="ntg-bar" id="ntg-bar"></div></div>
+
+        <div class="ntg-section">
+          <button id="ntg-scan" class="ntg-big-btn">Scan Halaman</button>
+          <button id="ntg-test" class="ntg-big-btn" style="margin-top:6px;">Test 1 Gambar</button>
+        </div>
+
+        <div class="ntg-section">
+          <label for="ntg-cookie">Cookie (opsional):</label>
+          <textarea id="ntg-cookie" class="ntg-textarea" placeholder="Paste cookie string…"></textarea>
+          <button id="ntg-save-cookie" class="ntg-small-btn">Simpan Cookie</button>
+        </div>
+
+        <div class="ntg-section">
+          <label for="ntg-referer">Referer (opsional):</label>
+          <input id="ntg-referer" class="ntg-input" placeholder="https://newtoki..."/>
+          <button id="ntg-save-referer" class="ntg-small-btn">Simpan Referer</button>
+        </div>
+
+        <div class="ntg-section">
+          <label for="ntg-ua">User-Agent (opsional):</label>
+          <textarea id="ntg-ua" class="ntg-textarea" placeholder="Mozilla/5.0..."></textarea>
+          <button id="ntg-save-ua" class="ntg-small-btn">Simpan UA</button>
+        </div>
+
+        <div class="ntg-section">
+          <label><input type="checkbox" id="ntg-skip-failed"> Skip gambar gagal (lanjutkan download)</label>
+          <label><input type="checkbox" id="ntg-skip-gif"> Skip gambar .gif</label>
+          <label><input type="checkbox" id="ntg-verbose"> Mode verbose (detail error)</label>
+        </div>
+
+        <div class="ntg-actions">
+          <button id="ntg-dlzip" disabled>Download ZIP</button>
+          <button id="ntg-clear">Clear</button>
+        </div>
+        <div class="ntg-mini" id="ntg-mini"></div>
+      </div>
+    `;
+    document.documentElement.appendChild(box);
+
+    const css = `
+      #newtoki-grab-box{
+        position:fixed; right:12px; bottom:12px; z-index:999999;
+        width: 300px; max-height: 650px; overflow-y:auto;
+        background:#151821; color:#e6e9ef; border:1px solid #2a2d39;
+        border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.35);
+        font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      }
+      #newtoki-grab-box .ntg-head{
+        padding:10px 12px; font-weight:700; background:#10131b;
+        border-bottom:1px solid #2a2d39; border-radius:14px 14px 0 0;
+      }
+      #newtoki-grab-box .ntg-body{ padding:10px 12px; }
+      #newtoki-grab-box .ntg-row{ margin:6px 0; }
+      #newtoki-grab-box .ntg-section{
+        background:#0f121a; border:1px solid #222636; border-radius:8px;
+        padding:8px; margin:8px 0;
+      }
+      #newtoki-grab-box .ntg-section label{
+        display:block; font-weight:600; margin-bottom:4px; font-size:12px;
+      }
+      #newtoki-grab-box .ntg-input{
+        width:100%; height:32px; border:1px solid #2a2d39; border-radius:6px;
+        background:#0e1118; color:#e6e9ef; padding:6px 8px; font-size:12px;
+        box-sizing:border-box;
+      }
+      #newtoki-grab-box .ntg-textarea{
+        width:100%; height:60px; border:1px solid #2a2d39; border-radius:6px;
+        background:#0e1118; color:#e6e9ef; padding:6px; font-size:11px;
+        font-family: monospace; resize:vertical; box-sizing:border-box;
+      }
+      #newtoki-grab-box .ntg-textarea:focus, #newtoki-grab-box .ntg-input:focus{
+        outline:none; border-color:#67d34a;
+      }
+      #newtoki-grab-box .ntg-small-btn{
+        width:100%; padding:6px 8px; margin-top:6px; border-radius:6px;
+        border:1px solid #2a2d39; background:#1b2030; color:#e6e9ef;
+        cursor:pointer; font-size:12px;
+      }
+      #newtoki-grab-box .ntg-small-btn:hover{ background:#242a38; }
+      #newtoki-grab-box .ntg-big-btn{
+        width:100%; padding:10px 12px; border-radius:8px;
+        border:1px solid #2a2d39; background:#1b2030; color:#e6e9ef;
+        cursor:pointer; font-size:13px; font-weight:600;
+      }
+      #newtoki-grab-box .ntg-big-btn:hover{ background:#242a38; }
+      #newtoki-grab-box .ntg-actions{ display:flex; gap:8px; margin-top:10px; }
+      #newtoki-grab-box button{
+        flex:1; padding:8px 10px; border-radius:10px; border:1px solid #2a2d39;
+        background:#1b2030; color:#e6e9ef; cursor:pointer; font-weight:600;
+      }
+      #newtoki-grab-box button:hover:not([disabled]){ background:#242a38; }
+      #newtoki-grab-box button[disabled]{ opacity:.5; cursor:not-allowed; }
+      #newtoki-grab-box .ntg-progress{
+        height:8px; background:#0e1118; border:1px solid #2a2d39;
+        border-radius:999px; overflow:hidden; margin:8px 0 2px;
+      }
+      #newtoki-grab-box .ntg-bar{
+        height:100%; width:0%; background:#67d34a; transition:width .2s ease;
+      }
+      #newtoki-grab-box .ntg-mini{
+        max-height:180px; overflow:auto; background:#0f121a;
+        border:1px solid #222636; border-radius:8px; padding:6px;
+        margin-top:8px; font-size:11px;
+      }
+      #ntg-mini .line{ opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:2px 0; }
+      #ntg-mini .line.success{ color:#67d34a; }
+      #ntg-mini .line.error{ color:#f38ba8; }
+      #ntg-mini .line.warn{ color:#fab387; }
+    `;
+    if (typeof GM_addStyle === 'function') GM_addStyle(css);
+    else { const s=document.createElement('style'); s.textContent = css; document.head.appendChild(s); }
+
+    const $status = box.querySelector('#ntg-status');
+    const $count  = box.querySelector('#ntg-count');
+    const $bar    = box.querySelector('#ntg-bar');
+    const $mini   = box.querySelector('#ntg-mini');
+    const $dlzip  = box.querySelector('#ntg-dlzip');
+    const $clear  = box.querySelector('#ntg-clear');
+    const $scan   = box.querySelector('#ntg-scan');
+    const $test   = box.querySelector('#ntg-test');
+    const $cookie = box.querySelector('#ntg-cookie');
+    const $referer = box.querySelector('#ntg-referer');
+    const $ua = box.querySelector('#ntg-ua');
+    const $saveCookie = box.querySelector('#ntg-save-cookie');
+    const $saveReferer = box.querySelector('#ntg-save-referer');
+    const $saveUa = box.querySelector('#ntg-save-ua');
+    const $skipFailed = box.querySelector('#ntg-skip-failed');
+    const $skipGif = box.querySelector('#ntg-skip-gif');
+    const $verbose = box.querySelector('#ntg-verbose');
+
+    // load saved
+    $cookie.value = STATE.cookies;
+    $referer.value = STATE.referer || location.href;
+    $ua.value = STATE.userAgent || navigator.userAgent;
+    $skipFailed.checked = GM_getValue('skip_failed', true);
+    $skipGif.checked = GM_getValue('skip_gif', false);
+    $verbose.checked = GM_getValue('verbose', false);
+
+    $skipFailed.addEventListener('change', ()=> GM_setValue('skip_failed', $skipFailed.checked));
+    $skipGif.addEventListener('change', ()=> GM_setValue('skip_gif', $skipGif.checked));
+    $verbose.addEventListener('change', ()=> GM_setValue('verbose', $verbose.checked));
+
+    $saveCookie.addEventListener('click', () => {
+      const c = $cookie.value.trim();
+      STATE.cookies = c;
+      GM_setValue('newtoki_cookies', c);
+      setStatus(c ? '✓ Cookie disimpan' : 'Cookie dihapus');
+      log(c ? 'Cookie tersimpan' : 'Cookie dihapus');
+    });
+
+    $saveReferer.addEventListener('click', () => {
+      const r = $referer.value.trim();
+      STATE.referer = r;
+      GM_setValue('newtoki_referer', r);
+      setStatus('✓ Referer disimpan');
+      log('Referer tersimpan');
+    });
+
+    $saveUa.addEventListener('click', () => {
+      const ua = $ua.value.trim();
+      STATE.userAgent = ua;
+      GM_setValue('newtoki_ua', ua);
+      setStatus('✓ User-Agent disimpan');
+      log('User-Agent tersimpan');
+    });
+
+    $scan.addEventListener('click', () => {
+      setStatus('Scanning halaman…');
+      scanPage();
+    });
+
+    $test.addEventListener('click', () => testFirstImage());
+    $dlzip.addEventListener('click', () => zipAndSave());
+    $clear.addEventListener('click', clearAll);
+
+    function setStatus(msg){ $status.textContent = msg; }
+    function updateCount(){ $count.textContent = String(STATE.items.size); $dlzip.disabled = STATE.items.size === 0; }
+    function progress(pct){ $bar.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+    function log(text, type=''){ 
+      const d=document.createElement('div'); 
+      d.className='line ' + type; 
+      d.textContent=text; 
+      d.title=text; // tooltip untuk teks panjang
+      $mini.appendChild(d); 
+      while($mini.childNodes.length>150) $mini.removeChild($mini.firstChild); 
+      $mini.scrollTop=$mini.scrollHeight; 
+    }
+
+    function clearAll(){
+      STATE.items.clear(); STATE.order.length = 0; updateCount(); progress(0);
+      setStatus('Dibersihkan. Menunggu…'); log('Clear selesai');
+    }
+
+    return { setStatus, updateCount, progress, log, $dlzip, $skipFailed, $skipGif, $verbose };
+  })();
+
+  // ========= Util =========
+  function sanitizeFilename(name) {
+    return (name || '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'newtoki';
+  }
+  function pad(num, width=4){ const s=String(num); return s.length>=width?s:('0'.repeat(width-s.length)+s); }
+  function looksLikeUrl(v){
+    if (!v) return false;
+    return /^(https?:)?\/\/|^data:image\/|^blob:/.test(v);
+  }
+  function absolutize(u){
+    try{
+      if (u.startsWith('//')) return location.protocol + u;
+      if (/^https?:|^data:image\/|^blob:/.test(u)) return u;
+      return new URL(u, location.href).href;
+    }catch{ return u; }
+  }
+  function pickFromSrcset(srcset){
+    try{
+      const parts = srcset.split(',').map(s=>s.trim()).filter(Boolean);
+      if (!parts.length) return null;
+      const last = parts[parts.length-1].split(/\s+/)[0];
+      return last || parts[0].split(/\s+/)[0] || null;
+    }catch{ return null; }
+  }
+
+  // ========= Scanner =========
+  function scanPage(){
+    try{
+      const root =
+        document.querySelector('.view-img, .toon_view, #bo_v_img, article, main') ||
+        document.body;
+
+      const candidates = new Set();
+
+      root.querySelectorAll('img, picture source').forEach(el=>{
+        if (el.tagName === 'IMG' && looksLikeUrl(el.currentSrc || el.src)) {
+          candidates.add(absolutize(el.currentSrc || el.src));
+        }
+        const srcset = el.getAttribute('srcset');
+        if (srcset) {
+          const picked = pickFromSrcset(srcset);
+          if (picked && looksLikeUrl(picked)) candidates.add(absolutize(picked));
+        }
+        ['data-src','data-original','data-lazy','data-url','data-origin','data-echo','data-real','data-srcset'].forEach(a=>{
+          const v = el.getAttribute(a);
+          if (v && looksLikeUrl(v)) candidates.add(absolutize(v));
+        });
+        for (const attr of el.attributes){
+          if (attr.name.startsWith('data-') && looksLikeUrl(attr.value)){
+            candidates.add(absolutize(attr.value));
+          }
+        }
+      });
+
+      root.querySelectorAll('[style*="background"]').forEach(el=>{
+        const bg = getComputedStyle(el).backgroundImage;
+        if (bg && bg.includes('url(')){
+          const urls = Array.from(bg.matchAll(/url\(["']?(.+?)["']?\)/g)).map(m=>m[1]);
+          urls.forEach(u=>{ if (looksLikeUrl(u)) candidates.add(absolutize(u)); });
+        }
+      });
+
+      root.querySelectorAll('div,figure,section').forEach(el=>{
+        if (el.clientHeight < 200 && el.clientWidth < 200) return;
+        for (const attr of el.attributes){
+          if (attr.name.startsWith('data-') && looksLikeUrl(attr.value)){
+            candidates.add(absolutize(attr.value));
+          }
+        }
+      });
+
+      const filtered = Array.from(candidates).filter(u => {
+        if (/^data:image\//.test(u) || /^blob:/.test(u)) return true;
+        return /\.(jpe?g|png|webp|gif|avif|bmp)(?:$|\?)/i.test(u);
+      });
+
+      let added = 0;
+      let skippedGif = 0;
+      filtered.forEach(u=>{
+        if (/loading|spinner|blank|placeholder/i.test(u)) return;
+        
+        // Skip GIF jika opsi aktif
+        if (ui.$skipGif.checked && /\.gif(?:$|\?)/i.test(u)) {
+          skippedGif++;
+          return;
+        }
+        
+        const no = STATE.items.size + 1;
+        if (!Array.from(STATE.items.values()).some(x => x.url === u)) {
+          STATE.items.set(no, { no, url: u });
+          added++;
+        }
+      });
+
+      STATE.order = Array.from(STATE.items.keys()).sort((a,b)=>a-b);
+      ui.updateCount();
+
+      if (added) {
+        let msg = `✓ Scan selesai: ${added} gambar baru`;
+        if (skippedGif > 0) msg += ` (${skippedGif} .gif diskip)`;
+        ui.setStatus(msg);
+        ui.log(`+${added} gambar terdeteksi (total ${STATE.items.size})`, 'success');
+        if (skippedGif > 0) ui.log(`${skippedGif} gambar .gif diskip`, 'warn');
+      } else {
+        if (STATE.items.size === 0){
+          let msg = '⚠️ Tidak ada gambar ditemukan';
+          if (skippedGif > 0) msg += ` (${skippedGif} .gif diskip)`;
+          ui.setStatus(msg);
+          ui.log('Tidak ada kandidat URL gambar', 'error');
+          if (skippedGif > 0) ui.log(`${skippedGif} gambar .gif diskip`, 'warn');
+        } else {
+          ui.setStatus('Tidak ada gambar baru');
+          ui.log('Tidak ada gambar baru ditemukan');
+        }
+      }
+
+      STATE.titleHint = STATE.titleHint || document.title;
+    } catch(err) {
+      ui.setStatus('Error saat scan');
+      ui.log(String(err && err.message ? err.message : err), 'error');
+    }
+  }
+
+  // ========= Test 1 Gambar =========
+  async function testFirstImage(){
+    if (STATE.items.size === 0){
+      ui.log('Tidak ada gambar untuk ditest. Scan dulu!', 'warn');
+      return;
+    }
+    const first = STATE.items.get(STATE.order[0]);
+    ui.log(`Testing: ${first.url.substring(0, 60)}...`, 'warn');
+    try{
+      const bin = await httpGetBinary(first.url);
+      ui.log(`✓ Test berhasil! Size: ${(bin.byteLength/1024).toFixed(1)}KB`, 'success');
+    }catch(e){
+      ui.log(`✗ Test gagal: ${e.message}`, 'error');
+      if (ui.$verbose.checked){
+        ui.log(`Detail: ${e.stack || e}`, 'error');
+      }
+    }
+  }
+
+  // ========= Downloader dengan retry & better error handling =========
+  function httpGetBinary(url, attempt = 1){
+    return new Promise((resolve, reject)=>{
+      const headers = {
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      };
+
+      // Pastikan cookie diset dengan benar
+      if (STATE.cookies) {
+        headers['Cookie'] = STATE.cookies;
+      }
+      
+      // Gunakan referer yang tersimpan atau current page
+      const referer = STATE.referer || location.href;
+      if (referer) {
+        headers['Referer'] = referer;
+      }
+      
+      // User agent
+      if (STATE.userAgent) {
+        headers['User-Agent'] = STATE.userAgent;
+      }
+
+      // Origin header (beberapa site butuh ini)
+      try {
+        const urlObj = new URL(url);
+        headers['Origin'] = `${urlObj.protocol}//${urlObj.host}`;
+      } catch(e){}
+
+      if (ui.$verbose.checked && attempt === 1){
+        ui.log(`[Attempt ${attempt}] Headers: Cookie=${!!STATE.cookies}, Referer=${!!referer}, UA=${!!STATE.userAgent}`, 'warn');
+      }
+
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url,
+        headers,
+        responseType: 'arraybuffer',
+        timeout: STATE.timeout,
+        onload: (res)=>{
+          if (res.status >= 200 && res.status < 300){
+            const arr = new Uint8Array(res.response);
+            if (arr.byteLength < 100){
+              reject(new Error(`File terlalu kecil (${arr.byteLength}B), mungkin error page`));
+            } else {
+              resolve(arr);
+            }
+          } else {
+            const errorMsg = `HTTP ${res.status} ${res.statusText || ''}`;
+            if (ui.$verbose.checked){
+              ui.log(`Response: ${res.responseText ? res.responseText.substring(0,200) : 'no text'}`, 'error');
+            }
+            reject(new Error(errorMsg));
+          }
+        },
+        onerror: (err)=>{
+          reject(new Error(`Network error: ${err.error || 'unknown'}`));
+        },
+        ontimeout: ()=>{
+          reject(new Error(`Timeout (${STATE.timeout/1000}s)`));
+        },
+      });
+    }).catch(err => {
+      // Retry logic
+      if (attempt < STATE.retryCount){
+        ui.log(`Retry ${attempt}/${STATE.retryCount} untuk ${url.substring(0,50)}...`, 'warn');
+        return new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+          .then(() => httpGetBinary(url, attempt + 1));
+      }
+      throw err;
+    });
+  }
+
+  // ========= ZIP dengan skip option =========
+  async function zipAndSave(){
+    if (STATE.busy || STATE.items.size===0) return;
+    STATE.busy = true; 
+    ui.$dlzip.disabled = true; 
+    ui.setStatus('Mengunduh gambar…'); 
+    ui.progress(0);
+
+    const files = {};
+    const list = STATE.order.slice();
+    const failedUrls = [];
+    let done=0, success=0, failed=0;
+    const concurrency = 2; // kurangi concurrency untuk lebih stabil
+    let cursor = 0;
+
+    async function worker(){
+      while (cursor < list.length){
+        const i = cursor++;
+        const no = list[i];
+        const it = STATE.items.get(no);
+        const extGuess =
+          /\.jpe?g($|\?)/i.test(it.url) ? 'jpg' :
+          (/\.png($|\?)/i.test(it.url) ? 'png' :
+          (/\.webp($|\?)/i.test(it.url) ? 'webp' :
+          (/\.gif($|\?)/i.test(it.url) ? 'gif' :
+          (/\.avif($|\?)/i.test(it.url) ? 'avif' : 'jpg'))));
+        const fname = `i${pad(no)}.${extGuess}`;
+        
+        try{
+          const bin = await httpGetBinary(it.url);
+          files[fname] = bin;
+          success++;
+          ui.log(`✓ ${fname} (${(bin.byteLength/1024).toFixed(1)}KB)`, 'success');
+        }catch(e){
+          failed++;
+          const errMsg = e.message || String(e);
+          ui.log(`✗ ${fname}: ${errMsg}`, 'error');
+          failedUrls.push({fname, url: it.url, error: errMsg});
+          
+          if (ui.$verbose.checked){
+            ui.log(`URL: ${it.url}`, 'error');
+          }
+          
+          // Jika skip_failed false, stop semua
+          if (!ui.$skipFailed.checked){
+            throw new Error('Download dihentikan karena ada error. Aktifkan "Skip gambar gagal" untuk lanjut.');
+          }
+        }finally{
+          done++; 
+          ui.progress(Math.round((done/list.length)*100));
+        }
+      }
+    }
+
+    try {
+      await Promise.all(Array.from({length: concurrency}, ()=>worker()));
+    } catch(stopError){
+      ui.setStatus('Dihentikan: ' + stopError.message);
+      STATE.busy=false; 
+      ui.$dlzip.disabled=false; 
+      return;
+    }
+
+    if (!Object.keys(files).length){
+      ui.setStatus('Gagal: tidak ada file berhasil'); 
+      ui.log(`Semua ${failed} gambar gagal diunduh. Cek cookie/referer/UA!`, 'error');
+      STATE.busy=false; 
+      ui.$dlzip.disabled=false; 
+      return;
+    }
+
+    ui.setStatus('Membuat ZIP…');
+    const entries = {};
+    for (const name of Object.keys(files)) {
+      entries[name] = [files[name], { level: 0 }];
+    }
+    
+    // Tambahkan file error log jika ada yang gagal
+    if (failedUrls.length > 0){
+      const errorLog = failedUrls.map(f => 
+        `${f.fname}\nURL: ${f.url}\nError: ${f.error}\n---`
+      ).join('\n');
+      entries['_FAILED_DOWNLOADS.txt'] = [new TextEncoder().encode(errorLog), { level: 0 }];
+    }
+
+    const zipped = fflate.zipSync(entries, { level: 0 });
+    const blob = new Blob([zipped], { type: 'application/zip' });
+
+    const title = sanitizeFilename(STATE.titleHint || document.title || 'newtoki_webtoon');
+    const zipName = `${title}.zip`;
+
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url; a.download = zipName; 
+    document.body.appendChild(a); 
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 2000);
+
+    const summary = `✓ Selesai: ${success} sukses, ${failed} gagal`;
+    ui.setStatus(summary);
+    ui.log(summary + ` → ${zipName}`, 'success');
+    
+    if (failed > 0){
+      ui.log(`Lihat _FAILED_DOWNLOADS.txt di dalam ZIP untuk detail error`, 'warn');
+    }
+    
+    STATE.busy = false; 
+    ui.$dlzip.disabled = false;
+  }
+
+  // ========= Title observer =========
+  const tObs = new MutationObserver(()=>{ 
+    if (!STATE.titleHint) STATE.titleHint = document.title; 
+  });
+  tObs.observe(document.querySelector('title') || document.documentElement, { 
+    childList:true, 
+    subtree:true 
+  });
+
+  // ========= Auto scan on load =========
+  document.addEventListener('DOMContentLoaded', ()=>{
+    setTimeout(() => {
+      if (!STATE.referer) {
+        STATE.referer = location.href;
+      }
+      ui.setStatus('Siap. Klik "Scan Halaman" untuk mulai.');
+      ui.log('📌 Ready. Gunakan "Test 1 Gambar" untuk cek koneksi.', 'success');
+    }, 800);
+  });
+
+})();
