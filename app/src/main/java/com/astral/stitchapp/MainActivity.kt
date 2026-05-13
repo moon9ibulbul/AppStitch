@@ -1026,10 +1026,15 @@ fun BatoTab(
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
     var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
+    var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
+    var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
+    var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
+    var myreadingmangaCookieInput by remember { mutableStateOf(prefs.getString("myreadingmanga_cookie", "") ?: "") }
+
     var autoRetry by remember { mutableStateOf(true) }
-    var showBrowserDialog by remember { mutableStateOf(false) }
-    var showMangaGoScraper by remember { mutableStateOf(false) }
-    var mangaGoScraperUrl by remember { mutableStateOf("") }
+    var showScraperDialog by remember { mutableStateOf(false) }
+    var scraperUrl by remember { mutableStateOf("") }
+    var scraperScript by remember { mutableStateOf("") }
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
@@ -1269,10 +1274,14 @@ fun BatoTab(
                 OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Bomtoon") }, onClick = { selectedSource = "Bomtoon"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Lezhin") }, onClick = { selectedSource = "Lezhin"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("MangaGo") }, onClick = { selectedSource = "MangaGo"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Newtoki") }, onClick = { selectedSource = "Newtoki"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("MyReadingManga") }, onClick = { selectedSource = "MyReadingManga"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("MangaGo") }, onClick = { selectedSource = "MangaGo"; expandedSource = false })
                 }
             }
         }
@@ -1309,17 +1318,32 @@ fun BatoTab(
                                 val bato = py.getModule("bato")
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
+                                    "KakaoPage" -> "kakao"
+                                    "Bomtoon" -> "bomtoon"
+                                    "Lezhin" -> "lezhin"
+                                    "MangaGo" -> "mangago"
+                                    "Newtoki" -> "newtoki"
+                                    "MyReadingManga" -> "myreadingmanga"
                                     "Naver Webtoon" -> "naver"
                                     "XToon" -> "xtoon"
-                                    "KakaoPage" -> "kakao"
-                                    "MangaGo" -> "mangago"
                                     else -> "ridi"
                                 }
 
-                                if (type == "mangago") {
-                                    mangaGoScraperUrl = if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/"
+                                val scraperInfo = when(type) {
+                                    "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", ScraperScripts.MANGAGO)
+                                    "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
+                                    "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
+                                    "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
+                                    "newtoki" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://newtoki.com/", ScraperScripts.NEWTOKI)
+                                    "myreadingmanga" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://myreadingmanga.info/", ScraperScripts.NEWTOKI)
+                                    else -> null
+                                }
+
+                                if (scraperInfo != null) {
+                                    scraperUrl = scraperInfo.first
+                                    scraperScript = scraperInfo.second
                                     withContext(Dispatchers.Main) {
-                                        showMangaGoScraper = true
+                                        showScraperDialog = true
                                         isAddingToQueue = false
                                     }
                                     return@launch
@@ -1329,6 +1353,10 @@ fun BatoTab(
                                     "ridi" -> cookieInput
                                     "kakao" -> kakaoCookieInput
                                     "mangago" -> mangagoCookieInput
+                                    "bomtoon" -> bomtoonCookieInput
+                                    "lezhin" -> lezhinCookieInput
+                                    "newtoki" -> newtokiCookieInput
+                                    "myreadingmanga" -> myreadingmangaCookieInput
                                     else -> ""
                                 }
 
@@ -1379,76 +1407,50 @@ fun BatoTab(
             )
         }
 
-        if (selectedSource == "Ridibooks") {
-             OutlinedTextField(
-                value = cookieInput,
-                onValueChange = {
-                    cookieInput = it
-                    prefs.edit().putString("ridi_cookie", it).apply()
-                },
-                label = { Text("Cookie (Optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 3
-            )
+        when(selectedSource) {
+            "MangaGo" -> OutlinedTextField(value = mangagoCookieInput, onValueChange = { mangagoCookieInput = it; prefs.edit().putString("mangago_cookie", it).apply() }, label = { Text("MangaGo Cookie") }, modifier = Modifier.fillMaxWidth())
+            "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth())
+            "KakaoPage" -> OutlinedTextField(value = kakaoCookieInput, onValueChange = { kakaoCookieInput = it; prefs.edit().putString("kakao_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth())
+            "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth())
+            "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth())
+            "Newtoki" -> OutlinedTextField(value = newtokiCookieInput, onValueChange = { newtokiCookieInput = it; prefs.edit().putString("newtoki_cookie", it).apply() }, label = { Text("Newtoki Cookie") }, modifier = Modifier.fillMaxWidth())
+            "MyReadingManga" -> OutlinedTextField(value = myreadingmangaCookieInput, onValueChange = { myreadingmangaCookieInput = it; prefs.edit().putString("myreadingmanga_cookie", it).apply() }, label = { Text("MyReadingManga Cookie") }, modifier = Modifier.fillMaxWidth())
         }
 
-        if (selectedSource == "KakaoPage") {
-             OutlinedTextField(
-                value = kakaoCookieInput,
-                onValueChange = {
-                    kakaoCookieInput = it
-                    prefs.edit().putString("kakao_cookie", it).apply()
-                },
-                label = { Text("KakaoPage Cookie") },
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 3
-            )
-        }
-
-        if (selectedSource == "MangaGo") {
-            Column {
-                OutlinedTextField(
-                    value = mangagoCookieInput,
-                    onValueChange = {
-                        mangagoCookieInput = it
-                        prefs.edit().putString("mangago_cookie", it).apply()
-                    },
-                    label = { Text("MangaGo Cookie (Optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
-                )
-            }
-        }
-
-        if (showBrowserDialog) {
-            CookieWebViewDialog(
-                url = "https://www.mangago.me/",
-                onDismiss = { showBrowserDialog = false },
-                onCookiesCaptured = { cookies ->
-                    mangagoCookieInput = cookies
-                    prefs.edit().putString("mangago_cookie", cookies).apply()
-                    Toast.makeText(context, "Cookies Captured!", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        if (showMangaGoScraper) {
-            MangaGoWebViewDialog(
-                url = mangaGoScraperUrl,
-                onDismiss = { showMangaGoScraper = false },
+        if (showScraperDialog) {
+            ScraperWebViewDialog(
+                url = scraperUrl,
+                script = scraperScript,
+                onDismiss = { showScraperDialog = false },
                 onScrapeSuccess = { title, images, cookie ->
-                    showMangaGoScraper = false
-                    // Update cookie if fresh
+                    showScraperDialog = false
+                    val type = when(selectedSource) {
+                        "Ridibooks" -> "ridi"
+                        "KakaoPage" -> "kakao"
+                        "Bomtoon" -> "bomtoon"
+                        "Lezhin" -> "lezhin"
+                        "MangaGo" -> "mangago"
+                        "Newtoki" -> "newtoki"
+                        "MyReadingManga" -> "myreadingmanga"
+                        else -> ""
+                    }
                     if (cookie.isNotBlank()) {
-                         mangagoCookieInput = cookie
-                         prefs.edit().putString("mangago_cookie", cookie).apply()
+                        when(type) {
+                            "ridi" -> { cookieInput = cookie; prefs.edit().putString("ridi_cookie", cookie).apply() }
+                            "kakao" -> { kakaoCookieInput = cookie; prefs.edit().putString("kakao_cookie", cookie).apply() }
+                            "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
+                            "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
+                            "mangago" -> { mangagoCookieInput = cookie; prefs.edit().putString("mangago_cookie", cookie).apply() }
+                            "newtoki" -> { newtokiCookieInput = cookie; prefs.edit().putString("newtoki_cookie", cookie).apply() }
+                            "myreadingmanga" -> { myreadingmangaCookieInput = cookie; prefs.edit().putString("myreadingmanga_cookie", cookie).apply() }
+                        }
                     }
 
                     scope.launch(Dispatchers.IO) {
                         try {
                             val py = Python.getInstance()
                             val bato = py.getModule("bato")
-                            bato.callAttr("add_direct_job", context.cacheDir.absolutePath, title, images.toTypedArray(), cookie, "mangago")
+                            bato.callAttr("add_direct_job", context.cacheDir.absolutePath, title, images.toTypedArray(), cookie, type)
 
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Added ${images.size} images: $title", Toast.LENGTH_SHORT).show()
