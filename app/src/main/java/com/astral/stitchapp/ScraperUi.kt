@@ -550,14 +550,14 @@ object ScraperScripts {
             const html = document.documentElement.innerHTML;
             shuffleKeys.clear();
             const patterns = [
-                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\$undefined\\"?)/g,
-                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\$undefined"|null)/g,
+                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\${"$"}${"$"}undefined\\"?)/g,
+                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\${"$"}${"$"}undefined"|null)/g,
             ];
             for (const pat of patterns) {
                 let m;
                 while ((m = pat.exec(html)) !== null) {
                     const path = m[1].replace(/\\+/g, '');
-                    const rawKey = m[2].replace(/["\\]/g, '').replace('${"$"}undefined', '').trim();
+                    const rawKey = m[2].replace(/["\\]/g, '').replace('${"$"}${"$"}undefined', '').trim();
                     const idxMatch = path.split('/').pop().match(/^(\d+)/);
                     if (!idxMatch) continue;
                     const index = parseInt(idxMatch[1]);
