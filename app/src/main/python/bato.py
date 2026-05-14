@@ -92,15 +92,81 @@ def extract_title_from_html(html: str) -> str:
         return sanitize_filename(t)
     return ""
 
+def unscramble_lezhin_image(path: Path, shuffle_key: str):
+    try:
+        with Image.open(path) as img_file:
+            img = img_file.convert("RGBA")
+
+        w, h = img.size
+        result = Image.new("RGBA", (w, h))
+        G = 5
+        total = G * G
+        seed = int(shuffle_key)
+
+        arr = list(range(total))
+
+        def rand_val(max_val):
+            nonlocal seed
+            # seed = seed ^ (seed >> 12)
+            seed = seed ^ (seed // 4096)
+            # seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
+            seed = seed ^ ((seed * 33554432) & 18446744073709551615)
+            # seed = seed ^ (seed >> 27)
+            seed = seed ^ (seed // 134217728)
+            return (seed // 4294967296) % max_val
+
+        for i in range(total):
+            r = rand_val(total)
+            arr[i], arr[r] = arr[r], arr[i]
+
+        tw = w // G
+        th = h // G
+
+        def get_area(idx):
+            if idx < total:
+                return ((idx % G) * tw, (idx // G) * th, tw, th)
+            if idx == total:
+                if w % G == 0: return None
+                return (w - w % G, 0, w % G, h)
+            if idx == total + 1:
+                if h % G == 0: return None
+                return (0, h - h % G, w - w % G, h % G)
+            return None
+
+        for k, v in enumerate(arr):
+            from_area = get_area(k)
+            to_area = get_area(v)
+            if from_area and to_area:
+                sx, sy, sw, sh = to_area
+                dx, dy, dw, dh = from_area
+                tile = img.crop((sx, sy, sx + sw, sy + sh))
+                result.paste(tile, (dx, dy))
+
+        for idx in [total, total + 1]:
+            area = get_area(idx)
+            if area:
+                sx, sy, sw, sh = area
+                tile = img.crop((sx, sy, sx + sw, sy + sh))
+                result.paste(tile, (sx, sy))
+
+        ext = path.suffix.lower()
+        if ext in [".jpg", ".jpeg"]:
+            result.convert("RGB").save(path, "JPEG", quality=100)
+        elif ext == ".png":
+            result.save(path, "PNG")
+        elif ext == ".webp":
+            result.save(path, "WEBP", quality=100)
+        else:
+            result.convert("RGB").save(path, "JPEG", quality=100)
+    except Exception as e:
+        print(f"Lezhin unscramble failed: {e}")
+
 def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
     try:
         data = json.loads(scramble_data_json)
-        scramble_index = data.get("scrambleIndex") # This is what decryptScramble returns
+        scramble_index = data.get("scrambleIndex")
         if not scramble_index:
-             # If it was passed as part of the fragment, we might need to decrypt it here or have it pre-decrypted
-             # Based on my ScraperScripts.BOMTOON, I'm passing the whole info but not yet the pre-decrypted index
-             # I should probably have the JS do the decryption since it has SubtleCrypto
-             pass
+             return
 
         with Image.open(path) as img_file:
             img = img_file.convert("RGBA")
@@ -108,30 +174,30 @@ def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
         width, height = img.size
         result = Image.new("RGBA", (width, height))
 
-        # Bomtoon usually uses 4x4 grid for scrambling
         cols = 4
-        rows = 4
         unit_width = width // cols
-        unit_height = height // rows
+        unit_height = height // cols
 
         for r, i in enumerate(scramble_index):
-             # d is destination (where it is in the scrambled image)
-             # u is source (where it should be in the original image)
-             # Wait, the JS logic was:
-             # d = (r % 4) * s, c = Math.floor(r / 4) * a (Source in scrambled)
-             # u = (i % 4) * s, g = Math.floor(i / 4) * a (Destination in unscrambled)
-             # ctx.drawImage(img, d, c, s, a, u, g, s, a)
+             # r is source index, i is destination index
+             sx = (r % cols) * unit_width
+             sy = (r // cols) * unit_height
 
-             sx = (r % 4) * unit_width
-             sy = (r // 4) * unit_height
-
-             dx = (i % 4) * unit_width
-             dy = (i // 4) * unit_height
+             dx = (i % cols) * unit_width
+             dy = (i // cols) * unit_height
 
              tile = img.crop((sx, sy, sx + unit_width, sy + unit_height))
              result.paste(tile, (dx, dy))
 
-        result.save(path, "PNG")
+        ext = path.suffix.lower()
+        if ext in [".jpg", ".jpeg"]:
+            result.convert("RGB").save(path, "JPEG", quality=100)
+        elif ext == ".png":
+            result.save(path, "PNG")
+        elif ext == ".webp":
+            result.save(path, "WEBP", quality=100)
+        else:
+            result.convert("RGB").save(path, "JPEG", quality=100)
     except Exception as e:
         print(f"Bomtoon unscramble failed: {e}")
 
@@ -188,31 +254,15 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
     except Exception as e:
         print(f"Unscramble failed for {path}: {e}")
 
-def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None, source_type: str = None):
-    # Parse fragment for unscrambling
-    p_url = urlparse(url)
-    fragment = p_url.fragment
-    desckey = None
-    cols = None
-    scramble_data = None
-    if fragment:
-        params = {}
-        for item in fragment.split("&"):
-            if "=" in item:
-                k, v = item.split("=", 1)
-                params[k] = v
-
-        desckey = params.get("desckey")
-        cols = params.get("cols")
-        if cols: cols = int(cols)
-        scramble_data = params.get("scramble")
-
+def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None, source_type: str = None) -> Path:
+    """Downloads the image and returns the final local Path (after fix_image_extension)."""
     # Strip fragment from URL for actual request
+    p_url = urlparse(url)
     clean_url = urlunparse(p_url._replace(fragment=""))
 
-    url = normalize_image_host(clean_url)
-    path = urlparse(url).path
-    _, ext = os.path.splitext(path)
+    url_to_fetch = normalize_image_host(clean_url)
+    path_part = urlparse(url_to_fetch).path
+    _, ext = os.path.splitext(path_part)
     if not ext: ext = ".jpg"
 
     name = f"img_{idx:04d}{ext}"
@@ -220,9 +270,9 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
     # Skip if exists and size > 0 (Resume support)
     if target.exists() and target.stat().st_size > 0:
-        # If it was already downloaded, we still might need to unscramble it
-        # if the previous run was interrupted. But usually we'd assume it's done.
-        return
+        # We still return the path even if skipped
+        target = Path(ssc.fix_image_extension(target))
+        return target
 
     headers = {"User-Agent": USER_AGENT}
     if referer: headers["Referer"] = referer
@@ -230,7 +280,7 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
 
     for attempt in range(3):
         try:
-            with session.get(url, headers=headers, timeout=30, stream=True, verify=False) as r:
+            with session.get(url_to_fetch, headers=headers, timeout=30, stream=True, verify=False) as r:
                 r.raise_for_status()
                 with open(target, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -246,22 +296,14 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
                         if img.size == (200, 280):
                             print(f"Skipping 200x280 image: {target.name}")
                             target.unlink()
-                            return
+                            return None
                 except Exception as e:
                     print(f"Error checking dimensions for {target.name}: {e}")
 
-            # Apply unscrambling if needed
-            if desckey and cols:
-                unscramble_mangago_image(target, desckey, cols)
-
-            if scramble_data:
-                from urllib.parse import unquote
-                unscramble_bomtoon_image(target, unquote(scramble_data))
-
-            return
+            return target
         except Exception as e:
             if attempt == 2:
-                print(f"Failed to download {url}: {e}")
+                print(f"Failed to download {url_to_fetch}: {e}")
                 raise
 
 
@@ -548,8 +590,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
     source_type = item.get("type", "ridi")
     base_dir = Path(cache_dir)
 
-    queue_mgr.update_status(item_id, "downloading", 0.0)
-
     dl_dir = base_dir / "temp_dl" / item_id
     output_parent = base_dir / "temp_out" / item_id
 
@@ -603,44 +643,93 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             raise Exception("No images found")
 
         dl_dir.mkdir(parents=True, exist_ok=True)
-
         total = len(images)
 
-        # Use a session for the loop
+        # 1. DOWNLOADING PHASE
+        queue_mgr.update_status(item_id, "downloading", 0.0)
+        local_files = [] # List of (url, Path)
         with requests.Session() as session:
-            for i, img in enumerate(images, 1):
+            for i, img_url in enumerate(images, 1):
                 action = queue_mgr.check_action(item_id)
-                if action == "paused":
-                    return json.dumps({"status": "paused"})
+                if action == "paused": return json.dumps({"status": "paused"})
                 if action == "removed":
                     if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
                     return json.dumps({"status": "removed"})
 
-                download_image(img, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer, source_type=source_type)
+                target_path = download_image(img_url, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer, source_type=source_type)
+                if target_path:
+                    local_files.append((img_url, target_path))
 
-                if i % 5 == 0:
+                if i % 5 == 0 or i == total:
                     queue_mgr.update_status(item_id, "downloading", i/total)
 
-        downloaded_files = list(dl_dir.iterdir())
+        # 2. UNSCRAMBLING PHASE (Only for sources that need it)
+        needs_unscramble = source_type in ["bomtoon", "mangago", "lezhin"]
+        if needs_unscramble:
+            queue_mgr.update_status(item_id, "unscrambling", 0.0)
+            for i, (img_url, target_path) in enumerate(local_files, 1):
+                action = queue_mgr.check_action(item_id)
+                if action == "paused": return json.dumps({"status": "paused"})
+                if action == "removed":
+                    if dl_dir.exists(): shutil.rmtree(dl_dir, ignore_errors=True)
+                    return json.dumps({"status": "removed"})
 
-        # Native WebP Conversion
-        if MainActivity:
-            for f in downloaded_files:
-                if f.suffix.lower() == ".webp":
+                # Native WebP to PNG conversion if needed before unscrambling
+                # Some PIL versions struggle with scrambled WebP
+                if MainActivity and target_path.suffix.lower() == ".webp":
                     try:
-                        success = MainActivity.convertWebpToPng(str(f.absolute()))
-                        if success: f.unlink()
+                        if MainActivity.convertWebpToPng(str(target_path.absolute())):
+                            old_path = target_path
+                            target_path = target_path.with_suffix(".png")
+                            old_path.unlink()
+                            # Update our local_files record if needed, though we only use it here
                     except: pass
+
+                # Extract metadata from fragment
+                p_url = urlparse(img_url)
+                fragment = p_url.fragment
+                if fragment:
+                    params_unscr = {}
+                    for item_unscr in fragment.split("&"):
+                        if "=" in item_unscr:
+                            k, v = item_unscr.split("=", 1)
+                            params_unscr[k] = v
+
+                    if source_type == "mangago":
+                        desckey = params_unscr.get("desckey")
+                        cols = params_unscr.get("cols")
+                        if desckey and cols:
+                            unscramble_mangago_image(target_path, desckey, int(cols))
+                    elif source_type == "bomtoon":
+                        scramble_data = params_unscr.get("scramble")
+                        if scramble_data:
+                            from urllib.parse import unquote
+                            unscramble_bomtoon_image(target_path, unquote(scramble_data))
+                    elif source_type == "lezhin":
+                        shuffle_key = params_unscr.get("shuffleKey")
+                        if shuffle_key:
+                            unscramble_lezhin_image(target_path, shuffle_key)
+
+                if i % 5 == 0 or i == len(local_files):
+                    queue_mgr.update_status(item_id, "unscrambling", i/len(local_files))
+        else:
+            # Still do WebP conversion if not unscrambling, for consistency
+            if MainActivity:
+                for _, f in local_files:
+                    if f.suffix.lower() == ".webp":
+                        try:
+                            if MainActivity.convertWebpToPng(str(f.absolute())): f.unlink()
+                        except: pass
 
         # Verify integrity
         final_files = [f for f in dl_dir.iterdir() if f.is_file()]
-        # Requirement 4: Relaxation for sources that might skip files
         if source_type not in ["newtoki", "myreadingmanga"]:
             if len(final_files) < len(images):
                 raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
         elif len(final_files) == 0:
             raise Exception("No valid images downloaded (all might have been skipped)")
 
+        # 3. STITCHING PHASE
         queue_mgr.update_status(item_id, "stitching", 0.0)
 
         if output_parent.exists(): shutil.rmtree(output_parent)

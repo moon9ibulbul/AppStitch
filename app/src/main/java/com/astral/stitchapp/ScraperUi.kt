@@ -502,76 +502,107 @@ object ScraperScripts {
         'use strict';
         $COMMON_SCRIPTS
 
-        window.fetchAll = async function() {
-            log("Lezhin: Starting Panel-by-Panel Scraping...");
-            try {
-                let productData = window.__LZ_PRODUCT__;
-                if (!productData) {
-                    const scripts = Array.from(document.querySelectorAll('script'));
-                    for (let s of scripts) {
-                        if (s.textContent.includes('__LZ_PRODUCT__')) {
-                            const m = s.textContent.match(/__LZ_PRODUCT__\s*=\s*({.+?});/);
-                            if (m) { productData = JSON.parse(m[1]); break; }
-                        }
-                    }
+        let baseTemplate = null;
+        const availableIndexes = new Set();
+        const shuffleKeys = new Map();
+
+        function tryRecordUrl(url) {
+            if (!url || typeof url !== 'string') return;
+            const m = url.match(/rcdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(\?.*)?${"$"}/i);
+            if (!m) return;
+
+            const idx = parseInt(m[1]);
+            availableIndexes.add(idx);
+
+            if (!baseTemplate) {
+                const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)${"$"}/i);
+                if (tm) {
+                    baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
+                    log("Base URL captured!");
                 }
-                if (!productData) {
-                    const nextDataEl = document.getElementById("__NEXT_DATA__");
-                    if (nextDataEl) {
-                        const nextData = JSON.parse(nextDataEl.innerHTML);
-                        productData = nextData.props?.pageProps?.product || nextData.props?.product;
-                    }
-                }
-
-                if (!productData) throw new Error("Could not find product data");
-
-                const episode = productData.currentEpisode || productData.episode;
-                if (!episode) throw new Error("Could not find episode data");
-
-                const totalPanels = episode.p_count || 100;
-                log("Total panels: " + totalPanels);
-
-                const images = new Set();
-                for (let i = 1; i <= totalPanels; i++) {
-                    log("Switching to Panel " + i);
-                    location.hash = '#!/panel/' + i;
-                    await sleep(300); // Wait for lazy load
-
-                    const currentImgs = document.querySelectorAll('img[data-src], img.comic-image');
-                    currentImgs.forEach(img => {
-                        const src = img.getAttribute('data-src') || img.src;
-                        if (src && !src.includes('avatar') && !src.includes('logo')) {
-                             images.add(src);
-                        }
-                    });
-                }
-
-                window._scrapedImages = Array.from(images);
-                log("Lezhin: " + window._scrapedImages.length + " images found.");
-            } catch(e) {
-                log("Lezhin Error: " + e.message);
-                // Fallback to DOM Scanning
-                const images = [];
-                document.querySelectorAll('img[data-src], img.comic-image').forEach(img => {
-                    images.push(img.getAttribute('data-src') || img.src);
-                });
-                window._scrapedImages = images;
             }
+        }
+
+        function installInterceptors() {
+            const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+            if (imgSrcDesc && imgSrcDesc.set) {
+                const origSet = imgSrcDesc.set;
+                Object.defineProperty(HTMLImageElement.prototype, 'src', {
+                    set(v) { tryRecordUrl(v); return origSet.call(this, v); },
+                    get: imgSrcDesc.get,
+                    configurable: true
+                });
+            }
+            const origFetch = window.fetch;
+            window.fetch = function(input) {
+                try { tryRecordUrl(typeof input === 'string' ? input : input && input.url); } catch {}
+                return origFetch.apply(this, arguments);
+            };
+            const origOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                try { tryRecordUrl(url); } catch {}
+                return origOpen.apply(this, arguments);
+            };
+            document.querySelectorAll('img').forEach(img => tryRecordUrl(img.src || img.currentSrc));
+        }
+
+        function extractShuffleKeys() {
+            const html = document.documentElement.innerHTML;
+            shuffleKeys.clear();
+            const patterns = [
+                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\$undefined\\"?)/g,
+                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\$undefined"|null)/g,
+            ];
+            for (const pat of patterns) {
+                let m;
+                while ((m = pat.exec(html)) !== null) {
+                    const path = m[1].replace(/\\+/g, '');
+                    const rawKey = m[2].replace(/["\\]/g, '').replace('${"$"}undefined', '').trim();
+                    const idxMatch = path.split('/').pop().match(/^(\d+)/);
+                    if (!idxMatch) continue;
+                    const index = parseInt(idxMatch[1]);
+                    shuffleKeys.set(index, rawKey || null);
+                }
+                if (shuffleKeys.size > 0) break;
+            }
+            return shuffleKeys.size;
+        }
+
+        installInterceptors();
+
+        window.fetchAll = async function() {
+            log("Lezhin: Scanning for images and keys...");
+            const nKeys = extractShuffleKeys();
+            if (nKeys === 0 && availableIndexes.size === 0) {
+                log("No data found. Scroll down to trigger lazy loading.");
+                return;
+            }
+
+            const maxIdx = shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : Math.max(...availableIndexes);
+            const images = [];
+            for (let i = 1; i <= maxIdx; i++) {
+                let url = baseTemplate ? baseTemplate.replace('__IDX__', String(i)) : null;
+                const key = shuffleKeys.get(i);
+                if (url) {
+                    if (key) url += "#shuffleKey=" + key;
+                    images.push(url);
+                }
+            }
+            window._scrapedImages = images;
+            log("Found " + images.length + " images.");
         };
 
         window.runScraper = async function() {
             log("Starting Lezhin Scraper...");
-            if (!window._scrapedImages) {
-                await window.fetchAll();
-            }
+            if (!window._scrapedImages) await window.fetchAll();
             try {
                 if (!window._scrapedImages || window._scrapedImages.length === 0) {
-                    throw new Error("No images found. Try clicking 'Fetch' first.");
+                    throw new Error("No images found. Scroll page then click Fetch.");
                 }
-
                 const result = {
-                    title: document.title.trim(),
-                    images: window._scrapedImages
+                    title: document.title.replace(/\s*-\s*Lezhin.*${"$"}/i, '').trim(),
+                    images: window._scrapedImages,
+                    cookie: document.cookie
                 };
                 Android.onImagesFound(JSON.stringify(result));
             } catch(e) { log("Error: " + e.message); }
