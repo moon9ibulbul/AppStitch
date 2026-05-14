@@ -1332,7 +1332,6 @@ fun BatoTab(
                                 val scraperInfo = when(type) {
                                     "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", ScraperScripts.MANGAGO)
                                     "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
-                                    "kakao" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                     "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
                                     "newtoki" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://newtoki.com/", ScraperScripts.NEWTOKI)
