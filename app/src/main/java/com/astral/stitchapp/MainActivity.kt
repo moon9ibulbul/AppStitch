@@ -48,6 +48,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.documentfile.provider.DocumentFile
+import java.util.zip.ZipInputStream
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
@@ -191,6 +192,41 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 false
+            }
+        }
+
+        @JvmStatic
+        fun extractFromZip(context: Context, zipUri: Uri, destDir: File) {
+            context.contentResolver.openInputStream(zipUri)?.use { ins ->
+                ZipInputStream(ins).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val name = entry.name
+                            val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga")
+                            if (isImage) {
+                                val fileName = name.substringAfterLast('/')
+                                if (ext == "webp") {
+                                    val baseName = fileName.dropLast(5)
+                                    val targetFile = File(destDir, "$baseName.bmp")
+                                    val bitmap = BitmapFactory.decodeStream(zis)
+                                    if (bitmap != null) {
+                                        saveAsBmp(bitmap, targetFile)
+                                        bitmap.recycle()
+                                    }
+                                } else {
+                                    val targetFile = File(destDir, fileName)
+                                    targetFile.outputStream().use { outs ->
+                                        zis.copyTo(outs)
+                                    }
+                                }
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
             }
         }
 
@@ -377,6 +413,7 @@ fun SettingsScreen(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
+    var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
 
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -469,6 +506,14 @@ fun SettingsScreen(
                     Switch(checked = soundEnabled, onCheckedChange = {
                         soundEnabled = it
                         prefs.edit().putBoolean("sound_enabled", it).apply()
+                    })
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Choose Input Zip")
+                    Switch(checked = chooseZip, onCheckedChange = {
+                        chooseZip = it
+                        prefs.edit().putBoolean("choose_zip", it).apply()
                     })
                 }
 
@@ -728,6 +773,8 @@ fun StitchTab(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+    val chooseZip = prefs.getBoolean("choose_zip", false)
 
     // Single item state
     var inputUri by remember { mutableStateOf<Uri?>(null) }
@@ -758,6 +805,15 @@ fun StitchTab(
             inputUri = uri
             val doc = DocumentFile.fromTreeUri(context, uri)
             statusText = "Selected: ${doc?.name ?: "Unknown"}"
+        }
+    }
+
+    val pickZipInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            inputUri = uri
+            val doc = DocumentFile.fromSingleUri(context, uri)
+            statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
         }
     }
 
@@ -834,7 +890,15 @@ fun StitchTab(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { pickInput.launch(null) }, enabled = !isProcessing) { Text("Select Input Folder") }
+            if (chooseZip) {
+                Button(onClick = { pickZipInput.launch(arrayOf("application/zip", "application/x-zip-compressed")) }, enabled = !isProcessing) {
+                    Text("Select ZIP")
+                }
+            } else {
+                Button(onClick = { pickInput.launch(null) }, enabled = !isProcessing) {
+                    Text("Select Input Folder")
+                }
+            }
              Spacer(Modifier.width(8.dp))
              Text(
                  text = statusText,
@@ -895,7 +959,8 @@ fun StitchTab(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
                 if (inputUri == null) {
-                    Toast.makeText(context, "Please select an input folder", Toast.LENGTH_SHORT).show()
+                    val msg = if (chooseZip) "Please select a ZIP file" else "Please select an input folder"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     return@Button
                 }
                 isProcessing = true
@@ -905,15 +970,23 @@ fun StitchTab(
                 scope.launch(Dispatchers.IO) {
                     try {
                         val uri = inputUri!!
-                        val doc = DocumentFile.fromTreeUri(context, uri)
+                        val doc = if (chooseZip) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
                         val name = doc?.name ?: "Unknown"
 
                         val cacheIn = File(context.cacheDir, "stitch_single_in")
                         cacheIn.deleteRecursively(); cacheIn.mkdirs()
-                        copyFromTree(context, uri, cacheIn)
+                        if (chooseZip) {
+                            MainActivity.extractFromZip(context, uri, cacheIn)
+                        } else {
+                            copyFromTree(context, uri, cacheIn)
+                        }
 
                         val cacheOutParent = File(context.cacheDir, "stitch_single_out")
-                        val outputName = "$name [Stitched]"
+                        val outputName = if (chooseZip) {
+                            name.substringBeforeLast(".") + " [Stitched]"
+                        } else {
+                            "$name [Stitched]"
+                        }
                         cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
                         val dir = File(cacheOutParent, outputName)
                         dir.mkdirs()
@@ -965,7 +1038,17 @@ fun StitchTab(
                         val targetTree = if (outputUri != null) {
                             DocumentFile.fromTreeUri(context, outputUri!!)
                         } else {
-                            DocumentFile.fromTreeUri(context, uri)
+                            if (chooseZip) {
+                                val parent = doc?.parentFile
+                                if (parent != null && parent.canWrite()) {
+                                    parent
+                                } else {
+                                    val defOut = prefs.getString("default_output_uri", null)
+                                    if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
+                                }
+                            } else {
+                                DocumentFile.fromTreeUri(context, uri)
+                            }
                         }
 
                         if (targetTree != null && targetTree.canWrite()) {
@@ -974,6 +1057,22 @@ fun StitchTab(
                             } else {
                                 val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
                                 copyToTree(context, finalFile, targetTree, mime)
+                            }
+                        } else {
+                            // Fallback: App Storage
+                            val destDir = context.getExternalFilesDir(null)
+                            if (destDir != null && finalFile.exists()) {
+                                val destFile = File(destDir, finalFile.name)
+                                if (finalFile.isDirectory) {
+                                    finalFile.copyRecursively(destFile, overwrite = true)
+                                    finalFile.deleteRecursively()
+                                } else {
+                                    finalFile.copyTo(destFile, overwrite = true)
+                                    finalFile.delete()
+                                }
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
 
@@ -984,9 +1083,8 @@ fun StitchTab(
                         withContext(Dispatchers.Main) {
                             isProcessing = false
                             progress = 1f
-                            statusText = "Done! Output saved to source folder."
+                            statusText = "Done!"
                             Toast.makeText(context, "Stitching Complete!", Toast.LENGTH_SHORT).show()
-                            val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
                             if (prefs.getBoolean("sound_enabled", true)) {
                                 val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
                                 toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
