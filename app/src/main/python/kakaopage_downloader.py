@@ -21,21 +21,26 @@ def extract_ids_from_url(url):
 def _fetch_data(url, cookie=None):
     headers = {
         "User-Agent": USER_AGENT,
-        "Referer": "https://page.kakao.com/",
+        "Referer": url,
         "Content-Type": "application/json",
-        "Origin": "https://page.kakao.com"
+        "Origin": "https://page.kakao.com",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest"
     }
     if cookie:
         headers["Cookie"] = cookie
 
-    _, product_id = extract_ids_from_url(url)
+    series_id, product_id = extract_ids_from_url(url)
     if not product_id:
         raise ValueError(f"KakaoPage: Could not parse product ID from URL: {url}")
 
     # Use the REST API instead of GraphQL
     api_url = "https://page.kakao.com/api/gateway/api/v1/viewer/data"
     payload = {
-        "productId": product_id
+        "productId": product_id,
+        "seriesId": series_id,
+        "deviceType": "WEB",
+        "isPreView": False
     }
 
     response = requests.post(api_url, json=payload, headers=headers, timeout=30)
@@ -43,14 +48,28 @@ def _fetch_data(url, cookie=None):
     return response.json()
 
 def get_chapter_info(url, cookie=None):
+    title = "KakaoPage Item"
     try:
-        # Title extraction from REST API is nested differently
+        # Fallback to HTML scraping for title as it's more reliable
+        headers = {"User-Agent": USER_AGENT, "Referer": "https://page.kakao.com/"}
+        if cookie: headers["Cookie"] = cookie
+
+        resp = requests.get(url, headers=headers, timeout=15)
+        if resp.ok:
+            m = re.search(r'<title[^>]*>(.*?)</title>', resp.text, re.I)
+            if m:
+                title = m.group(1).replace(" - 카카오페이지", "").strip()
+                # Clean up title: [독점] etc
+                title = re.sub(r'\[.*?\]', '', title).strip()
+                if title: return {"title": title}
+
+        # If HTML fails, try API
         data = _fetch_data(url, cookie)
-        title = data.get("item", {}).get("title", "KakaoPage Item")
-        return {"title": title}
+        title = data.get("item", {}).get("title") or data.get("series", {}).get("title") or "KakaoPage Item"
     except Exception as e:
         print(f"KakaoPage Info Error: {e}")
-        return {"title": "KakaoPage Item"}
+
+    return {"title": title}
 
 def get_images(url, cookie=None):
     try:

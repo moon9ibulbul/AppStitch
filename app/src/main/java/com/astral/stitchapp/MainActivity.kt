@@ -1152,7 +1152,7 @@ fun BatoTab(
                     val defaultUriStr = prefs.getString("default_output_uri", null)
                     val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
 
-                    val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "stitching" || it.status == "initializing" }
+                    val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "unscrambling" || it.status == "stitching" || it.status == "initializing" }
                     if (pendingCount == 0 && queueItems.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                             isProcessorRunning = false
@@ -1256,7 +1256,7 @@ fun BatoTab(
                         IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(32.dp)) { Text("X") }
                     }
                 }
-                if (item.status == "downloading" || item.status == "stitching") {
+                if (item.status == "downloading" || item.status == "unscrambling" || item.status == "stitching") {
                     LinearProgressIndicator(progress = { item.progress.toFloat() }, modifier = Modifier.fillMaxWidth())
                 }
             }
