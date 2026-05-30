@@ -1416,6 +1416,7 @@ fun BatoTab(
                                     "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
                                     "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
+                                    "kakao" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                     else -> null
                                 }
 
