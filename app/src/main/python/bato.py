@@ -20,9 +20,7 @@ from typing import List, Dict, Optional, Tuple
 import SmartStitchCore as ssc
 import bridge
 import naver_downloader
-import xtoon_downloader
 import kakaopage_downloader
-import mangago_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -33,8 +31,6 @@ except ImportError:
 
 USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
-# Suppress SSL warnings for MangaGo
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
 # UTILS & LOCKING
@@ -107,11 +103,8 @@ def unscramble_lezhin_image(path: Path, shuffle_key: str):
 
         def rand_val(max_val):
             nonlocal seed
-            # seed = seed ^ (seed // 4096)
             seed = seed ^ (seed >> 12)
-            # seed = seed ^ ((seed * 33554432) & 18446744073709551615)
             seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
-            # seed = seed ^ (seed // 134217728)
             seed = seed ^ (seed >> 27)
             return (seed >> 32) % max_val
 
@@ -210,65 +203,6 @@ def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
     except Exception as e:
         print(f"Bomtoon unscramble failed: {e}")
 
-def unscramble_mangago_image(path: Path, desckey: str, cols: int):
-    try:
-        print(f"Unscrambling {path.name} with cols={cols}")
-        # Load the image and close the file quickly to avoid locks
-        with Image.open(path) as img_file:
-            img = img_file.convert("RGBA")
-
-        width, height = img.size
-        result = Image.new("RGBA", (width, height))
-
-        unit_width = width // cols
-        unit_height = height // cols
-
-        if "a" in desckey:
-            key_array = desckey.split("a")
-        else:
-            key_array = desckey.split(",")
-
-        for idx in range(cols * cols):
-            keyval_str = key_array[idx] if idx < len(key_array) else "0"
-            keyval = int(keyval_str) if keyval_str else 0
-
-            # Reference says:
-            # val keyval = keyArray[idx].ifEmpty { "0" }.toInt()
-            # val heightY = keyval.floorDiv(cols)
-            # val dy = heightY * unitHeight
-            # val dx = (keyval - heightY * cols) * unitWidth
-            # val widthY = idx.floorDiv(cols)
-            # val sy = widthY * unitHeight
-            # val sx = (idx - widthY * cols) * unitWidth
-            # canvas.drawBitmap(bitmap, srcRect, dstRect, null)
-            # This means idx is source, keyval is destination.
-
-            # Source coordinates from idx (Scrambled tile position)
-            sy = (idx // cols) * unit_height
-            sx = (idx % cols) * unit_width
-
-            # Destination coordinates from keyval (Correct tile position)
-            dy = (keyval // cols) * unit_height
-            dx = (keyval % cols) * unit_width
-
-            # box is (left, top, right, bottom)
-            src_box = (sx, sy, sx + unit_width, sy + unit_height)
-            tile = img.crop(src_box)
-            result.paste(tile, (dx, dy))
-
-        # Save back to the same path
-        ext = path.suffix.lower()
-        if ext in [".jpg", ".jpeg"]:
-            result.convert("RGB").save(path, "JPEG", quality=100)
-        elif ext == ".png":
-            result.save(path, "PNG")
-        elif ext == ".webp":
-            result.save(path, "WEBP", quality=100)
-        else:
-            result.convert("RGB").save(path, "JPEG", quality=100)
-        print(f"Successfully unscrambled {path.name}")
-    except Exception as e:
-        print(f"Unscramble failed for {path}: {e}")
 
 def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None, source_type: str = None) -> Path:
     """Downloads the image and returns the final local Path (after fix_image_extension)."""
@@ -389,7 +323,7 @@ class BatoQueue:
             json.dump(queue, f, indent=2)
 
     def add_url(self, url: str, source_type: str = "ridi", cookie: str = "") -> Dict:
-        # source_type: "ridi", "naver", "xtoon"
+        # source_type: "ridi", "naver"
 
         with FileLock(self.lock_path):
             queue = self._load()
@@ -440,19 +374,6 @@ class BatoQueue:
                          })
                          added = 1
 
-                elif source_type == "xtoon":
-                    title = xtoon_downloader.get_xtoon_title(url)
-                    if not any(q['url'] == url for q in queue):
-                        queue.append({
-                            "id": str(uuid.uuid4()),
-                            "url": url,
-                            "title": title,
-                            "status": "pending",
-                            "added_at": time.time(),
-                            "type": "xtoon"
-                        })
-                        added = 1
-
                 elif source_type == "kakao":
                     info = kakaopage_downloader.get_chapter_info(url, cookie)
                     title = info.get("title", "KakaoPage Item")
@@ -469,21 +390,6 @@ class BatoQueue:
                         })
                         added = 1
 
-                elif source_type == "mangago":
-                    info = mangago_downloader.get_chapter_info(url, cookie)
-                    title = info.get("title", "MangaGo Item")
-
-                    if not any(q['url'] == url for q in queue):
-                        queue.append({
-                            "id": str(uuid.uuid4()),
-                            "url": url,
-                            "title": title,
-                            "status": "pending",
-                            "added_at": time.time(),
-                            "type": "mangago",
-                            "cookie": cookie
-                        })
-                        added = 1
 
                 if added > 0:
                     self._save(queue)
@@ -611,16 +517,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             images = naver_downloader.get_naver_images(url)
             referer = "https://comic.naver.com/"
 
-        elif source_type == "xtoon":
-            images = xtoon_downloader.get_xtoon_images(url)
-            referer = url
-
-        elif source_type == "mangago":
-            if "pre_scraped_images" in item:
-                images = item["pre_scraped_images"]
-            else:
-                images = mangago_downloader.get_images(url, item.get("cookie"))
-            referer = "https://www.mangago.zone/"
 
         elif source_type in ["ridi", "bomtoon", "lezhin"]:
             if "pre_scraped_images" in item:
@@ -664,7 +560,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                     queue_mgr.update_status(item_id, "downloading", i/total)
 
         # 2. UNSCRAMBLING PHASE (Only for sources that need it)
-        needs_unscramble = source_type in ["bomtoon", "mangago", "lezhin"]
+        needs_unscramble = source_type in ["bomtoon", "lezhin"]
         if needs_unscramble:
             queue_mgr.update_status(item_id, "unscrambling", 0.0)
             for i, (img_url, target_path) in enumerate(local_files, 1):
@@ -695,12 +591,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                             k, v = item_unscr.split("=", 1)
                             params_unscr[k] = v
 
-                    if source_type == "mangago":
-                        desckey = params_unscr.get("desckey")
-                        cols = params_unscr.get("cols")
-                        if desckey and cols:
-                            unscramble_mangago_image(target_path, desckey, int(cols))
-                    elif source_type == "bomtoon":
+                    if source_type == "bomtoon":
                         scramble_data = params_unscr.get("scramble")
                         if scramble_data:
                             from urllib.parse import unquote
@@ -794,7 +685,7 @@ def get_queue(cache_dir: str) -> str:
 def add_to_queue(cache_dir: str, url: str, source_type: str = "ridi", cookie: str = "") -> str:
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
 
-def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:
+def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "ridi") -> str:
     return json.dumps(BatoQueue(cache_dir).add_direct_job(title, list(images), cookie, source_type))
 
 def remove_from_queue(cache_dir: str, item_id: str):

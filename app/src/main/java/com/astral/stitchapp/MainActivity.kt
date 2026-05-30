@@ -1111,7 +1111,6 @@ fun BatoTab(
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
-    var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
     var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
     var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
@@ -1371,9 +1370,7 @@ fun BatoTab(
                     DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Bomtoon") }, onClick = { selectedSource = "Bomtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Lezhin") }, onClick = { selectedSource = "Lezhin"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("MangaGo") }, onClick = { selectedSource = "MangaGo"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
                 }
             }
         }
@@ -1382,9 +1379,7 @@ fun BatoTab(
             val labelText = when(selectedSource) {
                 "Ridibooks" -> "Url (Book)"
                 "Naver Webtoon" -> "Comic ID"
-                "XToon" -> "Url (Chapter)"
                 "KakaoPage" -> "Url (Chapter)"
-                "MangaGo" -> "Url (Chapter)"
                 else -> "Url (Chapter/Series)"
             }
             OutlinedTextField(
@@ -1413,18 +1408,14 @@ fun BatoTab(
                                     "KakaoPage" -> "kakao"
                                     "Bomtoon" -> "bomtoon"
                                     "Lezhin" -> "lezhin"
-                                    "MangaGo" -> "mangago"
                                     "Naver Webtoon" -> "naver"
-                                    "XToon" -> "xtoon"
                                     else -> "ridi"
                                 }
 
                                 val scraperInfo = when(type) {
-                                    "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", ScraperScripts.MANGAGO)
                                     "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
                                     "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
-                                    "kakao" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                     else -> null
                                 }
 
@@ -1441,7 +1432,6 @@ fun BatoTab(
                                 val cookieToUse = when(type) {
                                     "ridi" -> cookieInput
                                     "kakao" -> kakaoCookieInput
-                                    "mangago" -> mangagoCookieInput
                                     "bomtoon" -> bomtoonCookieInput
                                     "lezhin" -> lezhinCookieInput
                                     else -> ""
@@ -1495,7 +1485,6 @@ fun BatoTab(
         }
 
         when(selectedSource) {
-            "MangaGo" -> OutlinedTextField(value = mangagoCookieInput, onValueChange = { mangagoCookieInput = it; prefs.edit().putString("mangago_cookie", it).apply() }, label = { Text("MangaGo Cookie") }, modifier = Modifier.fillMaxWidth())
             "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth())
             "KakaoPage" -> OutlinedTextField(value = kakaoCookieInput, onValueChange = { kakaoCookieInput = it; prefs.edit().putString("kakao_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth())
             "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth())
@@ -1514,7 +1503,6 @@ fun BatoTab(
                         "KakaoPage" -> "kakao"
                         "Bomtoon" -> "bomtoon"
                         "Lezhin" -> "lezhin"
-                        "MangaGo" -> "mangago"
                         else -> ""
                     }
                     if (cookie.isNotBlank()) {
@@ -1523,7 +1511,6 @@ fun BatoTab(
                             "kakao" -> { kakaoCookieInput = cookie; prefs.edit().putString("kakao_cookie", cookie).apply() }
                             "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
-                            "mangago" -> { mangagoCookieInput = cookie; prefs.edit().putString("mangago_cookie", cookie).apply() }
                         }
                     }
 
