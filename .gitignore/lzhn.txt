@@ -4,10 +4,10 @@
 // @match        https://www.lezhinus.com/en/comic/*/*
 // @grant        none
 // @name         Lezhin Scrambled v2
-// @version      2.0.1
+// @version      2.1.0
 // @author       nutzlos + Astral + merged
 // @run-at       document-start
-// @description  Direct API fetch + unscramble + full download suite (single, range, bulk ZIP). No scrolling needed. Works on VIA Browser.
+// @description  Direct API fetch + unscramble + full download suite (single, range, bulk ZIP). No scrolling needed. Works on VIA Browser. Concurrent fetch/unscramble.
 // ==/UserScript==
 
 (function () {
@@ -83,15 +83,11 @@
       ctx.drawImage(bmp, m.to.left, m.to.top, m.to.width, m.to.height,
                         m.from.left, m.from.top, m.from.width, m.from.height));
     bmp.close();
-    return new Promise(r => c.toBlob(r, 'image/webp', 0.95));
+    return new Promise(r => c.toBlob(r, 'image/webp', 1.00));
   }
 
-    // ========== Core strategy: intercept ONE real URL, then synthesize others ==========
-  // Ambil 1 URL asli (biasanya 1.webp) lengkap dengan query token.
-  // Setelah itu cukup ganti nomor file → 2.webp, 3.webp dst.
-  // Tidak perlu scroll semua gambar.
-
-  let baseTemplate = null; // ".../__IDX__.webp?Policy=..."
+  // ========== Core strategy: intercept ONE real URL, then synthesize others ==========
+  let baseTemplate = null;
   const availableIndexes = new Set();
   const shuffleKeys = new Map();
 
@@ -146,7 +142,6 @@
     if (!m) return;
 
     const idx = parseInt(m[1]);
-
     availableIndexes.add(idx);
 
     if (!baseTemplate) {
@@ -188,8 +183,23 @@
 
   // ========== State ==========
   const previewSize = 60;
-  const imageEntries = []; // ordered list of { index, url, shuffleKey, blob, dataUrl, error }
+  const imageEntries = [];
   let shadow = null, overlay = null, stopFlag = false;
+
+  // ========== Concurrency helper ==========
+  // Jalankan array of async task-functions secara paralel, max `limit` sekaligus.
+  async function runConcurrent(tasks, limit) {
+    let idx = 0;
+    async function worker() {
+      while (idx < tasks.length) {
+        if (stopFlag) return;
+        const i = idx++;
+        await tasks[i]();
+      }
+    }
+    const workers = Array.from({ length: Math.min(limit, tasks.length) }, worker);
+    await Promise.all(workers);
+  }
 
   // ========== UI ==========
   function mountUI() {
@@ -208,7 +218,7 @@
         #cr-status{color:#aaa;font-size:10px;padding:2px 0;min-height:14px;white-space:pre-wrap;word-break:break-all}
         #cr-prog{color:#b2ff59;font-size:10px;font-weight:bold;padding:2px 0}
         summary{cursor:pointer;padding:4px 8px;background:#e63946;color:#fff;font-weight:bold;user-select:none}
-        input[type=text]{background:#2a2a40;color:#eee;border:1px solid #555;border-radius:4px;padding:2px 5px;width:70px}
+        input[type=text],input[type=number]{background:#2a2a40;color:#eee;border:1px solid #555;border-radius:4px;padding:2px 5px;width:70px}
         .irow{display:flex;align-items:center;gap:4px;padding:2px 4px;border-bottom:1px solid #252545}
         .irow:hover{background:#252545}
         .thumb{width:${previewSize}px;height:${previewSize}px;object-fit:contain;background:#111;border-radius:3px;flex-shrink:0}
@@ -219,13 +229,16 @@
         .bwait{font-size:9px;background:#444;color:#aaa;padding:1px 4px;border-radius:3px}
       </style>
       <details id="_cr">
-        <summary>📦 Lezhin Ripper v2</summary>
+        <summary>📦 Lezhin Ripper v2.1</summary>
         <div style="width:340px;height:400px;display:flex;flex-direction:column">
           <div class="head">
             <div class="row">
               <button class="btn" id="cr-fetch">🔍 Fetch All</button>
               <button class="btn sec" id="cr-scan">📋 Scan Page</button>
               <button class="btn sec" id="cr-stop">■ Stop</button>
+            </div>
+            <div class="row" style="margin-top:2px">
+              Paralel: <input type="number" id="cr-concurrency" value="5" min="1" max="20" style="width:42px">
             </div>
             <div id="cr-status">Buka chapter, lalu klik Scan Page atau Fetch All.</div>
             <div id="cr-prog"></div>
@@ -247,7 +260,7 @@
     overlay = shadow.getElementById('cr-overlay');
     shadow.getElementById('cr-fetch').addEventListener('click', doFetchAll);
     shadow.getElementById('cr-scan').addEventListener('click', doScanPage);
-    shadow.getElementById('cr-stop').addEventListener('click', () => { stopFlag = true; });
+    shadow.getElementById('cr-stop').addEventListener('click', () => { stopFlag = true; setStatus('Menghentikan...'); });
     shadow.getElementById('cr-dlsel').addEventListener('click', dlSelected);
     shadow.getElementById('cr-dlrange').addEventListener('click', dlRange);
     shadow.getElementById('cr-all').addEventListener('click', () => selectAll(true));
@@ -255,11 +268,16 @@
     document.body.appendChild(host);
   }
 
-  const setStatus = msg => { const e = shadow && shadow.getElementById('cr-status'); if (e) e.textContent = msg; };
-  const setProgress = msg => { const e = shadow && shadow.getElementById('cr-prog'); if (e) e.textContent = msg; };
+  const setStatus   = msg => { const e = shadow && shadow.getElementById('cr-status'); if (e) e.textContent = msg; };
+  const setProgress = msg => { const e = shadow && shadow.getElementById('cr-prog');   if (e) e.textContent = msg; };
+  const getConcurrency = () => {
+    const el = shadow && shadow.getElementById('cr-concurrency');
+    const v = el ? parseInt(el.value) : 5;
+    return isNaN(v) || v < 1 ? 5 : Math.min(v, 20);
+  };
 
-  // ========== Scan Page: show intercepted URLs + shuffleKeys without fetching ==========
-    function doScanPage() {
+  // ========== Scan Page ==========
+  function doScanPage() {
     const nKeys = extractShuffleKeys();
 
     if (!shuffleKeys.size && !availableIndexes.size) {
@@ -295,28 +313,31 @@
     );
   }
 
-  // ========== Fetch All: fetch + unscramble every entry ==========
+  // ========== Fetch All (concurrent) ==========
   async function doFetchAll() {
     stopFlag = false;
 
-    // Run scan first to populate entries if empty
     if (imageEntries.length === 0) doScanPage();
     if (imageEntries.length === 0) return;
 
-    setStatus(`Fetching ${imageEntries.length} gambar...`);
+    const CONCURRENCY = getConcurrency();
+    const total = imageEntries.length;
+    let done = 0;
 
-    for (let i = 0; i < imageEntries.length; i++) {
-      if (stopFlag) { setStatus('Dihentikan.'); return; }
-      const entry = imageEntries[i];
-      if (entry.dataUrl) continue; // already done
+    setStatus(`Fetching ${total} gambar (${CONCURRENCY}x paralel)...`);
+    setProgress(`[0/${total}]`);
+
+    const tasks = imageEntries.map((entry, i) => async () => {
+      if (stopFlag) return;
+
+      if (entry.dataUrl) { done++; setProgress(`[${done}/${total}]`); return; }
 
       if (!entry.url) {
         entry.error = 'URL tidak ada — scroll halaman agar gambar ter-intercept';
         updateRow(i, entry);
-        continue;
+        done++; setProgress(`[${done}/${total}]`);
+        return;
       }
-
-      setProgress(`[${i+1}/${imageEntries.length}] #${entry.index}`);
 
       try {
         let blob = await fetchBlob(entry.url);
@@ -324,21 +345,28 @@
         entry.blob = blob;
         entry.dataUrl = await blobToDataUrl(blob);
         updateRow(i, entry);
-      } catch(e) {
+      } catch (e) {
         entry.error = e.message || String(e);
         updateRow(i, entry);
         console.error(`[LezhinV2] Error #${entry.index}:`, e);
       }
 
-      await sleep(50);
-    }
+      done++;
+      setProgress(`[${done}/${total}]`);
+    });
+
+    await runConcurrent(tasks, CONCURRENCY);
 
     setProgress('');
-    const ok = imageEntries.filter(e => e.dataUrl).length;
-    setStatus(`Selesai. ${ok}/${imageEntries.length} berhasil.`);
+    if (stopFlag) {
+      setStatus(`Dihentikan. ${imageEntries.filter(e => e.dataUrl).length}/${total} selesai.`);
+    } else {
+      const ok = imageEntries.filter(e => e.dataUrl).length;
+      setStatus(`Selesai. ${ok}/${total} berhasil.`);
+    }
   }
 
-  // ========== Fetch helper — same as Lezhin Unscrambled 2.4.0 fetchGet ==========
+  // ========== Fetch helper ==========
   function fetchBlob(url, timeout = 20000) {
     return new Promise((resolve, reject) => {
       const ctl = new AbortController();
@@ -386,7 +414,7 @@
     }
   }
 
-    function updateOverlayRow(index) {
+  function updateOverlayRow(index) {
     const rowIdx = imageEntries.findIndex(e => e.index === index);
     if (rowIdx < 0 || !baseTemplate) return;
 
@@ -423,7 +451,6 @@
     const entry = imageEntries[rowIdx];
     if (!entry) return;
     if (!entry.blob) {
-      // Fetch on demand
       if (!entry.url) { alert('URL belum ter-intercept. Scroll halaman agar gambar ini ter-load.'); return; }
       setStatus(`Fetching #${entry.index}...`);
       try {
@@ -456,7 +483,7 @@
     await buildZip(entries, getBaseZipName() + '.zip');
   }
 
-  // ========== Download by range ==========
+  // ========== Download by range (concurrent) ==========
   async function dlRange() {
     const v = shadow.getElementById('cr-range').value.trim();
     const m = v.match(/^(\d+)\s*-\s*(\d+)$/);
@@ -465,29 +492,46 @@
     const entries = imageEntries.filter(e => e.index >= start && e.index <= end);
     if (!entries.length) { alert(`Tidak ada gambar di range ${start}-${end}`); return; }
 
-    // Fetch any missing
-    setStatus(`Fetching range ${start}-${end}...`);
-    for (let i = 0; i < entries.length; i++) {
-      if (stopFlag) break;
-      const entry = entries[i];
-      if (entry.blob || !entry.url) continue;
-      setProgress(`[${i+1}/${entries.length}] #${entry.index}`);
+    stopFlag = false;
+    const CONCURRENCY = getConcurrency();
+    const total = entries.length;
+    let done = 0;
+
+    setStatus(`Fetching range ${start}-${end} (${CONCURRENCY}x paralel)...`);
+    setProgress(`[0/${total}]`);
+
+    const tasks = entries.map(entry => async () => {
+      if (stopFlag) return;
+      if (entry.blob || !entry.url) { done++; setProgress(`[${done}/${total}]`); return; }
+
       try {
         let blob = await fetchBlob(entry.url);
         if (entry.shuffleKey) blob = await unscrambleBlob(blob, entry.shuffleKey);
-        entry.blob = blob; entry.dataUrl = await blobToDataUrl(blob);
+        entry.blob = blob;
+        entry.dataUrl = await blobToDataUrl(blob);
         const rowIdx = imageEntries.indexOf(entry);
         updateRow(rowIdx, entry);
-      } catch(e) { entry.error = e.message; }
-      await sleep(50);
-    }
+      } catch(e) {
+        entry.error = e.message;
+        const rowIdx = imageEntries.indexOf(entry);
+        updateRow(rowIdx, entry);
+      }
+
+      done++;
+      setProgress(`[${done}/${total}]`);
+    });
+
+    await runConcurrent(tasks, CONCURRENCY);
+
     setProgress('');
-    await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
-    setStatus('');
+    if (!stopFlag) {
+      await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
+    }
+    setStatus(stopFlag ? 'Dihentikan.' : '');
   }
 
   // ========== Boot ==========
-  installInterceptors(); // install ASAP, before DOM ready
+  installInterceptors();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mountUI);
@@ -495,5 +539,5 @@
     mountUI();
   }
 
-  console.log('Lezhin Scrambled v2.1 – Intercept + Unscramble + Full Download Suite');
+  console.log('Lezhin Scrambled v2.1 – Concurrent Fetch + Unscramble + Full Download Suite');
 })();
