@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Bomtoon Scrambled Downloader (Lezhin UI Edition)
 // @namespace    bomtoon-lezhin-ui
-// @version      1.0.0
-// @description  Bomtoon downloader dengan UI dan workflow ala Lezhin Scrambled. Mendukung single, range, bulk ZIP.
+// @version      1.0.3
+// @description  Bomtoon downloader dengan UI ala Lezhin. Mendukung Unscramble Serentak (Concurrent), format asli, & tanpa padding.
 // @author       Merged Script (Bomtoon API + Lezhin UI)
 // @match        https://www.bomtoon.com/*
 // @match        https://www.bomtoon.tw/*
@@ -12,6 +12,9 @@
 
 (function () {
   'use strict';
+
+  // Batas eksekusi serentak (bisa dinaikkan, tapi 4-5 paling stabil agar browser tidak crash)
+  const CONCURRENCY_LIMIT = 4;
 
   // ========== SimpleZip (embedded) ==========
   let SimpleZip;!function(t){SimpleZip=t()}(function(){return function u(a,s,f){function h(e,t){if(!s[e]){if(!a[e]){var i="function"==typeof require&&require;if(!t&&i)return i(e,!0);if(o)return o(e,!0);var r=new Error("Cannot find module '"+e+"'");throw r.code="MODULE_NOT_FOUND",r}var n=s[e]={exports:{}};a[e][0].call(n.exports,function(t){return h(a[e][1][t]||t)},n,n.exports,u,a,s,f)}return s[e].exports}for(var o="function"==typeof require&&require,t=0;t<f.length;t++)h(f[t]);return h}({1:[function(t,e,i){"use strict";function p(t){return null==t}var c=function(){function t(t){this.array=new Uint8Array(t),this.index=0}return t.prototype.ensureRemaining=function(t){var e=this.index+t;if(e>this.array.byteLength){var i=new Uint8Array(e);i.set(this.array.slice(0,this.index),0),delete this.array,this.array=i}},t.prototype.getArrayBuffer=function(){return this.array.buffer.byteLength===this.index?this.array.buffer:this.array.buffer.slice(0,this.index)},t.prototype.getCapacity=function(){return this.array.byteLength},t.prototype.getIndex=function(){return this.index},t.prototype.writeStr=function(t){for(var e=0;e<t.length;e++)this.array[this.index++]=255&t.charCodeAt(e)},t.prototype.append=function(t){this.array.set(t,this.index),this.index+=t.length},t.prototype.writeu8=function(t){this.array[this.index++]=255&t},t.prototype.writeu16=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255},t.prototype.writeu32=function(t){this.array[this.index++]=255&t,this.array[this.index++]=t>>8&255,this.array[this.index++]=t>>16&255,this.array[this.index++]=t>>24&255},t.prototype.writeu64=function(t){this.writeu32(t[1]),this.writeu32(t[0])},t}(),b=new Date("01-Jan-1601 00:00:00 UTC"),r=function(){function l(t){this.files=[],this.ntfsTimeSinceEpoch=[],this.cdrAccumulate=0,this.buf=new c(t);var e=new Date,i=e.getHours(),r=e.getMinutes(),n=Math.floor(e.getSeconds()/2),u=e.getFullYear()-1980,a=e.getMonth()+1,s=e.getDate();this.createdTime=(31&i)<<11|(63&r)<<5|31&n,this.createdDate=(127&u)<<9|(15&a)<<5|31&s;var f=e.getTime()-b.getTime(),h=Math.floor(f/429496.7296),o=1e4*(4294967295&f)&4294967295;this.ntfsTimeSinceEpoch.push(h),this.ntfsTimeSinceEpoch.push(o)}return l.prototype.ensureRemainingSpace=function(t){this.buf.ensureRemaining(t)},l.prototype.appendFile=function(t){this.appendFiles([t])},l.prototype.appendFiles=function(t){for(var e=[],i=0,r=0,n=t;r<n.length;r++){var u=n[r];if(p(u)||p(u.name)||p(u.data))throw new Error("Zip file entry missing 'name' or 'data' props");if("string"!=typeof u.name||u.name.length<=0)throw new Error("File name must be a string with >0 characters");var a=void 0;if("string"==typeof u.data){a=new Uint8Array(u.data.length);for(var s=0;s<u.data.length;s++)a[s]=u.data.charCodeAt(s)}else if(u.data instanceof Uint8Array)a=u.data;else{if(!(u.data instanceof ArrayBuffer))throw new Error("Unknown typeof data: "+typeof u.data);a=new Uint8Array(u.data)}var f={name:u.name,size:a.byteLength,crc:l.calcCRC32(a),offset:-1};e.push({zEntry:f,data:a}),i+=30+f.name.length+a.byteLength,this.cdrAccumulate+=46+u.name.length}this.buf.ensureRemaining(i+this.cdrAccumulate+22);for(var h=0,o=e;h<o.length;h++){var c=o[h];f=c.zEntry,a=c.data;f.offset=this.buf.getIndex(),this.buf.writeu32(67324752),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(f.crc),this.buf.writeu32(f.size),this.buf.writeu32(f.size),this.buf.writeu16(f.name.length),this.buf.writeu16(0),this.buf.writeStr(f.name),this.buf.append(a),this.files.push(f)}},l.prototype.generate=function(){for(var t=this.buf.getIndex(),e=22,i=0,r=this.files;i<r.length;i++){e+=82+(a=r[i]).name.length}this.buf.ensureRemaining(e);for(var n=0,u=this.files;n<u.length;n++){var a=u[n];this.buf.writeu32(33639248),this.buf.writeu16(63),this.buf.writeu16(10),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.createdTime),this.buf.writeu16(this.createdDate),this.buf.writeu32(a.crc),this.buf.writeu32(a.size),this.buf.writeu32(a.size),this.buf.writeu16(a.name.length),this.buf.writeu16(36),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu32(32),this.buf.writeu32(a.offset),this.buf.writeStr(a.name),this.buf.writeu16(10),this.buf.writeu16(32),this.buf.writeu32(0),this.buf.writeu16(1),this.buf.writeu16(24),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch),this.buf.writeu64(this.ntfsTimeSinceEpoch)}var s=this.buf.getIndex();return this.buf.writeu32(101010256),this.buf.writeu16(0),this.buf.writeu16(0),this.buf.writeu16(this.files.length),this.buf.writeu16(this.files.length),this.buf.writeu32(s-t),this.buf.writeu32(t),this.buf.writeu16(0),this.buf.getArrayBuffer()},l.GenerateZipFrom=function(t){for(var e=22,i=0,r=t;i<r.length;i++){var n=r[i];"string"==typeof n.data?e+=n.data.length:e+=n.data.byteLength,e+=2*n.name.length+82+30}var u=new l(e);return u.appendFiles(t),u.generate()},l.calcCRC32=function(t){if(l.genCRCTable(),null===l.crcTable)return-1;for(var e=-1,i=0;i<t.length;i++)e=e>>>8^l.crcTable[255&(e^t[i])];return(-1^e)>>>0},l.genCRCTable=function(){if(null===l.crcTable){l.crcTable=Array(256);for(var t=void 0,e=0;e<256;e++){t=e;for(var i=0;i<8;i++)t=1&t?3988292384^t>>>1:t>>>1;l.crcTable[e]=t}}},l.crcTable=null,l}();e.exports=r},{}]},{},[1])(1)});
@@ -23,6 +26,7 @@
   let imageEntries = [];
   let stopFlag = false;
   let shadow = null;
+  let keyFetchPromise = null; // Mencegah multiple API call saat concurrent
 
   // ========== Bomtoon API Core ==========
   async function getAuthToken() {
@@ -77,18 +81,24 @@
 
   async function getDecryptScrambleKey(dataLine) {
     var defaultKey = "thisisBalconyScrambledKey1234!@#";
-    if (!dataLine) cache.scrambleKey = defaultKey;
+    if (!dataLine) return defaultKey;
     if (cache.scrambleKey) return cache.scrambleKey;
     
-    var pathName = location.pathname;
-    var regex = new RegExp(/\/viewer\/(.+?)\/(.+?)(\/|$)/);
-    var urlParam = regex.exec(pathName);
-    var pathEpisode = `/${urlParam[1]}/${urlParam[2]}`;
-    var keyAPI = "/api/balcony-api-v2/contents/images" + pathEpisode;
-    
-    var resp = await apiReq(keyAPI, "POST", { line: dataLine });
-    cache.scrambleKey = resp.data ? resp.data : defaultKey;
-    return cache.scrambleKey;
+    // Cegah request ganda saat proses berjalan serentak
+    if (!keyFetchPromise) {
+      keyFetchPromise = (async () => {
+        var pathName = location.pathname;
+        var regex = new RegExp(/\/viewer\/(.+?)\/(.+?)(\/|$)/);
+        var urlParam = regex.exec(pathName);
+        var pathEpisode = `/${urlParam[1]}/${urlParam[2]}`;
+        var keyAPI = "/api/balcony-api-v2/contents/images" + pathEpisode;
+        
+        var resp = await apiReq(keyAPI, "POST", { line: dataLine });
+        cache.scrambleKey = resp.data ? resp.data : defaultKey;
+        return cache.scrambleKey;
+      })();
+    }
+    return await keyFetchPromise;
   }
 
   async function decryptScramble(cipherText, keyStr) {
@@ -103,7 +113,7 @@
     return JSON.parse(json);
   }
 
-  // ========== Unscramble Workflow (Direct Blob) ==========
+  // ========== Unscramble Workflow ==========
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function blobToDataUrl(blob) { return new Promise(r => { const f = new FileReader(); f.onload = e => r(e.target.result); f.readAsDataURL(blob); }); }
   function loadImageObj(src) {
@@ -127,8 +137,9 @@
     const img = await loadImageObj(imgURL);
     
     const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
+    canvas.width = pageData.width;
+    canvas.height = pageData.height; // Potong area hitam
+    
     const ctx = canvas.getContext("2d");
     
     pageData.scrambleIndex.forEach(function (i, r) {
@@ -142,15 +153,23 @@
     });
     
     URL.revokeObjectURL(imgURL);
-    return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    let originalMime = imgBlob.type || "image/jpeg";
+    return new Promise(resolve => canvas.toBlob(resolve, originalMime, 1.0));
   }
 
   // ========== Download & ZIP Core ==========
-  function getBaseZipName() {
+    function getBaseZipName() {
     try {
-      const title = document.querySelector('title')?.innerText || 'Bomtoon';
-      return title.replace(/[^a-zA-Z0-9_\-\uAC00-\uD7A3\u4E00-\u9FA5]/g, ' ').trim().replace(/\s+/g, '_');
-    } catch { return 'Bomtoon_Chapter'; }
+      let title = document.querySelector('title')?.innerText || 'Bomtoon';
+      
+      // Menghapus akhiran " - 봄툰" atau " - Bomtoon" dari title web
+      title = title.replace(/\s*-\s*(봄툰|Bomtoon)\s*$/i, '');
+      
+      // Membersihkan karakter yang tidak diizinkan oleh sistem operasi untuk nama file
+      return title.replace(/[\\/:*?"<>|]/g, '').trim();
+    } catch { 
+      return 'Bomtoon_Chapter';
+    }
   }
 
   async function buildZip(entries, zipName) {
@@ -171,6 +190,63 @@
     a.href = URL.createObjectURL(zBlob);
     a.download = zipName;
     document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // ========== Worker Pool (Concurrent Logic) ==========
+  async function processSingleEntry(entry) {
+    if (entry.blob) return;
+    const realIdx = imageEntries.indexOf(entry);
+    try {
+      let blob = await fetchBlob(entry.url);
+      if (entry.scrambleData) {
+        let decryptKey = await getDecryptScrambleKey(entry.scrambleData.line);
+        let scrambledIdx = entry.scrambleData.point;
+        if (!scrambledIdx && entry.scrambleData.line) {
+           scrambledIdx = await decryptScramble(scrambledIdx, decryptKey); 
+        } else if (entry.scrambleData.line) {
+           entry.scrambleData.scrambleIndex = await decryptScramble(entry.scrambleData.point, decryptKey);
+           blob = await unscrambleBomtoonToBlob(blob, entry.scrambleData);
+        }
+      }
+      entry.blob = blob; 
+      entry.dataUrl = await blobToDataUrl(blob);
+      updateRow(realIdx, entry);
+    } catch(e) {
+      entry.error = e.message;
+      updateRow(realIdx, entry);
+    }
+    await sleep(100); // Beri nafas sedikit ke thread
+  }
+
+  async function runConcurrent(entriesToProcess) {
+    let index = 0;
+    let active = 0;
+    let completed = 0;
+
+    return new Promise((resolve) => {
+      function enqueue() {
+        if (stopFlag) {
+          if (active === 0) resolve();
+          return;
+        }
+        if (index === entriesToProcess.length && active === 0) {
+          resolve();
+          return;
+        }
+        while (active < CONCURRENCY_LIMIT && index < entriesToProcess.length) {
+          const entry = entriesToProcess[index++];
+          active++;
+          
+          processSingleEntry(entry).then(() => {
+            active--;
+            completed++;
+            setProgress(`Memproses serentak: ${completed}/${entriesToProcess.length} selesai...`);
+            enqueue();
+          });
+        }
+      }
+      enqueue(); // Trigger awal
+    });
   }
 
   // ========== Lezhin UI Renderer ==========
@@ -208,9 +284,10 @@
         const idx = ev.target.dataset.idx;
         const entry = imageEntries[idx];
         if (entry && entry.blob) {
+          const ext = entry.blob.type.includes('png') ? 'png' : entry.blob.type.includes('webp') ? 'webp' : 'jpg';
           const a = document.createElement('a');
           a.href = URL.createObjectURL(entry.blob);
-          a.download = `${String(entry.index).padStart(3, '0')}.png`;
+          a.download = `${String(entry.index).padStart(3, '0')}.${ext}`;
           a.click();
         }
       } else if (ev.target.classList.contains('cr-retry-btn')) {
@@ -218,7 +295,10 @@
         const entry = imageEntries[idx];
         entry.error = null;
         updateRow(idx, entry);
-        // Quick retry logic goes here if needed.
+        // Memproses ulang hanya baris ini
+        setStatus(`Retrying #${entry.index}...`);
+        await processSingleEntry(entry);
+        setStatus('');
       }
     });
   }
@@ -229,14 +309,21 @@
   async function grabApiData() {
     setStatus('Loading API data...');
     try {
-      cache.scrambleKey = null; // Clean key cache
+      cache.scrambleKey = null; 
+      keyFetchPromise = null;
       const bookData = await getBookData();
       imageEntries = [];
       
       bookData.images.forEach((page, i) => {
         let scrambleData = null;
         if (page.point || page.line) {
-          scrambleData = { line: page.line, point: page.point, width: page.width, defaultHeight: page.defaultHeight };
+          scrambleData = { 
+            line: page.line, 
+            point: page.point, 
+            width: page.width, 
+            defaultHeight: page.defaultHeight,
+            height: page.height 
+          };
         }
         imageEntries.push({
           index: i + 1,
@@ -255,37 +342,17 @@
 
   async function dlAll() {
     stopFlag = false;
-    setStatus('Memulai Batch Download...');
-    for (let i = 0; i < imageEntries.length; i++) {
-      if (stopFlag) break;
-      const entry = imageEntries[i];
-      if (entry.blob) continue; // Skip jika sudah diunduh
-      setProgress(`[${i+1}/${imageEntries.length}] #${entry.index}`);
-      
-      try {
-        let blob = await fetchBlob(entry.url);
-        if (entry.scrambleData) {
-          let decryptKey = await getDecryptScrambleKey(entry.scrambleData.line);
-          let scrambledIdx = entry.scrambleData.point;
-          if (!scrambledIdx && entry.scrambleData.line) {
-             scrambledIdx = await decryptScramble(scrambledIdx, decryptKey); // Note: Fallback or real payload needed per original
-          } else if (entry.scrambleData.line) {
-             entry.scrambleData.scrambleIndex = await decryptScramble(entry.scrambleData.point, decryptKey);
-             blob = await unscrambleBomtoonToBlob(blob, entry.scrambleData);
-          }
-        }
-        entry.blob = blob; 
-        entry.dataUrl = await blobToDataUrl(blob);
-        updateRow(i, entry);
-      } catch(e) {
-        entry.error = e.message;
-        updateRow(i, entry);
-      }
-      await sleep(500); // Delay ala Bomtoon untuk cegah rate-limit
+    setStatus('Memulai Batch Download Serentak...');
+    const entriesToProcess = imageEntries.filter(e => !e.blob);
+    
+    await runConcurrent(entriesToProcess);
+    
+    if(!stopFlag) {
+       setProgress('');
+       await buildZip(imageEntries, `${getBaseZipName()}.zip`);
+
+       setStatus('Selesai.');
     }
-    setProgress('');
-    await buildZip(imageEntries, `${getBaseZipName()}_All.zip`);
-    setStatus('Selesai.');
   }
 
   async function dlRange() {
@@ -297,29 +364,16 @@
     const entries = imageEntries.filter(e => e.index >= start && e.index <= end);
     if (!entries.length) return;
 
-    setStatus(`Fetching range ${start}-${end}...`);
-    for (let i = 0; i < entries.length; i++) {
-      if (stopFlag) break;
-      const entry = entries[i];
-      if (entry.blob) continue;
-      const realIdx = imageEntries.indexOf(entry);
-      setProgress(`[${i+1}/${entries.length}] #${entry.index}`);
-      
-      try {
-        let blob = await fetchBlob(entry.url);
-        if (entry.scrambleData) {
-          let decryptKey = await getDecryptScrambleKey(entry.scrambleData.line);
-          entry.scrambleData.scrambleIndex = await decryptScramble(entry.scrambleData.point, decryptKey);
-          blob = await unscrambleBomtoonToBlob(blob, entry.scrambleData);
-        }
-        entry.blob = blob; entry.dataUrl = await blobToDataUrl(blob);
-        updateRow(realIdx, entry);
-      } catch(e) { entry.error = e.message; updateRow(realIdx, entry); }
-      await sleep(500);
+    setStatus(`Fetching range ${start}-${end} serentak...`);
+    const entriesToProcess = entries.filter(e => !e.blob);
+    
+    await runConcurrent(entriesToProcess);
+
+    if(!stopFlag) {
+      setProgress('');
+      await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
+      setStatus('');
     }
-    setProgress('');
-    await buildZip(entries, `${getBaseZipName()}_${start}-${end}.zip`);
-    setStatus('');
   }
 
   // ========== UI Injector ==========
@@ -349,7 +403,7 @@
     panel.className = 'cr-panel';
     panel.innerHTML = `
       <div class="cr-header" id="cr-head">
-        <span>Bomtoon Scrambled Downloader</span>
+        <span>Bomtoon Downloader (Fast)</span>
         <span id="cr-toggle">▼</span>
       </div>
       <div class="cr-body">
