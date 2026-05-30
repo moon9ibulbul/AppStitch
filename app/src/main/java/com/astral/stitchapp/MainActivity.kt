@@ -519,18 +519,6 @@ fun SettingsScreen(
 
                 HorizontalDivider()
 
-                Text("Rawloader Default Output:")
-                Button(onClick = { pickDefaultOutput.launch(null) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (defaultOutputUri != null) "Change Folder" else "Set Default Folder")
-                }
-                if (defaultOutputUri != null) {
-                    Text(Uri.parse(defaultOutputUri).lastPathSegment ?: "Unknown", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    Text("Default: App Storage (Accessible via File Manager)", style = MaterialTheme.typography.bodySmall)
-                }
-
-                HorizontalDivider()
-
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Text("Cache: $cacheSize")
                     Button(onClick = {
@@ -1123,7 +1111,6 @@ fun BatoTab(
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
-    var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
     var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
     var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
@@ -1138,6 +1125,15 @@ fun BatoTab(
     var isProcessorRunning by remember { mutableStateOf(false) }
 
     var isAddingToQueue by remember { mutableStateOf(false) }
+
+    var rawloaderOutputUri by remember { mutableStateOf(prefs.getString("rawloader_output_uri", null)) }
+    val pickRawloaderOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            rawloaderOutputUri = uri.toString()
+            prefs.edit().putString("rawloader_output_uri", uri.toString()).apply()
+        }
+    }
 
     // Settings
     var splitHeight by remember { mutableStateOf("5000") }
@@ -1247,8 +1243,7 @@ fun BatoTab(
         withContext(Dispatchers.IO) {
             launch {
                 while (isActive && isProcessorRunning) {
-                    val defaultUriStr = prefs.getString("default_output_uri", null)
-                    val outputUri = if (defaultUriStr != null) Uri.parse(defaultUriStr) else null
+                    val outputUri = if (rawloaderOutputUri != null) Uri.parse(rawloaderOutputUri) else null
 
                     val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "unscrambling" || it.status == "stitching" || it.status == "initializing" }
                     if (pendingCount == 0 && queueItems.isNotEmpty()) {
@@ -1375,11 +1370,7 @@ fun BatoTab(
                     DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Bomtoon") }, onClick = { selectedSource = "Bomtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Lezhin") }, onClick = { selectedSource = "Lezhin"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("MangaGo") }, onClick = { selectedSource = "MangaGo"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("Newtoki") }, onClick = { selectedSource = "Newtoki"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("MyReadingManga") }, onClick = { selectedSource = "MyReadingManga"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("XToon") }, onClick = { selectedSource = "XToon"; expandedSource = false })
                 }
             }
         }
@@ -1388,9 +1379,7 @@ fun BatoTab(
             val labelText = when(selectedSource) {
                 "Ridibooks" -> "Url (Book)"
                 "Naver Webtoon" -> "Comic ID"
-                "XToon" -> "Url (Chapter)"
                 "KakaoPage" -> "Url (Chapter)"
-                "MangaGo" -> "Url (Chapter)"
                 else -> "Url (Chapter/Series)"
             }
             OutlinedTextField(
@@ -1419,21 +1408,14 @@ fun BatoTab(
                                     "KakaoPage" -> "kakao"
                                     "Bomtoon" -> "bomtoon"
                                     "Lezhin" -> "lezhin"
-                                    "MangaGo" -> "mangago"
-                                    "Newtoki" -> "newtoki"
-                                    "MyReadingManga" -> "myreadingmanga"
                                     "Naver Webtoon" -> "naver"
-                                    "XToon" -> "xtoon"
                                     else -> "ridi"
                                 }
 
                                 val scraperInfo = when(type) {
-                                    "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", ScraperScripts.MANGAGO)
                                     "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
                                     "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
-                                    "newtoki" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://newtoki.com/", ScraperScripts.NEWTOKI)
-                                    "myreadingmanga" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://myreadingmanga.info/", ScraperScripts.NEWTOKI)
                                     else -> null
                                 }
 
@@ -1450,11 +1432,8 @@ fun BatoTab(
                                 val cookieToUse = when(type) {
                                     "ridi" -> cookieInput
                                     "kakao" -> kakaoCookieInput
-                                    "mangago" -> mangagoCookieInput
                                     "bomtoon" -> bomtoonCookieInput
                                     "lezhin" -> lezhinCookieInput
-                                    "newtoki" -> newtokiCookieInput
-                                    "myreadingmanga" -> myreadingmangaCookieInput
                                     else -> ""
                                 }
 
@@ -1506,13 +1485,10 @@ fun BatoTab(
         }
 
         when(selectedSource) {
-            "MangaGo" -> OutlinedTextField(value = mangagoCookieInput, onValueChange = { mangagoCookieInput = it; prefs.edit().putString("mangago_cookie", it).apply() }, label = { Text("MangaGo Cookie") }, modifier = Modifier.fillMaxWidth())
             "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth())
             "KakaoPage" -> OutlinedTextField(value = kakaoCookieInput, onValueChange = { kakaoCookieInput = it; prefs.edit().putString("kakao_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth())
             "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth())
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth())
-            "Newtoki" -> OutlinedTextField(value = newtokiCookieInput, onValueChange = { newtokiCookieInput = it; prefs.edit().putString("newtoki_cookie", it).apply() }, label = { Text("Newtoki Cookie") }, modifier = Modifier.fillMaxWidth())
-            "MyReadingManga" -> OutlinedTextField(value = myreadingmangaCookieInput, onValueChange = { myreadingmangaCookieInput = it; prefs.edit().putString("myreadingmanga_cookie", it).apply() }, label = { Text("MyReadingManga Cookie") }, modifier = Modifier.fillMaxWidth())
         }
 
         if (showScraperDialog) {
@@ -1527,9 +1503,6 @@ fun BatoTab(
                         "KakaoPage" -> "kakao"
                         "Bomtoon" -> "bomtoon"
                         "Lezhin" -> "lezhin"
-                        "MangaGo" -> "mangago"
-                        "Newtoki" -> "newtoki"
-                        "MyReadingManga" -> "myreadingmanga"
                         else -> ""
                     }
                     if (cookie.isNotBlank()) {
@@ -1538,9 +1511,6 @@ fun BatoTab(
                             "kakao" -> { kakaoCookieInput = cookie; prefs.edit().putString("kakao_cookie", cookie).apply() }
                             "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
-                            "mangago" -> { mangagoCookieInput = cookie; prefs.edit().putString("mangago_cookie", cookie).apply() }
-                            "newtoki" -> { newtokiCookieInput = cookie; prefs.edit().putString("newtoki_cookie", cookie).apply() }
-                            "myreadingmanga" -> { myreadingmangaCookieInput = cookie; prefs.edit().putString("myreadingmanga_cookie", cookie).apply() }
                         }
                     }
 
@@ -1567,12 +1537,26 @@ fun BatoTab(
 
         HorizontalDivider()
 
-        val defOut = prefs.getString("default_output_uri", null)
-        if (defOut != null) {
-            Text("Output: ${Uri.parse(defOut).lastPathSegment}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        } else {
-             Text("Output: Default (App Storage)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { pickRawloaderOutput.launch(null) }, modifier = Modifier.weight(1f)) {
+                Text(if (rawloaderOutputUri != null) "Change Output" else "Select Output Folder")
+            }
+            if (rawloaderOutputUri != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = Uri.parse(rawloaderOutputUri).lastPathSegment ?: "Selected",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
+        if (rawloaderOutputUri == null) {
+            Text("Output folder is mandatory for Rawloader!", color = Color.Red, style = MaterialTheme.typography.labelSmall)
+        }
+
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = autoRetry, onCheckedChange = { autoRetry = it })
             Text("Auto Retry")
@@ -1604,6 +1588,7 @@ fun BatoTab(
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = { isProcessorRunning = !isProcessorRunning },
+            enabled = rawloaderOutputUri != null,
             colors = ButtonDefaults.buttonColors(containerColor = if(isProcessorRunning) Color.Red else Color(0xFF4CAF50))
         ) { Text(if (isProcessorRunning) "STOP QUEUE" else "START QUEUE") }
 

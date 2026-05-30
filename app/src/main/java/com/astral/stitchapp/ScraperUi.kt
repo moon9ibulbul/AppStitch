@@ -45,198 +45,6 @@ object ScraperScripts {
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     """.trimIndent()
 
-    val MANGAGO = """
-    (function() {
-        'use strict';
-        $COMMON_SCRIPTS
-
-        function soJsonV4Deobfuscator(obfuscatedJs) {
-            if (!obfuscatedJs.includes("['sojson.v4']")) return obfuscatedJs;
-            try {
-                const s = obfuscatedJs.substring(240, obfuscatedJs.length - 60);
-                let result = '';
-                const matches = s.match(/\d+/g);
-                if (matches) {
-                    for (const charCode of matches) {
-                        result += String.fromCharCode(parseInt(charCode));
-                    }
-                }
-                return result;
-            } catch (e) { return obfuscatedJs; }
-        }
-
-        function unscrambleImageList(imageListStr, deobfuscatedJs) {
-            try {
-                const keyLocations = [];
-                const regex = /str\.charAt\s*\(\s*(\d+)\s*\)/g;
-                let match;
-                while ((match = regex.exec(deobfuscatedJs)) !== null) {
-                    keyLocations.push(parseInt(match[1]));
-                }
-                const uniqueLocations = [...new Set(keyLocations)];
-                if (uniqueLocations.length === 0) return imageListStr;
-
-                const unscrambleKey = [];
-                for (const loc of uniqueLocations) {
-                    const digit = parseInt(imageListStr.charAt(loc));
-                    if (isNaN(digit)) return imageListStr;
-                    unscrambleKey.push(digit);
-                }
-                const imgListArray = imageListStr.split('');
-                const cleanedImgList = imgListArray.filter((_, i) => !uniqueLocations.includes(i)).join('');
-                return stringUnscramble(cleanedImgList, unscrambleKey);
-            } catch (e) { return imageListStr; }
-        }
-
-        function stringUnscramble(scrambledStr, keys) {
-            let s = scrambledStr.split('');
-            for (let j = keys.length - 1; j >= 0; j--) {
-                const keyVal = keys[j];
-                for (let i = s.length - 1; i >= keyVal; i--) {
-                    if (i % 2 !== 0) {
-                        const temp = s[i - keyVal];
-                        s[i - keyVal] = s[i];
-                        s[i] = temp;
-                    }
-                }
-            }
-            return s.join('');
-        }
-
-        async function scrapeByPagination() {
-            let totalPages = 0;
-            const pageTip = document.querySelector(".multi_pg_tip.left");
-            if (pageTip) {
-                const parts = pageTip.textContent.trim().split('/');
-                if (parts.length > 1) {
-                    const num = parseInt(parts[parts.length-1].replace(/[^\d]/g, ''));
-                    if (!isNaN(num)) totalPages = num;
-                }
-            }
-            if (totalPages === 0) {
-                const select = document.getElementById('page-dropdown');
-                if (select) totalPages = select.options.length;
-            }
-            if (totalPages === 0) totalPages = 1;
-
-            const currentUrl = window.location.href;
-            let baseUrl = currentUrl;
-            let pattern = "pg";
-            if (currentUrl.includes("/pg-")) {
-                baseUrl = currentUrl.replace(/pg-\d+\/?/, "");
-            } else {
-                if (/\/(\d+)\/?${"$"}/.test(currentUrl)) {
-                     baseUrl = currentUrl.replace(/\/(\d+)\/?${"$"}/, "/");
-                     pattern = "slash";
-                } else {
-                     if (!baseUrl.endsWith('/')) baseUrl += '/';
-                     pattern = "append";
-                }
-            }
-
-            const allImages = [];
-            for (let i = 1; i <= totalPages; i++) {
-                let pageUrl = "";
-                if (pattern === "pg") pageUrl = baseUrl + "pg-" + i + "/";
-                else pageUrl = baseUrl + i + "/";
-
-                try {
-                    const response = await fetch(pageUrl);
-                    const html = await response.text();
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, "text/html");
-                    const imgs = doc.querySelectorAll('img');
-                    for (let img of imgs) {
-                        if ((img.id && img.id.startsWith('page')) ||
-                            (img.className && img.className.includes('page')) ||
-                            (img.getAttribute('src') && img.getAttribute('src').includes('mangapicgallery'))) {
-                            let src = img.getAttribute('src') || img.getAttribute('data-src');
-                            if (src) {
-                                if (src.startsWith("//")) src = "https:" + src;
-                                if (!allImages.includes(src)) allImages.push(src);
-                            }
-                        }
-                    }
-                } catch(e) {}
-            }
-            return allImages;
-        }
-
-        window.runScraper = async function() {
-            log("Starting MangaGo Scraper...");
-            try {
-                await loadCryptoJS();
-                let method1Images = [];
-                try {
-                    const scripts = document.querySelectorAll('script:not([src])');
-                    let imgsrcMatch = null;
-                    for (const script of scripts) {
-                        if (script.textContent.includes('imgsrcs')) {
-                            imgsrcMatch = script.textContent.match(/imgsrcs\s*=\s*['"]([^'"]+)['"]/);
-                            if (imgsrcMatch) break;
-                        }
-                    }
-                    if (imgsrcMatch) {
-                        const imgsrcB64 = imgsrcMatch[1];
-                        const chapterJsUrl = document.querySelector('script[src*="chapter.js"]')?.src;
-                        if (chapterJsUrl) {
-                            const chapterJsText = Android.fetchUrl(chapterJsUrl);
-                            if (chapterJsText && !chapterJsText.startsWith("ERROR")) {
-                                 const deobfuscatedJs = soJsonV4Deobfuscator(chapterJsText);
-                                 const keyMatch = deobfuscatedJs.match(/var\s+key\s*=\s*CryptoJS\.enc\.Hex\.parse\s*\(\s*["']([0-9a-fA-F]+)["']\s*\)/);
-                                 const ivMatch = deobfuscatedJs.match(/var\s+iv\s*=\s*CryptoJS\.enc\.Hex\.parse\s*\(\s*["']([0-9a-fA-F]+)["']\s*\)/);
-                                 if (keyMatch && ivMatch) {
-                                     const key = CryptoJS.enc.Hex.parse(keyMatch[1]);
-                                     const iv = CryptoJS.enc.Hex.parse(ivMatch[1]);
-                                     const decrypted = CryptoJS.AES.decrypt(imgsrcB64, key, {
-                                        iv: iv,
-                                        mode: CryptoJS.mode.CBC,
-                                        padding: CryptoJS.pad.ZeroPadding
-                                    });
-                                    const decryptedImageList = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0+${"$"}/, '');
-                                    const finalImageList = unscrambleImageList(decryptedImageList, deobfuscatedJs);
-                                    const rawImages = finalImageList.split(',').filter(u => u.trim());
-                                    let cols = "";
-                                    const colsMatch = deobfuscatedJs.match(/(?:var\s+)?widthnum\s*=\s*heightnum\s*=\s*(\d+);/);
-                                    if (colsMatch) cols = colsMatch[1];
-                                    const renImgMatch = deobfuscatedJs.match(/renImg\s*=\s*function\s*\([^{]+\{([\s\S]+?)key\s*=\s*key\.split\(/);
-                                    if (renImgMatch && cols) {
-                                        const keyLogic = renImgMatch[1].replace(/\b(?:jQuery|document|window|getContext|toDataURL|getImageData|width|height)\b/g, "undefined").replace(/img\.src/g, "url");
-                                        const getDescramblingKey = new Function("url", "replacePos", "const document={}, window={}, img={}; " + keyLogic + "\nreturn key;");
-                                        const replacePos = (strObj, pos, replacetext) => strObj.substr(0, pos) + replacetext + strObj.substring(pos + 1, strObj.length);
-                                        method1Images = rawImages.map(u => {
-                                            if (u.indexOf("cspiclink") !== -1) {
-                                                try {
-                                                    let descKey = getDescramblingKey(u, replacePos);
-                                                    if (Array.isArray(descKey)) descKey = descKey.join(",");
-                                                    return u + "#desckey=" + descKey + "&cols=" + cols;
-                                                } catch(e) { return u; }
-                                            }
-                                            return u;
-                                        });
-                                    } else { method1Images = rawImages; }
-                                 }
-                            }
-                        }
-                    }
-                } catch(e) {}
-
-                let method2Images = [];
-                if (method1Images.length < 2) {
-                     method2Images = await scrapeByPagination();
-                }
-                let finalImages = method1Images.length >= method2Images.length ? method1Images : method2Images;
-                if (finalImages.length === 0) { log("No images found!"); return; }
-                const result = {
-                    title: document.title.replace(" - Read Free Manga Online", "").trim(),
-                    images: finalImages,
-                    cookie: document.cookie
-                };
-                Android.onImagesFound(JSON.stringify(result));
-            } catch(e) { log("Fatal Error: " + e.message); }
-        };
-    })();
-    """.trimIndent()
 
     val RIDIBOOKS = """
     (function() {
@@ -422,7 +230,8 @@ object ScraperScripts {
                             url += "#scramble=" + encodeURIComponent(JSON.stringify({
                                 scrambleIndex: scrambleIndex,
                                 width: img.width,
-                                defaultHeight: img.defaultHeight
+                                defaultHeight: img.defaultHeight,
+                                height: img.height
                             }));
                         } catch(e) { log(`Unscramble error on img ${"$"}{i+1}: ` + e.message); }
                     }
@@ -430,6 +239,7 @@ object ScraperScripts {
                 }
                 window._scrapedImages = scrapedImages;
                 log("Bomtoon: " + window._scrapedImages.length + " images grabbed!");
+                window.runScraper();
             } catch(e) { log("Error grabbing API data: " + e.message); }
         };
 
@@ -453,49 +263,6 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
-    val NEWTOKI = """
-    (function() {
-        'use strict';
-        $COMMON_SCRIPTS
-
-        window.runScraper = function() {
-            log("Starting Newtoki Scraper...");
-            const images = [];
-            const candidates = new Set();
-            document.querySelectorAll('img').forEach(img => {
-                let src = img.src || img.getAttribute('data-src') || img.getAttribute('data-original');
-                if (src) candidates.add(new URL(src, location.href).href);
-            });
-
-            document.querySelectorAll('div, section, figure').forEach(el => {
-                const bg = getComputedStyle(el).backgroundImage;
-                if (bg && bg.includes('url(')) {
-                    const m = bg.match(/url\(["']?(.+?)["']?\)/);
-                    if (m) candidates.add(new URL(m[1], location.href).href);
-                }
-                // Custom data attributes often used in galleries
-                for (let attr of el.attributes) {
-                    if (attr.name.startsWith('data-') && /\.(jpe?g|png|webp|avif)/i.test(attr.value)) {
-                        candidates.add(new URL(attr.value, location.href).href);
-                    }
-                }
-            });
-
-            const filtered = Array.from(candidates).filter(u => {
-                if (u.includes('logo') || u.includes('avatar') || u.includes('banner')) return false;
-                // Requirement 4: Skip .avif files
-                if (u.toLowerCase().includes(".avif")) return false;
-                return /\.(jpe?g|png|webp|gif|bmp)(?:${"$"}|\?)/i.test(u);
-            });
-            const result = {
-                title: document.title.trim(),
-                images: filtered,
-                cookie: document.cookie
-            };
-            Android.onImagesFound(JSON.stringify(result));
-        };
-    })();
-    """.trimIndent()
 
     val LEZHIN = """
     (function() {
@@ -518,7 +285,7 @@ object ScraperScripts {
                 const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)${"$"}/i);
                 if (tm) {
                     baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
-                    log("Base URL captured!");
+                    log("Base URL captured: " + baseTemplate);
                 }
             }
         }
@@ -578,7 +345,16 @@ object ScraperScripts {
                 return;
             }
 
-            const maxIdx = shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : Math.max(...availableIndexes);
+            const maxIdx = Math.max(
+                shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : 0,
+                availableIndexes.size ? Math.max(...availableIndexes) : 0
+            );
+
+            if (maxIdx === 0) {
+                log("Could not determine max index.");
+                return;
+            }
+
             const images = [];
             for (let i = 1; i <= maxIdx; i++) {
                 let url = baseTemplate ? baseTemplate.replace('__IDX__', String(i)) : null;
@@ -586,10 +362,14 @@ object ScraperScripts {
                 if (url) {
                     if (key) url += "#shuffleKey=" + key;
                     images.push(url);
+                } else if (availableIndexes.has(i)) {
+                    // Fallback to manual finding if baseTemplate failed but we have some URLs
+                     // This is a bit weak but better than nothing
                 }
             }
             window._scrapedImages = images;
-            log("Found " + images.length + " images.");
+            log("Synthesized " + images.length + " images up to index " + maxIdx);
+            window.runScraper();
         };
 
         window.runScraper = async function() {

@@ -20,9 +20,7 @@ from typing import List, Dict, Optional, Tuple
 import SmartStitchCore as ssc
 import bridge
 import naver_downloader
-import xtoon_downloader
 import kakaopage_downloader
-import mangago_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -33,8 +31,6 @@ except ImportError:
 
 USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
-# Suppress SSL warnings for MangaGo
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
 # UTILS & LOCKING
@@ -107,13 +103,10 @@ def unscramble_lezhin_image(path: Path, shuffle_key: str):
 
         def rand_val(max_val):
             nonlocal seed
-            # seed = seed ^ (seed >> 12)
-            seed = seed ^ (seed // 4096)
-            # seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
-            seed = seed ^ ((seed * 33554432) & 18446744073709551615)
-            # seed = seed ^ (seed >> 27)
-            seed = seed ^ (seed // 134217728)
-            return (seed // 4294967296) % max_val
+            seed = seed ^ (seed >> 12)
+            seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
+            seed = seed ^ (seed >> 27)
+            return (seed >> 32) % max_val
 
         for i in range(total):
             r = rand_val(total)
@@ -134,11 +127,11 @@ def unscramble_lezhin_image(path: Path, shuffle_key: str):
             return None
 
         for k, v in enumerate(arr):
-            from_area = get_area(k)
-            to_area = get_area(v)
-            if from_area and to_area:
-                sx, sy, sw, sh = to_area
-                dx, dy, dw, dh = from_area
+            dst_area = get_area(k)
+            src_area = get_area(v)
+            if dst_area and src_area:
+                sx, sy, sw, sh = src_area
+                dx, dy, dw, dh = dst_area
                 tile = img.crop((sx, sy, sx + sw, sy + sh))
                 result.paste(tile, (dx, dy))
 
@@ -168,15 +161,24 @@ def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
         if not scramble_index:
              return
 
+        # metadata might have width, height, defaultHeight
+        m_width = data.get("width")
+        m_height = data.get("height")
+        m_default_height = data.get("defaultHeight")
+
         with Image.open(path) as img_file:
             img = img_file.convert("RGBA")
 
-        width, height = img.size
+        # Use metadata size if available, fallback to image size
+        width = m_width if m_width else img.size[0]
+        height = m_height if m_height else img.size[1]
+        default_height = m_default_height if m_default_height else img.size[1]
+
         result = Image.new("RGBA", (width, height))
 
         cols = 4
         unit_width = width // cols
-        unit_height = height // cols
+        unit_height = default_height // cols
 
         for r, i in enumerate(scramble_index):
              # r is source index, i is destination index
@@ -201,58 +203,6 @@ def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
     except Exception as e:
         print(f"Bomtoon unscramble failed: {e}")
 
-def unscramble_mangago_image(path: Path, desckey: str, cols: int):
-    try:
-        print(f"Unscrambling {path.name} with cols={cols}")
-        # Load the image and close the file quickly to avoid locks
-        with Image.open(path) as img_file:
-            img = img_file.convert("RGBA")
-
-        width, height = img.size
-        result = Image.new("RGBA", (width, height))
-
-        unit_width = width // cols
-        unit_height = height // cols
-
-        if "a" in desckey:
-            key_array = desckey.split("a")
-        else:
-            key_array = desckey.split(",")
-
-        for idx in range(cols * cols):
-            keyval_str = key_array[idx] if idx < len(key_array) else "0"
-            keyval = int(keyval_str) if keyval_str else 0
-
-            # Source coordinates from idx (Scrambled tile position)
-            sx_idx = idx % cols
-            sy_idx = idx // cols
-            sx = sx_idx * unit_width
-            sy = sy_idx * unit_height
-
-            # Destination coordinates from keyval (Correct tile position)
-            dx_idx = keyval % cols
-            dy_idx = keyval // cols
-            dx = dx_idx * unit_width
-            dy = dy_idx * unit_height
-
-            # box is (left, top, right, bottom)
-            src_box = (sx, sy, sx + unit_width, sy + unit_height)
-            tile = img.crop(src_box)
-            result.paste(tile, (dx, dy))
-
-        # Save back to the same path
-        ext = path.suffix.lower()
-        if ext in [".jpg", ".jpeg"]:
-            result.convert("RGB").save(path, "JPEG", quality=100)
-        elif ext == ".png":
-            result.save(path, "PNG")
-        elif ext == ".webp":
-            result.save(path, "WEBP", quality=100)
-        else:
-            result.convert("RGB").save(path, "JPEG", quality=100)
-        print(f"Successfully unscrambled {path.name}")
-    except Exception as e:
-        print(f"Unscramble failed for {path}: {e}")
 
 def download_image(url: str, dest: Path, idx: int, session: requests.Session, cookie: str = None, referer: str = None, source_type: str = None) -> Path:
     """Downloads the image and returns the final local Path (after fix_image_extension)."""
@@ -289,16 +239,6 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
             # Fix extension if needed
             target = Path(ssc.fix_image_extension(target))
 
-            # Requirement 4: Skip file berdimensi 200x280 khusus untuk Myreadingmanga dan Newtoki
-            if source_type in ["newtoki", "myreadingmanga"]:
-                try:
-                    with Image.open(target) as img:
-                        if img.size == (200, 280):
-                            print(f"Skipping 200x280 image: {target.name}")
-                            target.unlink()
-                            return None
-                except Exception as e:
-                    print(f"Error checking dimensions for {target.name}: {e}")
 
             return target
         except Exception as e:
@@ -383,7 +323,7 @@ class BatoQueue:
             json.dump(queue, f, indent=2)
 
     def add_url(self, url: str, source_type: str = "ridi", cookie: str = "") -> Dict:
-        # source_type: "ridi", "naver", "xtoon"
+        # source_type: "ridi", "naver"
 
         with FileLock(self.lock_path):
             queue = self._load()
@@ -434,19 +374,6 @@ class BatoQueue:
                          })
                          added = 1
 
-                elif source_type == "xtoon":
-                    title = xtoon_downloader.get_xtoon_title(url)
-                    if not any(q['url'] == url for q in queue):
-                        queue.append({
-                            "id": str(uuid.uuid4()),
-                            "url": url,
-                            "title": title,
-                            "status": "pending",
-                            "added_at": time.time(),
-                            "type": "xtoon"
-                        })
-                        added = 1
-
                 elif source_type == "kakao":
                     info = kakaopage_downloader.get_chapter_info(url, cookie)
                     title = info.get("title", "KakaoPage Item")
@@ -463,21 +390,6 @@ class BatoQueue:
                         })
                         added = 1
 
-                elif source_type == "mangago":
-                    info = mangago_downloader.get_chapter_info(url, cookie)
-                    title = info.get("title", "MangaGo Item")
-
-                    if not any(q['url'] == url for q in queue):
-                        queue.append({
-                            "id": str(uuid.uuid4()),
-                            "url": url,
-                            "title": title,
-                            "status": "pending",
-                            "added_at": time.time(),
-                            "type": "mangago",
-                            "cookie": cookie
-                        })
-                        added = 1
 
                 if added > 0:
                     self._save(queue)
@@ -605,18 +517,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             images = naver_downloader.get_naver_images(url)
             referer = "https://comic.naver.com/"
 
-        elif source_type == "xtoon":
-            images = xtoon_downloader.get_xtoon_images(url)
-            referer = url
 
-        elif source_type == "mangago":
-            if "pre_scraped_images" in item:
-                images = item["pre_scraped_images"]
-            else:
-                images = mangago_downloader.get_images(url, item.get("cookie"))
-            referer = "https://www.mangago.zone/"
-
-        elif source_type in ["ridi", "bomtoon", "lezhin", "newtoki", "myreadingmanga"]:
+        elif source_type in ["ridi", "bomtoon", "lezhin"]:
             if "pre_scraped_images" in item:
                 images = item["pre_scraped_images"]
             else:
@@ -625,12 +527,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if source_type == "ridi": referer = "https://ridibooks.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
-            elif source_type == "myreadingmanga": referer = "https://myreadingmanga.info/"
-            elif source_type == "newtoki":
-                if url.startswith("direct://"):
-                    referer = "https://newtoki.com/"
-                else:
-                    referer = url
 
         elif source_type == "kakao":
             if "pre_scraped_images" in item:
@@ -664,7 +560,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                     queue_mgr.update_status(item_id, "downloading", i/total)
 
         # 2. UNSCRAMBLING PHASE (Only for sources that need it)
-        needs_unscramble = source_type in ["bomtoon", "mangago", "lezhin"]
+        needs_unscramble = source_type in ["bomtoon", "lezhin"]
         if needs_unscramble:
             queue_mgr.update_status(item_id, "unscrambling", 0.0)
             for i, (img_url, target_path) in enumerate(local_files, 1):
@@ -695,12 +591,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                             k, v = item_unscr.split("=", 1)
                             params_unscr[k] = v
 
-                    if source_type == "mangago":
-                        desckey = params_unscr.get("desckey")
-                        cols = params_unscr.get("cols")
-                        if desckey and cols:
-                            unscramble_mangago_image(target_path, desckey, int(cols))
-                    elif source_type == "bomtoon":
+                    if source_type == "bomtoon":
                         scramble_data = params_unscr.get("scramble")
                         if scramble_data:
                             from urllib.parse import unquote
@@ -723,11 +614,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
         # Verify integrity
         final_files = [f for f in dl_dir.iterdir() if f.is_file()]
-        if source_type not in ["newtoki", "myreadingmanga"]:
-            if len(final_files) < len(images):
-                raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
-        elif len(final_files) == 0:
-            raise Exception("No valid images downloaded (all might have been skipped)")
+        if len(final_files) < len(images):
+            raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
 
         # 3. STITCHING PHASE
         queue_mgr.update_status(item_id, "stitching", 0.0)
@@ -797,7 +685,7 @@ def get_queue(cache_dir: str) -> str:
 def add_to_queue(cache_dir: str, url: str, source_type: str = "ridi", cookie: str = "") -> str:
     return json.dumps(BatoQueue(cache_dir).add_url(url, source_type, cookie))
 
-def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "mangago") -> str:
+def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "ridi") -> str:
     return json.dumps(BatoQueue(cache_dir).add_direct_job(title, list(images), cookie, source_type))
 
 def remove_from_queue(cache_dir: str, item_id: str):
