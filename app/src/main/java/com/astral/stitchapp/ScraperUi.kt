@@ -269,28 +269,34 @@ object ScraperScripts {
         'use strict';
         $COMMON_SCRIPTS
 
-        let baseTemplate = null;
-        const availableIndexes = new Set();
-        const shuffleKeys = new Map();
+        window._lzState = window._lzState || {
+            baseTemplate: null,
+            availableIndexes: new Set(),
+            shuffleKeys: new Map()
+        };
+        const state = window._lzState;
 
         function tryRecordUrl(url) {
             if (!url || typeof url !== 'string') return;
-            const m = url.match(/rcdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(\?.*)?${"$"}/i);
+            const m = url.match(/[a-z0-9]+cdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(?:\?.*)?${"$"}/i);
             if (!m) return;
 
             const idx = parseInt(m[1]);
-            availableIndexes.add(idx);
+            state.availableIndexes.add(idx);
 
-            if (!baseTemplate) {
+            if (!state.baseTemplate) {
                 const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)${"$"}/i);
                 if (tm) {
-                    baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
-                    log("Base URL captured: " + baseTemplate);
+                    state.baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
+                    log("Base URL captured: " + state.baseTemplate);
                 }
             }
         }
 
         function installInterceptors() {
+            if (window._lzInterceptorsInstalled) return;
+            window._lzInterceptorsInstalled = true;
+
             const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
             if (imgSrcDesc && imgSrcDesc.set) {
                 const origSet = imgSrcDesc.set;
@@ -315,7 +321,6 @@ object ScraperScripts {
 
         function extractShuffleKeys() {
             const html = document.documentElement.innerHTML;
-            shuffleKeys.clear();
             const patterns = [
                 /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\${"$"}${"$"}undefined\\"?)/g,
                 /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\${"$"}${"$"}undefined"|null)/g,
@@ -328,26 +333,27 @@ object ScraperScripts {
                     const idxMatch = path.split('/').pop().match(/^(\d+)/);
                     if (!idxMatch) continue;
                     const index = parseInt(idxMatch[1]);
-                    shuffleKeys.set(index, rawKey || null);
+                    state.shuffleKeys.set(index, rawKey || null);
                 }
-                if (shuffleKeys.size > 0) break;
+                if (state.shuffleKeys.size > 0) break;
             }
-            return shuffleKeys.size;
+            log("Lezhin: Extraction found " + state.shuffleKeys.size + " keys.");
+            return state.shuffleKeys.size;
         }
 
         installInterceptors();
 
         window.fetchAll = async function() {
-            log("Lezhin: Scanning for images and keys...");
+            log("Lezhin: Scanning... " + state.shuffleKeys.size + " keys, " + state.availableIndexes.size + " indexes found.");
             const nKeys = extractShuffleKeys();
-            if (nKeys === 0 && availableIndexes.size === 0) {
+            if (nKeys === 0 && state.availableIndexes.size === 0) {
                 log("No data found. Scroll down to trigger lazy loading.");
                 return;
             }
 
             const maxIdx = Math.max(
-                shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : 0,
-                availableIndexes.size ? Math.max(...availableIndexes) : 0
+                state.shuffleKeys.size ? Math.max(...state.shuffleKeys.keys()) : 0,
+                state.availableIndexes.size ? Math.max(...state.availableIndexes) : 0
             );
 
             if (maxIdx === 0) {
@@ -357,14 +363,11 @@ object ScraperScripts {
 
             const images = [];
             for (let i = 1; i <= maxIdx; i++) {
-                let url = baseTemplate ? baseTemplate.replace('__IDX__', String(i)) : null;
-                const key = shuffleKeys.get(i);
+                let url = state.baseTemplate ? state.baseTemplate.replace('__IDX__', String(i)) : null;
+                const key = state.shuffleKeys.get(i);
                 if (url) {
                     if (key) url += "#shuffleKey=" + key;
                     images.push(url);
-                } else if (availableIndexes.has(i)) {
-                    // Fallback to manual finding if baseTemplate failed but we have some URLs
-                     // This is a bit weak but better than nothing
                 }
             }
             window._scrapedImages = images;

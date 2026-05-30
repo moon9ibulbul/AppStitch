@@ -3,7 +3,7 @@ import re
 import json
 from urllib.parse import urlparse
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
 def extract_ids_from_url(url):
     """
@@ -13,7 +13,7 @@ def extract_ids_from_url(url):
     productId = 64400919
     """
     path = urlparse(url).path
-    m = re.search(r'/content/(\d+)/viewer/(\d+)', path)
+    m = re.search(r'/content/(\d+)(?:/viewer)?/(\d+)', path)
     if m:
         return m.group(1), m.group(2)
     return None, None
@@ -44,6 +44,8 @@ def _fetch_data(url, cookie=None):
     }
 
     response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+    if not response.ok:
+        print(f"KakaoPage Error {response.status_code}: {response.text[:500]}")
     response.raise_for_status()
     return response.json()
 
