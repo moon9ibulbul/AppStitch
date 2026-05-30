@@ -544,6 +544,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
         # 1. DOWNLOADING PHASE
         queue_mgr.update_status(item_id, "downloading", 0.0)
         local_files = [] # List of (url, Path)
+        skipped_count = 0
         with requests.Session() as session:
             for i, img_url in enumerate(images, 1):
                 action = queue_mgr.check_action(item_id)
@@ -554,6 +555,18 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
                 target_path = download_image(img_url, dl_dir, i, session=session, cookie=item.get("cookie"), referer=referer, source_type=source_type)
                 if target_path:
+                    # Filter for Naver: skip width < 500
+                    if source_type == "naver":
+                        try:
+                            with Image.open(target_path) as img:
+                                if img.width < 500:
+                                    print(f"Skipping {target_path.name} because width ({img.width}) < 500px")
+                                    target_path.unlink()
+                                    skipped_count += 1
+                                    continue
+                        except Exception as e:
+                            print(f"Error checking image width for {target_path}: {e}")
+
                     local_files.append((img_url, target_path))
 
                 if i % 5 == 0 or i == total:
@@ -614,8 +627,9 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
         # Verify integrity
         final_files = [f for f in dl_dir.iterdir() if f.is_file()]
-        if len(final_files) < len(images):
-            raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
+        expected_count = len(images) - skipped_count
+        if len(final_files) < expected_count:
+            raise Exception(f"Incomplete download: Expected {expected_count}, got {len(final_files)}")
 
         # 3. STITCHING PHASE
         queue_mgr.update_status(item_id, "stitching", 0.0)
