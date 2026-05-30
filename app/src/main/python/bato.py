@@ -107,13 +107,13 @@ def unscramble_lezhin_image(path: Path, shuffle_key: str):
 
         def rand_val(max_val):
             nonlocal seed
-            # seed = seed ^ (seed >> 12)
-            seed = seed ^ (seed // 4096)
-            # seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
-            seed = seed ^ ((seed * 33554432) & 18446744073709551615)
-            # seed = seed ^ (seed >> 27)
-            seed = seed ^ (seed // 134217728)
-            return (seed // 4294967296) % max_val
+            # seed = seed ^ (seed // 4096)
+            seed = seed ^ (seed >> 12)
+            # seed = seed ^ ((seed * 33554432) & 18446744073709551615)
+            seed = seed ^ ((seed << 25) & 0xFFFFFFFFFFFFFFFF)
+            # seed = seed ^ (seed // 134217728)
+            seed = seed ^ (seed >> 27)
+            return (seed >> 32) % max_val
 
         for i in range(total):
             r = rand_val(total)
@@ -134,11 +134,11 @@ def unscramble_lezhin_image(path: Path, shuffle_key: str):
             return None
 
         for k, v in enumerate(arr):
-            from_area = get_area(k)
-            to_area = get_area(v)
-            if from_area and to_area:
-                sx, sy, sw, sh = to_area
-                dx, dy, dw, dh = from_area
+            dst_area = get_area(k)
+            src_area = get_area(v)
+            if dst_area and src_area:
+                sx, sy, sw, sh = src_area
+                dx, dy, dw, dh = dst_area
                 tile = img.crop((sx, sy, sx + sw, sy + sh))
                 result.paste(tile, (dx, dy))
 
@@ -168,15 +168,24 @@ def unscramble_bomtoon_image(path: Path, scramble_data_json: str):
         if not scramble_index:
              return
 
+        # metadata might have width, height, defaultHeight
+        m_width = data.get("width")
+        m_height = data.get("height")
+        m_default_height = data.get("defaultHeight")
+
         with Image.open(path) as img_file:
             img = img_file.convert("RGBA")
 
-        width, height = img.size
+        # Use metadata size if available, fallback to image size
+        width = m_width if m_width else img.size[0]
+        height = m_height if m_height else img.size[1]
+        default_height = m_default_height if m_default_height else img.size[1]
+
         result = Image.new("RGBA", (width, height))
 
         cols = 4
         unit_width = width // cols
-        unit_height = height // cols
+        unit_height = default_height // cols
 
         for r, i in enumerate(scramble_index):
              # r is source index, i is destination index
@@ -223,17 +232,24 @@ def unscramble_mangago_image(path: Path, desckey: str, cols: int):
             keyval_str = key_array[idx] if idx < len(key_array) else "0"
             keyval = int(keyval_str) if keyval_str else 0
 
+            # Reference says:
+            # val keyval = keyArray[idx].ifEmpty { "0" }.toInt()
+            # val heightY = keyval.floorDiv(cols)
+            # val dy = heightY * unitHeight
+            # val dx = (keyval - heightY * cols) * unitWidth
+            # val widthY = idx.floorDiv(cols)
+            # val sy = widthY * unitHeight
+            # val sx = (idx - widthY * cols) * unitWidth
+            # canvas.drawBitmap(bitmap, srcRect, dstRect, null)
+            # This means idx is source, keyval is destination.
+
             # Source coordinates from idx (Scrambled tile position)
-            sx_idx = idx % cols
-            sy_idx = idx // cols
-            sx = sx_idx * unit_width
-            sy = sy_idx * unit_height
+            sy = (idx // cols) * unit_height
+            sx = (idx % cols) * unit_width
 
             # Destination coordinates from keyval (Correct tile position)
-            dx_idx = keyval % cols
-            dy_idx = keyval // cols
-            dx = dx_idx * unit_width
-            dy = dy_idx * unit_height
+            dy = (keyval // cols) * unit_height
+            dx = (keyval % cols) * unit_width
 
             # box is (left, top, right, bottom)
             src_box = (sx, sy, sx + unit_width, sy + unit_height)
@@ -289,16 +305,6 @@ def download_image(url: str, dest: Path, idx: int, session: requests.Session, co
             # Fix extension if needed
             target = Path(ssc.fix_image_extension(target))
 
-            # Requirement 4: Skip file berdimensi 200x280 khusus untuk Myreadingmanga dan Newtoki
-            if source_type in ["newtoki", "myreadingmanga"]:
-                try:
-                    with Image.open(target) as img:
-                        if img.size == (200, 280):
-                            print(f"Skipping 200x280 image: {target.name}")
-                            target.unlink()
-                            return None
-                except Exception as e:
-                    print(f"Error checking dimensions for {target.name}: {e}")
 
             return target
         except Exception as e:
@@ -616,7 +622,7 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
                 images = mangago_downloader.get_images(url, item.get("cookie"))
             referer = "https://www.mangago.zone/"
 
-        elif source_type in ["ridi", "bomtoon", "lezhin", "newtoki", "myreadingmanga"]:
+        elif source_type in ["ridi", "bomtoon", "lezhin"]:
             if "pre_scraped_images" in item:
                 images = item["pre_scraped_images"]
             else:
@@ -625,12 +631,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if source_type == "ridi": referer = "https://ridibooks.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
-            elif source_type == "myreadingmanga": referer = "https://myreadingmanga.info/"
-            elif source_type == "newtoki":
-                if url.startswith("direct://"):
-                    referer = "https://newtoki.com/"
-                else:
-                    referer = url
 
         elif source_type == "kakao":
             if "pre_scraped_images" in item:
@@ -723,11 +723,8 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
 
         # Verify integrity
         final_files = [f for f in dl_dir.iterdir() if f.is_file()]
-        if source_type not in ["newtoki", "myreadingmanga"]:
-            if len(final_files) < len(images):
-                raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
-        elif len(final_files) == 0:
-            raise Exception("No valid images downloaded (all might have been skipped)")
+        if len(final_files) < len(images):
+            raise Exception(f"Incomplete download: Expected {len(images)}, got {len(final_files)}")
 
         # 3. STITCHING PHASE
         queue_mgr.update_status(item_id, "stitching", 0.0)

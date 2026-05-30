@@ -35,7 +35,7 @@ def _fetch_data(url, cookie=None):
         raise ValueError(f"KakaoPage: Could not parse product ID from URL: {url}")
 
     # Use the REST API instead of GraphQL
-    api_url = "https://page.kakao.com/api/gateway/api/v1/viewer/data"
+    api_url = "https://bff-page.kakao.com/api/gateway/api/v1/viewer/data"
     payload = {
         "productId": product_id,
         "seriesId": series_id,

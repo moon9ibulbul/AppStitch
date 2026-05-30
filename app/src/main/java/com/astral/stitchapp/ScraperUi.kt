@@ -422,7 +422,8 @@ object ScraperScripts {
                             url += "#scramble=" + encodeURIComponent(JSON.stringify({
                                 scrambleIndex: scrambleIndex,
                                 width: img.width,
-                                defaultHeight: img.defaultHeight
+                                defaultHeight: img.defaultHeight,
+                                height: img.height
                             }));
                         } catch(e) { log(`Unscramble error on img ${"$"}{i+1}: ` + e.message); }
                     }
@@ -453,49 +454,6 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
-    val NEWTOKI = """
-    (function() {
-        'use strict';
-        $COMMON_SCRIPTS
-
-        window.runScraper = function() {
-            log("Starting Newtoki Scraper...");
-            const images = [];
-            const candidates = new Set();
-            document.querySelectorAll('img').forEach(img => {
-                let src = img.src || img.getAttribute('data-src') || img.getAttribute('data-original');
-                if (src) candidates.add(new URL(src, location.href).href);
-            });
-
-            document.querySelectorAll('div, section, figure').forEach(el => {
-                const bg = getComputedStyle(el).backgroundImage;
-                if (bg && bg.includes('url(')) {
-                    const m = bg.match(/url\(["']?(.+?)["']?\)/);
-                    if (m) candidates.add(new URL(m[1], location.href).href);
-                }
-                // Custom data attributes often used in galleries
-                for (let attr of el.attributes) {
-                    if (attr.name.startsWith('data-') && /\.(jpe?g|png|webp|avif)/i.test(attr.value)) {
-                        candidates.add(new URL(attr.value, location.href).href);
-                    }
-                }
-            });
-
-            const filtered = Array.from(candidates).filter(u => {
-                if (u.includes('logo') || u.includes('avatar') || u.includes('banner')) return false;
-                // Requirement 4: Skip .avif files
-                if (u.toLowerCase().includes(".avif")) return false;
-                return /\.(jpe?g|png|webp|gif|bmp)(?:${"$"}|\?)/i.test(u);
-            });
-            const result = {
-                title: document.title.trim(),
-                images: filtered,
-                cookie: document.cookie
-            };
-            Android.onImagesFound(JSON.stringify(result));
-        };
-    })();
-    """.trimIndent()
 
     val LEZHIN = """
     (function() {
@@ -518,7 +476,7 @@ object ScraperScripts {
                 const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)${"$"}/i);
                 if (tm) {
                     baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
-                    log("Base URL captured!");
+                    log("Base URL captured: " + baseTemplate);
                 }
             }
         }
@@ -578,7 +536,16 @@ object ScraperScripts {
                 return;
             }
 
-            const maxIdx = shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : Math.max(...availableIndexes);
+            const maxIdx = Math.max(
+                shuffleKeys.size ? Math.max(...shuffleKeys.keys()) : 0,
+                availableIndexes.size ? Math.max(...availableIndexes) : 0
+            );
+
+            if (maxIdx === 0) {
+                log("Could not determine max index.");
+                return;
+            }
+
             const images = [];
             for (let i = 1; i <= maxIdx; i++) {
                 let url = baseTemplate ? baseTemplate.replace('__IDX__', String(i)) : null;
@@ -586,10 +553,13 @@ object ScraperScripts {
                 if (url) {
                     if (key) url += "#shuffleKey=" + key;
                     images.push(url);
+                } else if (availableIndexes.has(i)) {
+                    // Fallback to manual finding if baseTemplate failed but we have some URLs
+                     // This is a bit weak but better than nothing
                 }
             }
             window._scrapedImages = images;
-            log("Found " + images.length + " images.");
+            log("Synthesized " + images.length + " images up to index " + maxIdx);
         };
 
         window.runScraper = async function() {
