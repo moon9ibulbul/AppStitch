@@ -4,6 +4,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from html import unescape
+from bs4 import BeautifulSoup
 
 def fetch_html(url, headers=None):
     if headers is None:
@@ -51,31 +52,34 @@ def get_naver_episodes(comic_id):
 
 def get_naver_images(url):
     html = fetch_html(url)
+    if not html:
+        return []
 
-    # Updated regex to be more specific if possible, but Naver structure is simple.
-    # The issue is likely a "thumbnail" or "banner" image being caught.
-    # Naver viewer images usually have "image-comic.pstatic.net/webtoon/..."
-    # and contain specific patterns like the chapter ID in the path.
-    # E.g., /123456/1/20230101...jpg
+    soup = BeautifulSoup(html, 'html.parser')
+    # Naver viewer images are usually inside .wt_viewer or #section_viewer
+    viewer = soup.find(id='section_viewer') or soup.find(class_='wt_viewer')
 
-    pattern = r'(https?://image-comic\.pstatic\.net/webtoon/[^"]+\.(?:jpg|png|jpeg))'
-    images = re.findall(pattern, html)
+    if not viewer:
+        # Fallback to regex if structure changed significantly
+        pattern = r'(https?://image-comic\.pstatic\.net/webtoon/[^"\'\s]+\.(?:jpg|png|jpeg))'
+        images = re.findall(pattern, html)
+    else:
+        img_tags = viewer.find_all('img')
+        images = [img.get('src') for img in img_tags if img.get('src')]
 
     unique = []
     seen = set()
     for img in images:
-        # Filter out likely thumbnails or ads
-        if "title_thumbnail" in img or "banner" in img or "display_ad" in img:
+        # Filter out likely thumbnails, ads, or UI elements
+        if any(x in img for x in ["title_thumbnail", "banner", "display_ad", "agerate"]):
+            continue
+
+        # Ensure it's a valid webtoon image host
+        if "image-comic.pstatic.net" not in img:
             continue
 
         if img not in seen:
             seen.add(img)
             unique.append(img)
-
-    # If the first image is significantly smaller (like a rating icon), we might skip it.
-    # But we can't check size here easily without downloading.
-    # We will rely on pattern filtering.
-    # Often Naver puts a "rating" image or "author" image at the end or beginning.
-    # Viewer images are usually in a sequence.
 
     return unique
