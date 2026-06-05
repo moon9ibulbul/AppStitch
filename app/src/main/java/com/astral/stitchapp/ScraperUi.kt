@@ -307,6 +307,30 @@ object ScraperScripts {
         };
         const state = window._lzState;
 
+        function scanObjectForKeys(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj)) {
+                obj.forEach(scanObjectForKeys);
+                return;
+            }
+            if (obj.path && (obj.cutType === 'contents' || obj.shuffleKey !== undefined)) {
+                const path = String(obj.path);
+                const key = obj.shuffleKey;
+                const idxMatch = path.split('/').pop().match(/^(\d+)/);
+                if (idxMatch) {
+                    const index = parseInt(idxMatch[1]);
+                    if (key !== undefined) {
+                        state.shuffleKeys.set(index, (key === null || key === '${"$"}${"$"}undefined') ? null : String(key));
+                    }
+                }
+            }
+            for (const key in obj) {
+                if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                    scanObjectForKeys(obj[key]);
+                }
+            }
+        }
+
         function tryRecordUrl(url) {
             if (!url || typeof url !== 'string') return;
             const m = url.match(/[a-z0-9]+cdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(?:\?.*)?${"$"}/i);
@@ -337,20 +361,57 @@ object ScraperScripts {
                     configurable: true
                 });
             }
+
             const origFetch = window.fetch;
-            window.fetch = function(input) {
-                try { tryRecordUrl(typeof input === 'string' ? input : input && input.url); } catch {}
-                return origFetch.apply(this, arguments);
+            window.fetch = async function(...args) {
+                const response = await origFetch.apply(this, args);
+                const url = args[0] && typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+                tryRecordUrl(url);
+
+                if (url.includes('/inventory_groups/') || url.includes('/contents/')) {
+                    response.clone().json().then(data => {
+                        log("Lezhin: Captured API response from " + url);
+                        scanObjectForKeys(data);
+                    }).catch(() => {});
+                }
+                return response;
             };
+
             const origOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url) {
-                try { tryRecordUrl(url); } catch {}
+                this._url = url;
+                tryRecordUrl(url);
                 return origOpen.apply(this, arguments);
             };
+            const origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function() {
+                this.addEventListener('load', function() {
+                    if (this._url && (this._url.includes('/inventory_groups/') || this._url.includes('/contents/'))) {
+                        try {
+                            const data = JSON.parse(this.responseText);
+                            log("Lezhin: Captured XHR response from " + this._url);
+                            scanObjectForKeys(data);
+                        } catch(e) {}
+                    }
+                });
+                return origSend.apply(this, arguments);
+            };
+
             document.querySelectorAll('img').forEach(img => tryRecordUrl(img.src || img.currentSrc));
         }
 
         function extractShuffleKeys() {
+            // 1. Try __NEXT_DATA__
+            try {
+                const nextDataEl = document.getElementById("__NEXT_DATA__");
+                if (nextDataEl) {
+                    const nextData = JSON.parse(nextDataEl.innerHTML);
+                    scanObjectForKeys(nextData);
+                    log("Lezhin: Scanned __NEXT_DATA__");
+                }
+            } catch (e) { log("Error scanning __NEXT_DATA__: " + e.message); }
+
+            // 2. Fallback to HTML regex
             const html = document.documentElement.innerHTML;
             const patterns = [
                 /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\${"$"}${"$"}undefined\\"?)/g,
@@ -364,11 +425,12 @@ object ScraperScripts {
                     const idxMatch = path.split('/').pop().match(/^(\d+)/);
                     if (!idxMatch) continue;
                     const index = parseInt(idxMatch[1]);
-                    state.shuffleKeys.set(index, rawKey || null);
+                    if (!state.shuffleKeys.has(index)) {
+                        state.shuffleKeys.set(index, rawKey || null);
+                    }
                 }
-                if (state.shuffleKeys.size > 0) break;
             }
-            log("Lezhin: Extraction found " + state.shuffleKeys.size + " keys.");
+            log("Lezhin: Current shuffleKeys count: " + state.shuffleKeys.size);
             return state.shuffleKeys.size;
         }
 
@@ -376,8 +438,9 @@ object ScraperScripts {
 
         window.fetchAll = async function() {
             log("Lezhin: Scanning... " + state.shuffleKeys.size + " keys, " + state.availableIndexes.size + " indexes found.");
-            const nKeys = extractShuffleKeys();
-            if (nKeys === 0 && state.availableIndexes.size === 0) {
+            extractShuffleKeys();
+
+            if (state.shuffleKeys.size === 0 && state.availableIndexes.size === 0) {
                 log("No data found. Scroll down to trigger lazy loading.");
                 return;
             }
