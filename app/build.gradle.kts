@@ -63,11 +63,18 @@ kotlin {
 chaquopy {
     defaultConfig {
         pip {
-            options("--only-binary=:all:",
-                    "--extra-index-url", "https://chaquo.com/pypi-16.1")
+            // Gunakan repo Chaquopy, tapi biarkan Pillow dibangun dari sumber
+            // dengan opsi WebP yang diperlukan.
+            options("--extra-index-url", "https://chaquo.com/pypi-16.1")
 
-            // Pilih versi yg ada wheelnya di repo Chaquopy (tertinggi: 9.2.0)
-            install("pillow==9.2.0")
+            // Build Pillow dengan encoder/decoder WebP aktif.
+            install(
+                "pillow==9.2.0",
+                "--global-option=build_ext",
+                "--global-option=--enable-webp",
+                "--global-option=--enable-jpeg",
+                "--global-option=--enable-zlib"
+            )
 
             // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
             install("numpy<2")
