@@ -20,7 +20,13 @@ from typing import List, Dict, Optional, Tuple
 import SmartStitchCore as ssc
 import bridge
 import naver_downloader
-import kakaopage_downloader
+
+# Add wbtn to sys.path for its internal imports
+import sys
+_wbtn_path = os.path.join(os.path.dirname(__file__), "wbtn")
+if _wbtn_path not in sys.path:
+    sys.path.append(_wbtn_path)
+from core import scraper as wbtn_scraper
 
 # Import Java helper for WebP conversion
 try:
@@ -374,10 +380,11 @@ class BatoQueue:
                          })
                          added = 1
 
-                elif source_type == "kakao":
-                    info = kakaopage_downloader.get_chapter_info(url, cookie)
-                    title = info.get("title", "KakaoPage Item")
-
+                elif source_type == "webtoons":
+                    # Here url is the episode URL. We assume it's already a single episode URL.
+                    # Title will be updated during processing if not provided,
+                    # but for now we try to get it if possible or use a placeholder.
+                    title = "Webtoons Episode"
                     if not any(q['url'] == url for q in queue):
                         queue.append({
                             "id": str(uuid.uuid4()),
@@ -385,11 +392,9 @@ class BatoQueue:
                             "title": title,
                             "status": "pending",
                             "added_at": time.time(),
-                            "type": "kakao",
-                            "cookie": cookie
+                            "type": "webtoons"
                         })
                         added = 1
-
 
                 if added > 0:
                     self._save(queue)
@@ -517,6 +522,20 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             images = naver_downloader.get_naver_images(url)
             referer = "https://comic.naver.com/"
 
+        elif source_type == "webtoons":
+            images = wbtn_scraper.scrape_chapter_images(url)
+            referer = "https://www.webtoons.com/"
+            # Try to update title more accurately
+            try:
+                lang_from_url_match = re.search(r'webtoons.com/([a-z]{2,3})/', url)
+                lang = lang_from_url_match.group(1) if lang_from_url_match else 'en'
+                manga_title = wbtn_scraper.get_manga_title(url, lang)
+                if manga_title:
+                    # We could scrape episodes to find the title for this URL,
+                    # but for now let's just use manga_title.
+                    # In add_to_queue_webtoons we'll set a better title.
+                    pass
+            except: pass
 
         elif source_type in ["ridi", "bomtoon", "lezhin"]:
             if "pre_scraped_images" in item:
@@ -527,13 +546,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if source_type == "ridi": referer = "https://ridibooks.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
-
-        elif source_type == "kakao":
-            if "pre_scraped_images" in item:
-                images = item["pre_scraped_images"]
-            else:
-                images = kakaopage_downloader.get_images(url, item.get("cookie"))
-            referer = "https://page.kakao.com/"
 
         if len(images) == 0:
             raise Exception("No images found")
@@ -701,6 +713,48 @@ def add_to_queue(cache_dir: str, url: str, source_type: str = "ridi", cookie: st
 
 def add_direct_job(cache_dir: str, title: str, images: List[str], cookie: str = "", source_type: str = "ridi") -> str:
     return json.dumps(BatoQueue(cache_dir).add_direct_job(title, list(images), cookie, source_type))
+
+def add_webtoons_to_queue(cache_dir: str, url: str, chapter_input: str) -> str:
+    bq = BatoQueue(cache_dir)
+    added = 0
+    try:
+        lang_from_url_match = re.search(r'webtoons.com/([a-z]{2,3})/', url)
+        lang = lang_from_url_match.group(1) if lang_from_url_match else 'en'
+
+        episodes = wbtn_scraper.scrape_episodes(url, lang)
+        if not episodes:
+            return json.dumps({"error": "No episodes found"})
+
+        manga_title = wbtn_scraper.get_manga_title(url, lang) or "Webtoons"
+
+        episodes_to_add = []
+        if chapter_input.lower() == 'all':
+            episodes_to_add = episodes
+        elif '-' in chapter_input:
+            start, end = map(int, chapter_input.split('-'))
+            episodes_to_add = [e for e in episodes if start <= e['number'] <= end]
+        else:
+            single = int(chapter_input)
+            episodes_to_add = [e for e in episodes if e['number'] == single]
+
+        with FileLock(bq.lock_path):
+            queue = bq._load()
+            for ep in episodes_to_add:
+                if not any(q['url'] == ep['url'] for q in queue):
+                    queue.append({
+                        "id": str(uuid.uuid4()),
+                        "url": ep['url'],
+                        "title": f"{manga_title} - {ep['title']}",
+                        "status": "pending",
+                        "added_at": time.time(),
+                        "type": "webtoons"
+                    })
+                    added += 1
+            bq._save(queue)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+    return json.dumps({"added": added})
 
 def remove_from_queue(cache_dir: str, item_id: str):
     BatoQueue(cache_dir).remove_item(item_id)

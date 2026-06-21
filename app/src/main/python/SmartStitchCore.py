@@ -29,6 +29,8 @@ def fix_image_extension(filepath):
             new_ext = '.jpg'
         elif header.startswith(b'\x89PNG\r\n\x1a\n'):
             new_ext = '.png'
+        elif header[4:12] == b'ftypavif':
+            new_ext = '.avif'
 
         if new_ext:
             root, current_ext = os.path.splitext(filepath)
@@ -75,7 +77,7 @@ def load_images(foldername):
     if len(files) == 0:
         return images
     for imgFile in files:
-        if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+        if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga', '.avif')):
             if imgFile.lower().endswith('.webp'):
                 print("Processing .webp files...")
             imgPath = os.path.join(folder, imgFile)
@@ -108,7 +110,7 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
     for imgFile in files:
         loop_count += 1
         if img_count < unit_limit and loop_count > offset:
-            if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+            if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga', '.avif')):
                 if imgFile.lower().endswith('.webp'):
                     print("Processing .webp files...")
                 imgPath = os.path.join(folder, imgFile)
