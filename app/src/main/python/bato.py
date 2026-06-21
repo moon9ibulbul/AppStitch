@@ -23,10 +23,16 @@ import naver_downloader
 
 # Add wbtn to sys.path for its internal imports
 import sys
-_wbtn_path = os.path.join(os.path.dirname(__file__), "wbtn")
+from pathlib import Path
+_wbtn_path = str(Path(__file__).parent.absolute() / "wbtn")
 if _wbtn_path not in sys.path:
-    sys.path.append(_wbtn_path)
-from core import scraper as wbtn_scraper
+    sys.path.insert(0, _wbtn_path)
+
+try:
+    from core import scraper as wbtn_scraper
+except ImportError:
+    # Fallback if the above fails for some reason in certain environments
+    from .wbtn.core import scraper as wbtn_scraper
 
 # Import Java helper for WebP conversion
 try:

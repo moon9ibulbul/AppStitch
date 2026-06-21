@@ -210,10 +210,19 @@ class MainActivity : ComponentActivity() {
                                 if (ext == "webp" || ext == "avif") {
                                     val baseName = fileName.substringBeforeLast('.')
                                     val targetFile = File(destDir, "$baseName.bmp")
-                                    val bitmap = BitmapFactory.decodeStream(zis)
+                                    val bitmap = try { BitmapFactory.decodeStream(zis) } catch (e: Exception) { null }
                                     if (bitmap != null) {
                                         saveAsBmp(bitmap, targetFile)
                                         bitmap.recycle()
+                                    } else {
+                                        // Fallback to Python conversion for older Android or complex AVIF
+                                        val tempFile = File(destDir, fileName)
+                                        tempFile.outputStream().use { zis.copyTo(it) }
+                                        val py = Python.getInstance()
+                                        val bridge = py.getModule("bridge")
+                                        if (bridge.callAttr("convert_to_bmp", tempFile.absolutePath, targetFile.absolutePath).toBoolean()) {
+                                            tempFile.delete()
+                                        }
                                     }
                                 } else {
                                     val targetFile = File(destDir, fileName)
@@ -1112,8 +1121,6 @@ fun BatoTab(
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
-    var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
-    var myreadingmangaCookieInput by remember { mutableStateOf(prefs.getString("myreadingmanga_cookie", "") ?: "") }
 
     var autoRetry by remember { mutableStateOf(true) }
     var showScraperDialog by remember { mutableStateOf(false) }
@@ -1635,16 +1642,24 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
             targetFile = java.io.File(base, "${baseName}_${suffix}$index.bmp")
                 index += 1
             }
-            val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                BitmapFactory.decodeStream(ins)
-            }
+            val converted = try {
+                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                    BitmapFactory.decodeStream(ins)
+                }
+            } catch (e: Exception) { null }
+
             if (converted != null) {
                 MainActivity.saveAsBmp(converted, targetFile)
                 converted.recycle()
             } else {
-                 val fallbackFile = java.io.File(base, name)
+                val fallbackFile = java.io.File(base, name)
                 ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
                     fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
+                }
+                val py = Python.getInstance()
+                val bridge = py.getModule("bridge")
+                if (bridge.callAttr("convert_to_bmp", fallbackFile.absolutePath, targetFile.absolutePath).toBoolean()) {
+                    fallbackFile.delete()
                 }
             }
         } else {

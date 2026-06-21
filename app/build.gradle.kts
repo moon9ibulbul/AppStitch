@@ -77,9 +77,6 @@ chaquopy {
             install("requests")
             install("beautifulsoup4")
             install("cloudscraper")
-            install("tqdm")
-            install("rich")
-            install("typer")
         }
     }
 }
