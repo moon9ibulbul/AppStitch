@@ -204,16 +204,25 @@ class MainActivity : ComponentActivity() {
                         if (!entry.isDirectory) {
                             val name = entry.name
                             val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga")
+                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif")
                             if (isImage) {
                                 val fileName = name.substringAfterLast('/')
-                                if (ext == "webp") {
-                                    val baseName = fileName.dropLast(5)
+                                if (ext == "webp" || ext == "avif") {
+                                    val baseName = fileName.substringBeforeLast('.')
                                     val targetFile = File(destDir, "$baseName.bmp")
-                                    val bitmap = BitmapFactory.decodeStream(zis)
+                                    val bitmap = try { BitmapFactory.decodeStream(zis) } catch (e: Exception) { null }
                                     if (bitmap != null) {
                                         saveAsBmp(bitmap, targetFile)
                                         bitmap.recycle()
+                                    } else {
+                                        // Fallback to Python conversion for older Android or complex AVIF
+                                        val tempFile = File(destDir, fileName)
+                                        tempFile.outputStream().use { zis.copyTo(it) }
+                                        val py = Python.getInstance()
+                                        val bridge = py.getModule("bridge")
+                                        if (bridge.callAttr("convert_to_bmp", tempFile.absolutePath, targetFile.absolutePath).toBoolean()) {
+                                            tempFile.delete()
+                                        }
                                     }
                                 } else {
                                     val targetFile = File(destDir, fileName)
@@ -319,7 +328,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.1") },
+                    title = { Text("AstralStitch v1.5.2") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -1110,11 +1119,8 @@ fun BatoTab(
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
-    var kakaoCookieInput by remember { mutableStateOf(prefs.getString("kakao_cookie", "") ?: "") }
     var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
-    var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
-    var myreadingmangaCookieInput by remember { mutableStateOf(prefs.getString("myreadingmanga_cookie", "") ?: "") }
 
     var autoRetry by remember { mutableStateOf(true) }
     var showScraperDialog by remember { mutableStateOf(false) }
@@ -1367,10 +1373,10 @@ fun BatoTab(
                 OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
                     DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("KakaoPage") }, onClick = { selectedSource = "KakaoPage"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Bomtoon") }, onClick = { selectedSource = "Bomtoon"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Lezhin") }, onClick = { selectedSource = "Lezhin"; expandedSource = false })
                     DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
+                    DropdownMenuItem(text = { Text("Webtoons") }, onClick = { selectedSource = "Webtoons"; expandedSource = false })
                 }
             }
         }
@@ -1379,7 +1385,7 @@ fun BatoTab(
             val labelText = when(selectedSource) {
                 "Ridibooks" -> "Url (Book)"
                 "Naver Webtoon" -> "Comic ID"
-                "KakaoPage" -> "Url (Chapter)"
+                "Webtoons" -> "Url (Series)"
                 else -> "Url (Chapter/Series)"
             }
             OutlinedTextField(
@@ -1405,10 +1411,10 @@ fun BatoTab(
                                 val bato = py.getModule("bato")
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
-                                    "KakaoPage" -> "kakao"
                                     "Bomtoon" -> "bomtoon"
                                     "Lezhin" -> "lezhin"
                                     "Naver Webtoon" -> "naver"
+                                    "Webtoons" -> "webtoons"
                                     else -> "ridi"
                                 }
 
@@ -1416,7 +1422,6 @@ fun BatoTab(
                                     "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
                                     "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
-                                    "kakao" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                     else -> null
                                 }
 
@@ -1432,13 +1437,14 @@ fun BatoTab(
 
                                 val cookieToUse = when(type) {
                                     "ridi" -> cookieInput
-                                    "kakao" -> kakaoCookieInput
                                     "bomtoon" -> bomtoonCookieInput
                                     "lezhin" -> lezhinCookieInput
                                     else -> ""
                                 }
 
-                                if (type == "naver" && chapterInput.contains("-")) {
+                                if (type == "webtoons") {
+                                    bato.callAttr("add_webtoons_to_queue", context.cacheDir.absolutePath, urlInput, chapterInput)
+                                } else if (type == "naver" && chapterInput.contains("-")) {
                                     // Range support: 1-10
                                     val parts = chapterInput.split("-")
                                     if (parts.size == 2) {
@@ -1476,18 +1482,18 @@ fun BatoTab(
             }
         }
 
-        if (selectedSource == "Naver Webtoon") {
+        if (selectedSource == "Naver Webtoon" || selectedSource == "Webtoons") {
+             val chapterLabel = if (selectedSource == "Webtoons") "Chapter (No., 1-10, or all)" else "Chapter (No. or 1-10)"
              OutlinedTextField(
                 value = chapterInput,
                 onValueChange = { chapterInput = it }, // Allow dash for range
-                label = { Text("Chapter (No. or 1-10)") },
+                label = { Text(chapterLabel) },
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
         when(selectedSource) {
             "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth())
-            "KakaoPage" -> OutlinedTextField(value = kakaoCookieInput, onValueChange = { kakaoCookieInput = it; prefs.edit().putString("kakao_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth())
             "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth())
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth())
         }
@@ -1501,7 +1507,6 @@ fun BatoTab(
                     showScraperDialog = false
                     val type = when(selectedSource) {
                         "Ridibooks" -> "ridi"
-                        "KakaoPage" -> "kakao"
                         "Bomtoon" -> "bomtoon"
                         "Lezhin" -> "lezhin"
                         else -> ""
@@ -1509,7 +1514,6 @@ fun BatoTab(
                     if (cookie.isNotBlank()) {
                         when(type) {
                             "ridi" -> { cookieInput = cookie; prefs.edit().putString("ridi_cookie", cookie).apply() }
-                            "kakao" -> { kakaoCookieInput = cookie; prefs.edit().putString("kakao_cookie", cookie).apply() }
                             "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
                         }
@@ -1623,30 +1627,39 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
 
         val name = doc.name ?: return
         val isImage = name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf(
-            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga"
+        "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif"
         )
         if (!isImage) return
 
         val lower = name.lowercase(Locale.ROOT)
-        if (lower.endsWith(".webp")) {
-            val baseName = name.dropLast(5)
+    if (lower.endsWith(".webp") || lower.endsWith(".avif")) {
+        val baseName = name.substringBeforeLast('.')
+        val suffix = if (lower.endsWith(".webp")) "webp" else "avif"
             val targetName = "$baseName.bmp"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_webp$index.bmp")
+            targetFile = java.io.File(base, "${baseName}_${suffix}$index.bmp")
                 index += 1
             }
-            val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                BitmapFactory.decodeStream(ins)
-            }
+            val converted = try {
+                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                    BitmapFactory.decodeStream(ins)
+                }
+            } catch (e: Exception) { null }
+
             if (converted != null) {
                 MainActivity.saveAsBmp(converted, targetFile)
                 converted.recycle()
             } else {
-                 val fallbackFile = java.io.File(base, name)
+                val fallbackFile = java.io.File(base, name)
                 ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
                     fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
+                }
+                val py = Python.getInstance()
+                val bridge = py.getModule("bridge")
+                if (bridge.callAttr("convert_to_bmp", fallbackFile.absolutePath, targetFile.absolutePath).toBoolean()) {
+                    fallbackFile.delete()
                 }
             }
         } else {
@@ -1670,6 +1683,7 @@ fun copyToTree(
     fun inferredMime(file: java.io.File): String {
         return when (file.extension.lowercase(Locale.ROOT)) {
             "webp" -> "image/webp"
+            "avif" -> "image/avif"
             "png", "jpg", "jpeg", "bmp", "tiff", "tif", "tga" -> "image/*"
             "zip" -> "application/zip"
             "pdf" -> "application/pdf"

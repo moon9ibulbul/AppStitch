@@ -129,6 +129,16 @@ def run(input_folder,
 
     return resolved_output_folder
 
+def convert_to_bmp(src_path, dest_path):
+    from PIL import Image
+    try:
+        with Image.open(src_path) as img:
+            img.save(dest_path, "BMP")
+        return True
+    except Exception as e:
+        print(f"Error converting {src_path} to BMP in Python: {e}")
+        return False
+
 def pack_archive(source_path, fmt):
     source_path = os.path.abspath(source_path)
     if fmt == "ZIP":
