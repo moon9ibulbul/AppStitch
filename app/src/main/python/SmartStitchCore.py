@@ -14,21 +14,25 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 def fix_image_extension(filepath):
     """
     Checks the magic bytes of the file.
-    If the extension doesn't match the content (specifically WebP/JPG/PNG),
+    If the extension doesn't match the content (specifically WebP/JPG/PNG/AVIF),
     renames the file to the correct extension.
     Returns the new filepath (or original if no change).
     """
     try:
         with open(filepath, 'rb') as f:
-            header = f.read(12)
+            header = f.read(16)
 
         new_ext = None
-        if header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+        if (header.startswith(b'RIFF') and header[8:12] == b'WEBP') or b'Fake jpg' in header:
             new_ext = '.webp'
         elif header.startswith(b'\xFF\xD8\xFF'):
             new_ext = '.jpg'
         elif header.startswith(b'\x89PNG\r\n\x1a\n'):
             new_ext = '.png'
+        elif header[4:12] == b'ftypavif':
+            new_ext = '.avif'
+        elif header.startswith(b'BM'):
+            new_ext = '.bmp'
 
         if new_ext:
             root, current_ext = os.path.splitext(filepath)
@@ -321,6 +325,23 @@ def _open_image_with_webp_fallback(img_path):
     try:
         return pil.open(img_path)
     except UnidentifiedImageError:
+        # Try native Android conversion first if available
+        try:
+            from java import jclass
+            MainActivity = jclass("com.astral.stitchapp.MainActivity")
+            if MainActivity.convertWebpToPng(img_path):
+                png_path = os.path.splitext(img_path)[0] + ".png"
+                if os.path.exists(png_path):
+                    try:
+                        img = pil.open(png_path)
+                        img.load()
+                        return img
+                    finally:
+                        try: os.remove(png_path)
+                        except: pass
+        except Exception as e:
+             print(f"Native conversion failed for {img_path}: {e}")
+
         if img_path.lower().endswith(".webp"):
             converted_path = None
             try:
