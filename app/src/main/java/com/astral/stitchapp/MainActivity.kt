@@ -196,6 +196,24 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
+        fun isWebpOrFakeJpg(context: Context, uri: Uri): Boolean {
+             return try {
+                 context.contentResolver.openInputStream(uri)?.use { ins ->
+                     val header = ByteArray(32)
+                     val read = ins.read(header)
+                     if (read < 12) return false
+                     val headerStr = String(header, 0, read, Charsets.US_ASCII)
+                     val isWebp = (headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
+                     val isFakeJpg = headerStr.contains("Fake jpg")
+                     val isAvif = read >= 12 && headerStr.substring(4, 12) == "ftypavif"
+                     isWebp || isFakeJpg || isAvif
+                 } ?: false
+             } catch (e: Exception) {
+                 false
+             }
+        }
+
+        @JvmStatic
         fun extractFromZip(context: Context, zipUri: Uri, destDir: File) {
             context.contentResolver.openInputStream(zipUri)?.use { ins ->
                 ZipInputStream(ins).use { zis ->
@@ -207,19 +225,40 @@ class MainActivity : ComponentActivity() {
                             val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga")
                             if (isImage) {
                                 val fileName = name.substringAfterLast('/')
-                                if (ext == "webp") {
-                                    val baseName = fileName.dropLast(5)
-                                    val targetFile = File(destDir, "$baseName.bmp")
-                                    val bitmap = BitmapFactory.decodeStream(zis)
-                                    if (bitmap != null) {
+                                // Always try to decode to check if it's a "Fake jpg" or webp content
+                                // Mark the stream to read ahead? ZipInputStream doesn't support mark/reset.
+                                // Instead, we can try to decode, and if it fails or it's not a format we want to convert, handle accordingly.
+                                // For simplicity, we can rely on BitmapFactory's ability to decode mislabeled files.
+
+                                val isWebpExpected = ext == "webp"
+                                // We want to convert ANY webp (real or mislabeled) to BMP here for consistency with copyFromTree
+
+                                val tempFile = File(destDir, "temp_$fileName")
+                                tempFile.outputStream().use { outs -> zis.copyTo(outs) }
+
+                                val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
+                                if (bitmap != null) {
+                                    // Check if it's webp content or if it's just expected to be webp
+                                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                    BitmapFactory.decodeFile(tempFile.absolutePath, options)
+                                    val actualMime = options.outMimeType // e.g. "image/webp"
+
+                                    if (actualMime == "image/webp" || isWebpExpected) {
+                                        val baseName = fileName.substringBeforeLast('.')
+                                        val targetFile = File(destDir, "$baseName.bmp")
                                         saveAsBmp(bitmap, targetFile)
+                                        bitmap.recycle()
+                                        tempFile.delete()
+                                    } else {
+                                        // Keep as original
+                                        val targetFile = File(destDir, fileName)
+                                        tempFile.renameTo(targetFile)
                                         bitmap.recycle()
                                     }
                                 } else {
+                                    // Decode failed, keep as original
                                     val targetFile = File(destDir, fileName)
-                                    targetFile.outputStream().use { outs ->
-                                        zis.copyTo(outs)
-                                    }
+                                    tempFile.renameTo(targetFile)
                                 }
                             }
                         }
@@ -1622,19 +1661,21 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         }
 
         val name = doc.name ?: return
-        val isImage = name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf(
+        val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        val isImage = ext in setOf(
             "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga"
         )
         if (!isImage) return
 
-        val lower = name.lowercase(Locale.ROOT)
-        if (lower.endsWith(".webp")) {
-            val baseName = name.dropLast(5)
+        val isWebpOrFake = MainActivity.isWebpOrFakeJpg(ctx, doc.uri)
+
+        if (isWebpOrFake) {
+            val baseName = name.substringBeforeLast('.')
             val targetName = "$baseName.bmp"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_webp$index.bmp")
+                targetFile = java.io.File(base, "${baseName}_$index.bmp")
                 index += 1
             }
             val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
@@ -1644,9 +1685,10 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
                 MainActivity.saveAsBmp(converted, targetFile)
                 converted.recycle()
             } else {
-                 val fallbackFile = java.io.File(base, name)
+                // If it was supposed to be webp but decode failed, just copy as is
+                val outFile = java.io.File(base, name)
                 ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                    fallbackFile.outputStream().use { outs -> ins.copyTo(outs) }
+                    outFile.outputStream().use { outs -> ins.copyTo(outs) }
                 }
             }
         } else {

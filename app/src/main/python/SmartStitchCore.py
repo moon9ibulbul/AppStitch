@@ -31,6 +31,8 @@ def fix_image_extension(filepath):
             new_ext = '.png'
         elif header[4:12] == b'ftypavif':
             new_ext = '.avif'
+        elif header.startswith(b'BM'):
+            new_ext = '.bmp'
 
         if new_ext:
             root, current_ext = os.path.splitext(filepath)
@@ -323,6 +325,23 @@ def _open_image_with_webp_fallback(img_path):
     try:
         return pil.open(img_path)
     except UnidentifiedImageError:
+        # Try native Android conversion first if available
+        try:
+            from java import jclass
+            MainActivity = jclass("com.astral.stitchapp.MainActivity")
+            if MainActivity.convertWebpToPng(img_path):
+                png_path = os.path.splitext(img_path)[0] + ".png"
+                if os.path.exists(png_path):
+                    try:
+                        img = pil.open(png_path)
+                        img.load()
+                        return img
+                    finally:
+                        try: os.remove(png_path)
+                        except: pass
+        except Exception as e:
+             print(f"Native conversion failed for {img_path}: {e}")
+
         if img_path.lower().endswith(".webp"):
             converted_path = None
             try:
