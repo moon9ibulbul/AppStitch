@@ -14,21 +14,23 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 def fix_image_extension(filepath):
     """
     Checks the magic bytes of the file.
-    If the extension doesn't match the content (specifically WebP/JPG/PNG),
+    If the extension doesn't match the content (specifically WebP/JPG/PNG/AVIF),
     renames the file to the correct extension.
     Returns the new filepath (or original if no change).
     """
     try:
         with open(filepath, 'rb') as f:
-            header = f.read(12)
+            header = f.read(16)
 
         new_ext = None
-        if header.startswith(b'RIFF') and header[8:12] == b'WEBP':
+        if (header.startswith(b'RIFF') and header[8:12] == b'WEBP') or b'Fake jpg' in header:
             new_ext = '.webp'
         elif header.startswith(b'\xFF\xD8\xFF'):
             new_ext = '.jpg'
         elif header.startswith(b'\x89PNG\r\n\x1a\n'):
             new_ext = '.png'
+        elif header[4:12] == b'ftypavif':
+            new_ext = '.avif'
 
         if new_ext:
             root, current_ext = os.path.splitext(filepath)
