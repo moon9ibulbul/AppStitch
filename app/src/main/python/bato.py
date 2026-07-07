@@ -20,7 +20,6 @@ from typing import List, Dict, Optional, Tuple
 import SmartStitchCore as ssc
 import bridge
 import naver_downloader
-import kakaopage_downloader
 
 # Import Java helper for WebP conversion
 try:
@@ -374,22 +373,6 @@ class BatoQueue:
                          })
                          added = 1
 
-                elif source_type == "kakao":
-                    info = kakaopage_downloader.get_chapter_info(url, cookie)
-                    title = info.get("title", "KakaoPage Item")
-
-                    if not any(q['url'] == url for q in queue):
-                        queue.append({
-                            "id": str(uuid.uuid4()),
-                            "url": url,
-                            "title": title,
-                            "status": "pending",
-                            "added_at": time.time(),
-                            "type": "kakao",
-                            "cookie": cookie
-                        })
-                        added = 1
-
 
                 if added > 0:
                     self._save(queue)
@@ -527,13 +510,6 @@ def process_item(item_id: str, cache_dir: str, stitch_params_json: str):
             if source_type == "ridi": referer = "https://ridibooks.com/"
             elif source_type == "bomtoon": referer = "https://www.bomtoon.com/"
             elif source_type == "lezhin": referer = "https://www.lezhin.com/"
-
-        elif source_type == "kakao":
-            if "pre_scraped_images" in item:
-                images = item["pre_scraped_images"]
-            else:
-                images = kakaopage_downloader.get_images(url, item.get("cookie"))
-            referer = "https://page.kakao.com/"
 
         if len(images) == 0:
             raise Exception("No images found")
