@@ -1,10 +1,12 @@
 package com.astral.stitchapp
 
+import android.os.Message
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import androidx.compose.foundation.background
@@ -409,7 +411,9 @@ fun ScraperWebViewDialog(
                             settings.javaScriptCanOpenWindowsAutomatically = true
                             settings.useWideViewPort = true
                             settings.loadWithOverviewMode = true
-                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                             addJavascriptInterface(ScraperJsInterface(
                                 onResult = { t, i, _ ->
@@ -431,6 +435,12 @@ fun ScraperWebViewDialog(
                                 }
                             }
                             webChromeClient = object : WebChromeClient() {
+                                override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
+                                    val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                    transport?.webView = view
+                                    resultMsg?.sendToTarget()
+                                    return true
+                                }
                                 override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                                     Log.d("ScraperJS", consoleMessage?.message() ?: "")
                                     return true
