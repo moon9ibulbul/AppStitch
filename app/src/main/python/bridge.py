@@ -145,7 +145,7 @@ def pack_archive(source_path, fmt):
             os.path.join(source_path, name)
             for name in sorted(os.listdir(source_path))
             if name.lower().endswith((
-                ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga"
+                ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga", ".avif"
             ))
         ]
         if not image_paths:
@@ -159,6 +159,8 @@ def pack_archive(source_path, fmt):
                 try:
                     if path.lower().endswith(".webp"):
                          print("Processing .webp files...")
+                    elif path.lower().endswith(".avif"):
+                         print("Processing .avif files...")
                     image = ssc._open_image_with_webp_fallback(path)
                     converted = image.convert("RGB")
                     images.append(converted)

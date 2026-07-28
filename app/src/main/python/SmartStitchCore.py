@@ -79,9 +79,11 @@ def load_images(foldername):
     if len(files) == 0:
         return images
     for imgFile in files:
-        if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+        if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga', '.avif')):
             if imgFile.lower().endswith('.webp'):
                 print("Processing .webp files...")
+            elif imgFile.lower().endswith('.avif'):
+                print("Processing .avif files...")
             imgPath = os.path.join(folder, imgFile)
             imgPath = fix_image_extension(imgPath)
             try:
@@ -112,9 +114,11 @@ def load_unit_images(foldername, first_image=None, offset=0, unit_limit=20):
     for imgFile in files:
         loop_count += 1
         if img_count < unit_limit and loop_count > offset:
-            if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga')):
+            if imgFile.lower().endswith(('.png', '.webp', '.jpg', '.jpeg', '.jfif', '.bmp', '.tiff', '.tga', '.avif')):
                 if imgFile.lower().endswith('.webp'):
                     print("Processing .webp files...")
+                elif imgFile.lower().endswith('.avif'):
+                    print("Processing .avif files...")
                 imgPath = os.path.join(folder, imgFile)
                 imgPath = fix_image_extension(imgPath)
                 try:
@@ -330,6 +334,16 @@ def _open_image_with_webp_fallback(img_path):
             from java import jclass
             MainActivity = jclass("com.astral.stitchapp.MainActivity")
             if MainActivity.convertWebpToPng(img_path):
+                png_path = os.path.splitext(img_path)[0] + ".png"
+                if os.path.exists(png_path):
+                    try:
+                        img = pil.open(png_path)
+                        img.load()
+                        return img
+                    finally:
+                        try: os.remove(png_path)
+                        except: pass
+            elif MainActivity.convertAvifToPng(img_path):
                 png_path = os.path.splitext(img_path)[0] + ".png"
                 if os.path.exists(png_path):
                     try:
