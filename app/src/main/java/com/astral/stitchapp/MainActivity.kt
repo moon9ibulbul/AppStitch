@@ -272,8 +272,10 @@ class MainActivity : ComponentActivity() {
 
                                     if (actualMime == "image/webp" || actualMime == "image/avif" || isWebpExpected || isAvifExpected) {
                                         val baseName = fileName.substringBeforeLast('.')
-                                        val targetFile = File(destDir, "$baseName.bmp")
-                                        saveAsBmp(bitmap, targetFile)
+                                        val targetFile = File(destDir, "$baseName.png")
+                                        targetFile.outputStream().use { outs ->
+                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                                        }
                                         bitmap.recycle()
                                         tempFile.delete()
                                     } else {
@@ -361,9 +363,11 @@ class MainActivity : ComponentActivity() {
 
                                 page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
 
-                                val fileName = String.format(java.util.Locale.ROOT, "page_%04d.bmp", i + 1)
+                                val fileName = String.format(java.util.Locale.ROOT, "page_%04d.png", i + 1)
                                 val targetFile = File(destDir, fileName)
-                                saveAsBmp(bitmap, targetFile)
+                                targetFile.outputStream().use { outs ->
+                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                                }
                                 bitmap.recycle()
                             }
                         } catch (e: Exception) {
@@ -1829,18 +1833,20 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
 
         if (isWebpOrFake) {
             val baseName = name.substringBeforeLast('.')
-            val targetName = "$baseName.bmp"
+            val targetName = "$baseName.png"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_$index.bmp")
+                targetFile = java.io.File(base, "${baseName}_$index.png")
                 index += 1
             }
             val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
                 BitmapFactory.decodeStream(ins)
             }
             if (converted != null) {
-                MainActivity.saveAsBmp(converted, targetFile)
+                targetFile.outputStream().use { outs ->
+                    converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                }
                 converted.recycle()
             } else {
                 // If it was supposed to be webp but decode failed, just copy as is
