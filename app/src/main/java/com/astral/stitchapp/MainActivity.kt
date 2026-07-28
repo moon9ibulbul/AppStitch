@@ -294,31 +294,71 @@ class MainActivity : ComponentActivity() {
 
         @JvmStatic
         fun extractFromPdf(context: Context, pdfUri: Uri, destDir: File) {
-            context.contentResolver.openFileDescriptor(pdfUri, "r")?.use { pfd ->
-                val renderer = android.graphics.pdf.PdfRenderer(pfd)
-                val pageCount = renderer.pageCount
-                for (i in 0 until pageCount) {
-                    val page = renderer.openPage(i)
-                    try {
-                        val scale = 2f
-                        val width = (page.width * scale).toInt()
-                        val height = (page.height * scale).toInt()
-                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val tempFile = File(context.cacheDir, "temp_render_input.pdf")
+            if (tempFile.exists()) {
+                try { tempFile.delete() } catch (_: Exception) {}
+            }
 
-                        val canvas = android.graphics.Canvas(bitmap)
-                        canvas.drawColor(android.graphics.Color.WHITE)
-
-                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-
-                        val fileName = String.format(java.util.Locale.ROOT, "page_%04d.bmp", i + 1)
-                        val targetFile = File(destDir, fileName)
-                        saveAsBmp(bitmap, targetFile)
-                        bitmap.recycle()
-                    } finally {
-                        try { page.close() } catch(_: Exception) {}
+            try {
+                context.contentResolver.openInputStream(pdfUri)?.use { ins ->
+                    tempFile.outputStream().use { outs ->
+                        ins.copyTo(outs)
                     }
                 }
-                renderer.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                return
+            }
+
+            if (!tempFile.exists() || tempFile.length() == 0L) {
+                return
+            }
+
+            try {
+                android.os.ParcelFileDescriptor.open(tempFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)?.use { pfd ->
+                    val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                    val pageCount = renderer.pageCount
+                    for (i in 0 until pageCount) {
+                        val page = renderer.openPage(i)
+                        try {
+                            var scale = 2f
+                            var width = (page.width * scale).toInt()
+                            var height = (page.height * scale).toInt()
+
+                            var bitmap: Bitmap? = null
+                            try {
+                                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            } catch (oom: OutOfMemoryError) {
+                                System.gc()
+                                scale = 1f
+                                width = page.width
+                                height = page.height
+                                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            }
+
+                            if (bitmap != null) {
+                                val canvas = android.graphics.Canvas(bitmap)
+                                canvas.drawColor(android.graphics.Color.WHITE)
+
+                                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                                val fileName = String.format(java.util.Locale.ROOT, "page_%04d.bmp", i + 1)
+                                val targetFile = File(destDir, fileName)
+                                saveAsBmp(bitmap, targetFile)
+                                bitmap.recycle()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            try { page.close() } catch(_: Exception) {}
+                        }
+                    }
+                    renderer.close()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                try { tempFile.delete() } catch (_: Exception) {}
             }
         }
 
@@ -899,7 +939,11 @@ fun StitchTab(
 
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             inputUri = uri
             val doc = DocumentFile.fromTreeUri(context, uri)
             statusText = "Selected: ${doc?.name ?: "Unknown"}"
@@ -908,7 +952,11 @@ fun StitchTab(
 
     val pickZipInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             inputUri = uri
             val doc = DocumentFile.fromSingleUri(context, uri)
             statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
@@ -917,7 +965,11 @@ fun StitchTab(
 
     val pickPdfInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             inputUri = uri
             val doc = DocumentFile.fromSingleUri(context, uri)
             statusText = "Selected PDF: ${doc?.name ?: "Unknown"}"
@@ -926,7 +978,11 @@ fun StitchTab(
 
     val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             outputUri = uri
         }
     }
