@@ -196,6 +196,28 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
+        fun convertAvifToPng(path: String): Boolean {
+            val file = File(path)
+            if (!file.exists()) return false
+            return try {
+                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                if (bitmap != null) {
+                    val pngFile = File(file.parent, file.nameWithoutExtension + ".png")
+                    pngFile.outputStream().use { outs ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                    }
+                    bitmap.recycle()
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+
+        @JvmStatic
         fun isWebpOrFakeJpg(context: Context, uri: Uri): Boolean {
              return try {
                  context.contentResolver.openInputStream(uri)?.use { ins ->
@@ -222,7 +244,7 @@ class MainActivity : ComponentActivity() {
                         if (!entry.isDirectory) {
                             val name = entry.name
                             val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga")
+                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif")
                             if (isImage) {
                                 val fileName = name.substringAfterLast('/')
                                 // Always try to decode to check if it's a "Fake jpg" or webp content
@@ -231,19 +253,20 @@ class MainActivity : ComponentActivity() {
                                 // For simplicity, we can rely on BitmapFactory's ability to decode mislabeled files.
 
                                 val isWebpExpected = ext == "webp"
-                                // We want to convert ANY webp (real or mislabeled) to BMP here for consistency with copyFromTree
+                                val isAvifExpected = ext == "avif"
+                                // We want to convert ANY webp/avif (real or mislabeled) to BMP here for consistency with copyFromTree
 
                                 val tempFile = File(destDir, "temp_$fileName")
                                 tempFile.outputStream().use { outs -> zis.copyTo(outs) }
 
                                 val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
                                 if (bitmap != null) {
-                                    // Check if it's webp content or if it's just expected to be webp
+                                    // Check if it's webp/avif content or if it's just expected to be webp/avif
                                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                                     BitmapFactory.decodeFile(tempFile.absolutePath, options)
-                                    val actualMime = options.outMimeType // e.g. "image/webp"
+                                    val actualMime = options.outMimeType // e.g. "image/webp" or "image/avif"
 
-                                    if (actualMime == "image/webp" || isWebpExpected) {
+                                    if (actualMime == "image/webp" || actualMime == "image/avif" || isWebpExpected || isAvifExpected) {
                                         val baseName = fileName.substringBeforeLast('.')
                                         val targetFile = File(destDir, "$baseName.bmp")
                                         saveAsBmp(bitmap, targetFile)
@@ -266,6 +289,36 @@ class MainActivity : ComponentActivity() {
                         entry = zis.nextEntry
                     }
                 }
+            }
+        }
+
+        @JvmStatic
+        fun extractFromPdf(context: Context, pdfUri: Uri, destDir: File) {
+            context.contentResolver.openFileDescriptor(pdfUri, "r")?.use { pfd ->
+                val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                val pageCount = renderer.pageCount
+                for (i in 0 until pageCount) {
+                    val page = renderer.openPage(i)
+                    try {
+                        val scale = 2f
+                        val width = (page.width * scale).toInt()
+                        val height = (page.height * scale).toInt()
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+                        val canvas = android.graphics.Canvas(bitmap)
+                        canvas.drawColor(android.graphics.Color.WHITE)
+
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+
+                        val fileName = String.format(java.util.Locale.ROOT, "page_%04d.bmp", i + 1)
+                        val targetFile = File(destDir, fileName)
+                        saveAsBmp(bitmap, targetFile)
+                        bitmap.recycle()
+                    } finally {
+                        try { page.close() } catch(_: Exception) {}
+                    }
+                }
+                renderer.close()
             }
         }
 
@@ -358,7 +411,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.1") },
+                    title = { Text("AstralStitch v1.5.2") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -453,6 +506,7 @@ fun SettingsScreen(
 
     var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
     var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
+    var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
 
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -552,7 +606,23 @@ fun SettingsScreen(
                     Text("Choose Input Zip")
                     Switch(checked = chooseZip, onCheckedChange = {
                         chooseZip = it
+                        if (it) {
+                            choosePdf = false
+                            prefs.edit().putBoolean("choose_pdf", false).apply()
+                        }
                         prefs.edit().putBoolean("choose_zip", it).apply()
+                    })
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Choose Input PDF")
+                    Switch(checked = choosePdf, onCheckedChange = {
+                        choosePdf = it
+                        if (it) {
+                            chooseZip = false
+                            prefs.edit().putBoolean("choose_zip", false).apply()
+                        }
+                        prefs.edit().putBoolean("choose_pdf", it).apply()
                     })
                 }
 
@@ -802,6 +872,7 @@ fun StitchTab(
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
     val chooseZip = prefs.getBoolean("choose_zip", false)
+    val choosePdf = prefs.getBoolean("choose_pdf", false)
 
     // Single item state
     var inputUri by remember { mutableStateOf<Uri?>(null) }
@@ -841,6 +912,15 @@ fun StitchTab(
             inputUri = uri
             val doc = DocumentFile.fromSingleUri(context, uri)
             statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
+        }
+    }
+
+    val pickPdfInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            inputUri = uri
+            val doc = DocumentFile.fromSingleUri(context, uri)
+            statusText = "Selected PDF: ${doc?.name ?: "Unknown"}"
         }
     }
 
@@ -921,6 +1001,10 @@ fun StitchTab(
                 Button(onClick = { pickZipInput.launch(arrayOf("application/zip", "application/x-zip-compressed")) }, enabled = !isProcessing) {
                     Text("Select ZIP")
                 }
+            } else if (choosePdf) {
+                Button(onClick = { pickPdfInput.launch(arrayOf("application/pdf")) }, enabled = !isProcessing) {
+                    Text("Select PDF")
+                }
             } else {
                 Button(onClick = { pickInput.launch(null) }, enabled = !isProcessing) {
                     Text("Select Input Folder")
@@ -986,7 +1070,13 @@ fun StitchTab(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
                 if (inputUri == null) {
-                    val msg = if (chooseZip) "Please select a ZIP file" else "Please select an input folder"
+                    val msg = if (chooseZip) {
+                        "Please select a ZIP file"
+                    } else if (choosePdf) {
+                        "Please select a PDF file"
+                    } else {
+                        "Please select an input folder"
+                    }
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     return@Button
                 }
@@ -997,19 +1087,21 @@ fun StitchTab(
                 scope.launch(Dispatchers.IO) {
                     try {
                         val uri = inputUri!!
-                        val doc = if (chooseZip) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
+                        val doc = if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
                         val name = doc?.name ?: "Unknown"
 
                         val cacheIn = File(context.cacheDir, "stitch_single_in")
                         cacheIn.deleteRecursively(); cacheIn.mkdirs()
                         if (chooseZip) {
                             MainActivity.extractFromZip(context, uri, cacheIn)
+                        } else if (choosePdf) {
+                            MainActivity.extractFromPdf(context, uri, cacheIn)
                         } else {
                             copyFromTree(context, uri, cacheIn)
                         }
 
                         val cacheOutParent = File(context.cacheDir, "stitch_single_out")
-                        val outputName = if (chooseZip) {
+                        val outputName = if (chooseZip || choosePdf) {
                             name.substringBeforeLast(".") + " [Stitched]"
                         } else {
                             "$name [Stitched]"
@@ -1065,7 +1157,7 @@ fun StitchTab(
                         val targetTree = if (outputUri != null) {
                             DocumentFile.fromTreeUri(context, outputUri!!)
                         } else {
-                            if (chooseZip) {
+                            if (chooseZip || choosePdf) {
                                 val parent = doc?.parentFile
                                 if (parent != null && parent.canWrite()) {
                                     parent
@@ -1654,7 +1746,7 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         val name = doc.name ?: return
         val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val isImage = ext in setOf(
-            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga"
+            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif"
         )
         if (!isImage) return
 

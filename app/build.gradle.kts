@@ -15,8 +15,8 @@ android {
         applicationId = "com.astral.stitchapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.5.1"
+        versionCode = 9
+        versionName = "1.5.2"
 
         // Wajib untuk Chaquopy: pilih ABI yang mau dibangun
         ndk {
