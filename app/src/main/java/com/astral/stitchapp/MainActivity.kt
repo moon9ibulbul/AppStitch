@@ -138,38 +138,42 @@ class MainActivity : ComponentActivity() {
             val width = bitmap.width
             val height = bitmap.height
             val headerSize = 54
-            val imageSize = width * height * 4
+            val imageSize = width.toLong() * height.toLong() * 4L
             val fileSize = headerSize + imageSize
 
-            val buffer = java.nio.ByteBuffer.allocate(headerSize)
-            buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val headerBuffer = java.nio.ByteBuffer.allocate(headerSize)
+            headerBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
 
             // BMP Header
-            buffer.put(0x42.toByte()); buffer.put(0x4D.toByte()) // "BM"
-            buffer.putInt(fileSize)
-            buffer.putInt(0) // Reserved
-            buffer.putInt(headerSize) // Offset
+            headerBuffer.put(0x42.toByte()); headerBuffer.put(0x4D.toByte()) // "BM"
+            headerBuffer.putInt(fileSize.toInt())
+            headerBuffer.putInt(0) // Reserved
+            headerBuffer.putInt(headerSize) // Offset
 
             // DIB Header
-            buffer.putInt(40) // Header size
-            buffer.putInt(width)
-            buffer.putInt(-height) // Negative height for top-down
-            buffer.putShort(1.toShort()) // Planes
-            buffer.putShort(32.toShort()) // BitCount
-            buffer.putInt(0) // Compression (BI_RGB)
-            buffer.putInt(imageSize)
-            buffer.putInt(0); buffer.putInt(0)
-            buffer.putInt(0); buffer.putInt(0)
+            headerBuffer.putInt(40) // Header size
+            headerBuffer.putInt(width)
+            headerBuffer.putInt(-height) // Negative height for top-down
+            headerBuffer.putShort(1.toShort()) // Planes
+            headerBuffer.putShort(32.toShort()) // BitCount
+            headerBuffer.putInt(0) // Compression (BI_RGB)
+            headerBuffer.putInt(imageSize.toInt())
+            headerBuffer.putInt(0); headerBuffer.putInt(0)
+            headerBuffer.putInt(0); headerBuffer.putInt(0)
 
-            val intPixels = IntArray(width * height)
-            bitmap.getPixels(intPixels, 0, width, 0, 0, width, height)
-            val pixelBuffer = java.nio.ByteBuffer.allocate(imageSize)
-            pixelBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            pixelBuffer.asIntBuffer().put(intPixels)
+            file.outputStream().buffered(65536).use { out ->
+                out.write(headerBuffer.array())
 
-            file.outputStream().use {
-                it.write(buffer.array())
-                it.write(pixelBuffer.array())
+                val rowPixels = IntArray(width)
+                val rowByteBuffer = java.nio.ByteBuffer.allocate(width * 4)
+                rowByteBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+                for (y in 0 until height) {
+                    bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1)
+                    rowByteBuffer.clear()
+                    rowByteBuffer.asIntBuffer().put(rowPixels)
+                    out.write(rowByteBuffer.array())
+                }
             }
         }
 
@@ -322,6 +326,13 @@ class MainActivity : ComponentActivity() {
                         val page = renderer.openPage(i)
                         try {
                             var scale = 2f
+                            if (page.width >= 1600 || page.height >= 1600) {
+                                scale = 1.5f
+                            }
+                            if (page.width >= 2400 || page.height >= 2400) {
+                                scale = 1f
+                            }
+
                             var width = (page.width * scale).toInt()
                             var height = (page.height * scale).toInt()
 
@@ -333,7 +344,15 @@ class MainActivity : ComponentActivity() {
                                 scale = 1f
                                 width = page.width
                                 height = page.height
-                                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                try {
+                                    bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                } catch (oom2: OutOfMemoryError) {
+                                    System.gc()
+                                    // Extreme fallback: 0.5x scale
+                                    width = (page.width * 0.5f).toInt()
+                                    height = (page.height * 0.5f).toInt()
+                                    bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                }
                             }
 
                             if (bitmap != null) {
