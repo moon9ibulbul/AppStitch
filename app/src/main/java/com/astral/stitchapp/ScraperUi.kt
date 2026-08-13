@@ -213,6 +213,7 @@ object ScraperScripts {
 
         function tryRecordUrl(url) {
             if (!url || typeof url !== 'string') return;
+            if (url.includes('ccdn.lezhin.com') || url.includes('/banners/')) return;
             const m = url.match(/[a-z0-9]+cdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(?:\?.*)?${"$"}/i);
             if (!m) return;
 
