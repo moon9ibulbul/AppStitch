@@ -62,16 +62,22 @@ kotlin {
 
 chaquopy {
     defaultConfig {
+        // Pakai Python 3.11 di host build supaya paket sumber lama tetap kompatibel.
+        buildPython = "python3.11"
+
         pip {
-            options("--only-binary=:all:",
-                    "--extra-index-url", "https://chaquo.com/pypi-16.1")
+            // Gunakan repo Chaquopy dan bangun Pillow dengan WebP/JPEG/zlib.
+            options("--extra-index-url", "https://chaquo.com/pypi-16.1")
+            install(
+                "pillow==9.2.0",
+                "--global-option=build_ext",
+                "--global-option=--enable-webp",
+                "--global-option=--enable-jpeg",
+                "--global-option=--enable-zlib"
+            )
 
-            // Pilih versi yg ada wheelnya di repo Chaquopy (tertinggi: 9.2.0)
-            install("pillow==9.2.0")
-
-            // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
+            // Paket lain mengikuti opsi default repository.
             install("numpy<2")
-
             install("natsort==8.4.0")
             install("opencv-python")
             install("requests")
