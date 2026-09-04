@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("com.chaquo.python")
     kotlin("android")
 }
 
@@ -17,18 +16,11 @@ android {
         targetSdk = 34
         versionCode = 10
         versionName = "1.5.3"
-
-        // Wajib untuk Chaquopy: pilih ABI yang mau dibangun
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-            // Jika perlu dukungan emulator x86, tambahkan:
-            // abiFilters += listOf("x86", "x86_64")
-        }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildTypes {
@@ -57,28 +49,7 @@ android {
 }
 
 kotlin {
-    jvmToolchain(17)
-}
-
-chaquopy {
-    defaultConfig {
-        pip {
-            options("--only-binary=:all:",
-                    "--extra-index-url", "https://chaquo.com/pypi-16.1")
-
-            // Pilih versi yg ada wheelnya di repo Chaquopy (tertinggi: 9.2.0)
-            install("pillow==9.2.0")
-
-            // Numpy: biarkan Chaquopy pilih wheel yg cocok (atau kunci ke <2)
-            install("numpy<2")
-
-            install("natsort==8.4.0")
-            install("opencv-python")
-            install("requests")
-            install("beautifulsoup4")
-            install("cloudscraper")
-        }
-    }
+    jvmToolchain(21)
 }
 
 dependencies {

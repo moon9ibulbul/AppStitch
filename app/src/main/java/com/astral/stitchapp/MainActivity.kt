@@ -50,8 +50,7 @@ import android.webkit.WebViewClient
 import androidx.documentfile.provider.DocumentFile
 import java.util.zip.ZipInputStream
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
+import com.astral.stitchapp.rawloader.BatoEngine
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -380,9 +379,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (resultFile.isDirectory && packaging != PackagingOption.FOLDER) {
-                val py = Python.getInstance()
-                val bridge = py.getModule("bridge")
-                val packedPath = bridge.callAttr("pack_archive", resultFile.absolutePath, packaging.name).toString()
+                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name)
                 resultFile = File(packedPath)
             }
 
@@ -393,9 +390,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!Python.isStarted()) {
-            Python.start(AndroidPlatform(this))
-        }
         setContent {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
             val isDarkTheme = remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
@@ -1390,11 +1384,8 @@ fun BatoTab(
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             while(isActive) {
-                if (!Python.isStarted()) { delay(500); continue }
                 try {
-                    val py = Python.getInstance()
-                    val bato = py.getModule("bato")
-                    val jsonStr = bato.callAttr("get_queue", context.cacheDir.absolutePath).toString()
+                    val jsonStr = BatoEngine.getQueueJson(context.cacheDir)
                     val jsonArr = JSONArray(jsonStr)
                     val list = mutableListOf<QueueItem>()
                     for (i in 0 until jsonArr.length()) {
@@ -1425,7 +1416,7 @@ fun BatoTab(
 
                     val pendingCount = queueItems.count { it.status == "pending" || it.status == "downloading" || it.status == "unscrambling" || it.status == "stitching" || it.status == "initializing" }
                     if (pendingCount == 0 && queueItems.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
+                        withContext(Dispatchers.Main) {
                             isProcessorRunning = false
                             Toast.makeText(context, "All tasks completed!", Toast.LENGTH_SHORT).show()
                             if (prefs.getBoolean("sound_enabled", true)) {
@@ -1436,9 +1427,6 @@ fun BatoTab(
                         break
                     }
                     try {
-                        val py = Python.getInstance()
-                        val bato = py.getModule("bato")
-
                         val params = JSONObject().apply {
                             put("splitHeight", splitHeight)
                             put("outputType", outputType)
@@ -1453,8 +1441,7 @@ fun BatoTab(
                             put("lowRam", lowRam)
                             put("quality", quality)
                         }
-                        val resultStr = bato.callAttr("process_next_item", context.cacheDir.absolutePath, params.toString()).toString()
-                        val result = JSONObject(resultStr)
+                        val result = BatoEngine.processNextItem(context.cacheDir, params.toString())
                         if (result.has("status")) {
                             val status = result.getString("status")
                             if (status == "empty") {
@@ -1475,14 +1462,12 @@ fun BatoTab(
                                         }
                                     }
                                 } else {
-                                    // Default: App Storage (External Files Dir)
-                                    // Usually Android/data/package/files/
                                     val destDir = context.getExternalFilesDir(null)
                                     if (destDir != null && file.exists()) {
                                         val destFile = File(destDir, file.name)
                                         file.copyTo(destFile, overwrite = true)
                                         if (file.isDirectory) {
-                                            file.deleteRecursively() // Cleanup after move
+                                            file.deleteRecursively()
                                         } else {
                                             file.delete()
                                         }
@@ -1492,7 +1477,7 @@ fun BatoTab(
                                 delay(1000)
                             }
                         } else if (result.has("error")) {
-                                delay(1000)
+                            delay(1000)
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -1577,8 +1562,6 @@ fun BatoTab(
                         isAddingToQueue = true
                         scope.launch(Dispatchers.IO) {
                             try {
-                                val py = Python.getInstance()
-                                val bato = py.getModule("bato")
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
                                     "Bomtoon" -> "bomtoon"
@@ -1620,7 +1603,7 @@ fun BatoTab(
                                         if (start != null && end != null && start <= end) {
                                             for (no in start..end) {
                                                 val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
-                                                bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieToUse)
+                                                BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
                                             }
                                         }
                                     }
@@ -1630,7 +1613,7 @@ fun BatoTab(
                                     } else {
                                         urlInput
                                     }
-                                    bato.callAttr("add_to_queue", context.cacheDir.absolutePath, finalUrl, type, cookieToUse)
+                                    BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
                                 }
 
                                 withContext(Dispatchers.Main) {
@@ -1687,9 +1670,7 @@ fun BatoTab(
 
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val py = Python.getInstance()
-                            val bato = py.getModule("bato")
-                            bato.callAttr("add_direct_job", context.cacheDir.absolutePath, title, images.toTypedArray(), cookie, type)
+                            BatoEngine.addDirectJob(context.cacheDir, title, images, cookie, type)
 
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Added ${images.size} images: $title", Toast.LENGTH_SHORT).show()
@@ -1753,7 +1734,7 @@ fun BatoTab(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Queue (${queueItems.size})")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                 Button(onClick = { scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("clear_completed", context.cacheDir.absolutePath) } }) { Text("Clear Done") }
+                 Button(onClick = { scope.launch(Dispatchers.IO) { BatoEngine.clearCompleted(context.cacheDir) } }) { Text("Clear Done") }
             }
         }
         Button(
@@ -1771,9 +1752,9 @@ fun BatoTab(
             items(queueItems) { item ->
                 QueueItemRow(
                     item = item,
-                    onDelete = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("remove_from_queue", context.cacheDir.absolutePath, id) } },
-                    onRetry = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("retry_item", context.cacheDir.absolutePath, id) } },
-                    onPause = { id -> scope.launch(Dispatchers.IO) { Python.getInstance().getModule("bato").callAttr("pause_item", context.cacheDir.absolutePath, id) } }
+                    onDelete = { id -> scope.launch(Dispatchers.IO) { BatoEngine.removeItem(context.cacheDir, id) } },
+                    onRetry = { id -> scope.launch(Dispatchers.IO) { BatoEngine.retryItem(context.cacheDir, id) } },
+                    onPause = { id -> scope.launch(Dispatchers.IO) { BatoEngine.pauseItem(context.cacheDir, id) } }
                 )
             }
         }
