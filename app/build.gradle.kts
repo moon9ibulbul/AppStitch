@@ -15,8 +15,8 @@ android {
         applicationId = "com.astral.stitchapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.5.2"
+        versionCode = 10
+        versionName = "1.5.3"
 
         // Wajib untuk Chaquopy: pilih ABI yang mau dibangun
         ndk {
@@ -93,4 +93,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }
