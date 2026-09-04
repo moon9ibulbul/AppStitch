@@ -1562,8 +1562,6 @@ fun BatoTab(
                         isAddingToQueue = true
                         scope.launch(Dispatchers.IO) {
                             try {
-                                val py = Python.getInstance()
-                                val bato = py.getModule("bato")
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
                                     "Bomtoon" -> "bomtoon"
