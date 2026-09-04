@@ -118,6 +118,7 @@ object SmartStitcher {
         filenameTemplate: String? = null,
         zipOutput: Boolean = false,
         pdfOutput: Boolean = false,
+        pdfPassword: String? = null,
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
@@ -140,6 +141,7 @@ object SmartStitcher {
             filenameTemplate = filenameTemplate,
             zipOutput = zipOutput,
             pdfOutput = pdfOutput,
+            pdfPassword = pdfPassword,
             progressPath = progressPath,
             progressOffset = progressOffset,
             markDone = markDone,
@@ -164,6 +166,7 @@ object SmartStitcher {
         filenameTemplate: String? = null,
         zipOutput: Boolean = false,
         pdfOutput: Boolean = false,
+        pdfPassword: String? = null,
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
@@ -300,19 +303,19 @@ object SmartStitcher {
             return packZip(File(resolvedOutputFolder)).absolutePath
         }
         if (finalPdf) {
-            return packPdf(File(resolvedOutputFolder)).absolutePath
+            return packPdf(File(resolvedOutputFolder), pdfPassword).absolutePath
         }
 
         return resolvedOutputFolder
     }
 
     @JvmStatic
-    fun packArchive(sourcePath: String, fmtName: String): String {
+    fun packArchive(sourcePath: String, fmtName: String, pdfPassword: String? = null): String {
         val file = File(sourcePath)
         if (!file.exists()) return sourcePath
         return when (fmtName.uppercase(Locale.ROOT)) {
             "ZIP" -> packZip(file).absolutePath
-            "PDF" -> packPdf(file).absolutePath
+            "PDF" -> packPdf(file, pdfPassword).absolutePath
             else -> sourcePath
         }
     }
@@ -632,6 +635,18 @@ object SmartStitcher {
         }
 
         deferreds.awaitAll()
+
+        // Set sequential timestamps so files maintain strict order when sorted by date
+        val baseTime = System.currentTimeMillis() - (slices.size * 1000L)
+        slices.indices.forEach { idx ->
+            val imageIndex = startOffset + idx + 1
+            val filename = buildFilename(imageIndex, ext, filenameTemplate, parentName, dateStr, timeStr)
+            val outFile = File(outputFolder, filename)
+            if (outFile.exists()) {
+                outFile.setLastModified(baseTime + (idx * 1000L))
+            }
+        }
+
         slices.forEach { it.recycle() }
         startOffset + slices.size
     }
@@ -719,7 +734,7 @@ object SmartStitcher {
         return zipFile
     }
 
-    private fun packPdf(sourceDir: File): File {
+    private fun packPdf(sourceDir: File, pdfPassword: String? = null): File {
         val pdfFile = File(sourceDir.parentFile, "${sourceDir.name}.pdf")
         if (pdfFile.exists()) pdfFile.delete()
 
@@ -747,6 +762,24 @@ object SmartStitcher {
         } finally {
             document.close()
         }
+
+        if (!pdfPassword.isNullOrBlank()) {
+            try {
+                val pdDoc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(pdfFile)
+                val ap = com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission().apply {
+                    setCanPrint(true)
+                    setCanExtractContent(true)
+                }
+                val spp = com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy(pdfPassword, pdfPassword, ap)
+                spp.encryptionKeyLength = 128
+                pdDoc.protect(spp)
+                pdDoc.save(pdfFile)
+                pdDoc.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         sourceDir.deleteRecursively()
         return pdfFile
     }

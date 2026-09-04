@@ -351,7 +351,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
-        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100): File {
+        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100, pdfPassword: String? = null): File {
             var resultFile = finalFile
             if (outputType == ".webp" && resultFile.isDirectory) {
                 resultFile.listFiles()?.forEach { f ->
@@ -379,7 +379,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (resultFile.isDirectory && packaging != PackagingOption.FOLDER) {
-                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name)
+                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name, pdfPassword)
                 resultFile = File(packedPath)
             }
 
@@ -389,6 +389,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            PDFBoxResourceLoader.init(applicationContext)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         setContent {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
@@ -703,6 +708,7 @@ fun StitchSettingsUI(
     splitMode: Int, onSplitMode: (Int)->Unit,
     lowRam: Boolean, onLowRam: (Boolean)->Unit,
     quality: Int, onQuality: (Int)->Unit,
+    pdfPassword: String = "", onPdfPass: (String)->Unit = {},
     currentTemplate: Template?,
     availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
@@ -819,6 +825,16 @@ fun StitchSettingsUI(
             }
         }
 
+        if (packaging == PackagingOption.PDF) {
+            OutlinedTextField(
+                value = pdfPassword,
+                onValueChange = onPdfPass,
+                label = { Text("PDF Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.weight(1f)) {
@@ -897,8 +913,8 @@ fun StitchTab(
     val chooseZip = prefs.getBoolean("choose_zip", false)
     val choosePdf = prefs.getBoolean("choose_pdf", false)
 
-    // Single item state
-    var inputUri by remember { mutableStateOf<Uri?>(null) }
+    // Input/Output state
+    var inputUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var outputUri by remember { mutableStateOf<Uri?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -917,6 +933,7 @@ fun StitchTab(
     var splitMode by remember { mutableIntStateOf(0) }
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
+    var pdfPassword by remember { mutableStateOf("") }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -927,22 +944,28 @@ fun StitchTab(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            inputUri = uri
+            inputUris = listOf(uri)
             val doc = DocumentFile.fromTreeUri(context, uri)
             statusText = "Selected: ${doc?.name ?: "Unknown"}"
         }
     }
 
-    val pickZipInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (e: Exception) {
-                e.printStackTrace()
+    val pickZipInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
-            inputUri = uri
-            val doc = DocumentFile.fromSingleUri(context, uri)
-            statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
+            inputUris = uris
+            if (uris.size == 1) {
+                val doc = DocumentFile.fromSingleUri(context, uris.first())
+                statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
+            } else {
+                statusText = "Selected ${uris.size} ZIP files"
+            }
         }
     }
 
@@ -953,7 +976,7 @@ fun StitchTab(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            inputUri = uri
+            inputUris = listOf(uri)
             val doc = DocumentFile.fromSingleUri(context, uri)
             statusText = "Selected PDF: ${doc?.name ?: "Unknown"}"
         }
@@ -984,6 +1007,7 @@ fun StitchTab(
             put("splitMode", splitMode)
             put("lowRam", lowRam)
             put("quality", quality)
+            put("pdfPassword", pdfPassword)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -1012,6 +1036,7 @@ fun StitchTab(
             splitMode = s.optInt("splitMode", 0)
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
+            pdfPassword = s.optString("pdfPassword", "")
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -1025,6 +1050,7 @@ fun StitchTab(
             splitMode = 0
             lowRam = false
             quality = 100
+            pdfPassword = ""
         }
     }
 
@@ -1098,6 +1124,7 @@ fun StitchTab(
             splitMode, { splitMode = it },
             lowRam, { lowRam = it },
             quality, { quality = it },
+            pdfPassword, { pdfPassword = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate
@@ -1108,9 +1135,9 @@ fun StitchTab(
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = {
-                if (inputUri == null) {
+                if (inputUris.isEmpty()) {
                     val msg = if (chooseZip) {
-                        "Please select a ZIP file"
+                        "Please select ZIP file(s)"
                     } else if (choosePdf) {
                         "Please select a PDF file"
                     } else {
@@ -1121,125 +1148,133 @@ fun StitchTab(
                 }
                 isProcessing = true
                 progress = 0f
-                statusText = "Processing..."
 
                 scope.launch(Dispatchers.IO) {
                     try {
-                        val uri = inputUri!!
-                        val doc = if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
-                        val name = doc?.name ?: "Unknown"
+                        val totalZipCount = inputUris.size
+                        for ((zipIndex, uri) in inputUris.withIndex()) {
+                            val doc = if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
+                            val name = doc?.name ?: "Input_${zipIndex + 1}"
 
-                        val cacheIn = File(context.cacheDir, "stitch_single_in")
-                        cacheIn.deleteRecursively(); cacheIn.mkdirs()
-                        if (chooseZip) {
-                            MainActivity.extractFromZip(context, uri, cacheIn)
-                        } else if (choosePdf) {
-                            MainActivity.extractFromPdf(context, uri, cacheIn)
-                        } else {
-                            copyFromTree(context, uri, cacheIn)
-                        }
-
-                        val cacheOutParent = File(context.cacheDir, "stitch_single_out")
-                        val outputName = if (chooseZip || choosePdf) {
-                            name.substringBeforeLast(".") + " [Stitched]"
-                        } else {
-                            "$name [Stitched]"
-                        }
-                        cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
-                        val dir = File(cacheOutParent, outputName)
-                        dir.mkdirs()
-
-                        val progressFile = File(context.cacheDir, "prog_single.json")
-
-                        val monitor = launch {
-                            while(isActive) {
-                                if(progressFile.exists()) {
-                                    try {
-                                        val j = JSONObject(progressFile.readText())
-                                        val p = j.optInt("processed", 0)
-                                        val t = j.optInt("total", 1)
-                                        val prog = if(t>0) p.toFloat()/t else 0f
-                                        withContext(Dispatchers.Main) {
-                                            progress = prog
-                                        }
-                                    } catch(_:Exception){}
-                                }
-                                delay(200)
+                            withContext(Dispatchers.Main) {
+                                statusText = if (totalZipCount > 1) "Processing (${zipIndex + 1}/$totalZipCount): $name" else "Processing..."
+                                progress = 0f
                             }
-                        }
 
-                        val finalPathStr = SmartStitcher.runAsync(
-                            inputFolder = cacheIn.absolutePath,
-                            splitHeight = splitHeight.toIntOrNull() ?: 5000,
-                            outputFilesType = outputType,
-                            batchMode = false,
-                            widthEnforceType = widthEnforce,
-                            customWidth = customWidth.toIntOrNull() ?: 720,
-                            sensitivity = sensitivity.toIntOrNull() ?: 90,
-                            ignorablePixels = ignorable.toIntOrNull() ?: 0,
-                            scanLineStep = scanStep.toIntOrNull() ?: 5,
-                            lowRam = lowRam,
-                            unitImages = 20,
-                            outputFolder = dir.absolutePath,
-                            filenameTemplate = customFileName.takeIf { it.isNotBlank() },
-                            zipOutput = packagingOption == PackagingOption.ZIP,
-                            pdfOutput = packagingOption == PackagingOption.PDF,
-                            progressPath = progressFile.absolutePath,
-                            progressOffset = 0,
-                            markDone = true,
-                            splitMode = splitMode,
-                            quality = quality
-                        )
+                            val uniqueTime = "${System.currentTimeMillis()}_$zipIndex"
+                            val cacheIn = File(context.cacheDir, "stitch_in_$uniqueTime")
+                            cacheIn.deleteRecursively(); cacheIn.mkdirs()
 
-                        monitor.cancel()
+                            if (chooseZip) {
+                                MainActivity.extractFromZip(context, uri, cacheIn)
+                            } else if (choosePdf) {
+                                MainActivity.extractFromPdf(context, uri, cacheIn)
+                            } else {
+                                copyFromTree(context, uri, cacheIn)
+                            }
 
-                        val rawFile = File(finalPathStr)
-                        val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
+                            val cacheOutParent = File(context.cacheDir, "stitch_out_$uniqueTime")
+                            val outputName = if (chooseZip || choosePdf) {
+                                name.substringBeforeLast(".") + " [Stitched]"
+                            } else {
+                                "$name [Stitched]"
+                            }
+                            cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
+                            val dir = File(cacheOutParent, outputName)
+                            dir.mkdirs()
 
-                        val targetTree = if (outputUri != null) {
-                            DocumentFile.fromTreeUri(context, outputUri!!)
-                        } else {
-                            if (chooseZip || choosePdf) {
-                                val parent = doc?.parentFile
-                                if (parent != null && parent.canWrite()) {
-                                    parent
+                            val progressFile = File(context.cacheDir, "prog_$uniqueTime.json")
+
+                            val monitor = launch {
+                                while (isActive) {
+                                    if (progressFile.exists()) {
+                                        try {
+                                            val j = JSONObject(progressFile.readText())
+                                            val p = j.optInt("processed", 0)
+                                            val t = j.optInt("total", 1)
+                                            val prog = if (t > 0) p.toFloat() / t else 0f
+                                            withContext(Dispatchers.Main) {
+                                                progress = prog
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    delay(200)
+                                }
+                            }
+
+                            val finalPathStr = SmartStitcher.runAsync(
+                                inputFolder = cacheIn.absolutePath,
+                                splitHeight = splitHeight.toIntOrNull() ?: 5000,
+                                outputFilesType = outputType,
+                                batchMode = false,
+                                widthEnforceType = widthEnforce,
+                                customWidth = customWidth.toIntOrNull() ?: 720,
+                                sensitivity = sensitivity.toIntOrNull() ?: 90,
+                                ignorablePixels = ignorable.toIntOrNull() ?: 0,
+                                scanLineStep = scanStep.toIntOrNull() ?: 5,
+                                lowRam = lowRam,
+                                unitImages = 20,
+                                outputFolder = dir.absolutePath,
+                                filenameTemplate = customFileName.takeIf { it.isNotBlank() },
+                                zipOutput = packagingOption == PackagingOption.ZIP,
+                                pdfOutput = packagingOption == PackagingOption.PDF,
+                                pdfPassword = pdfPassword.takeIf { it.isNotBlank() },
+                                progressPath = progressFile.absolutePath,
+                                progressOffset = 0,
+                                markDone = true,
+                                splitMode = splitMode,
+                                quality = quality
+                            )
+
+                            monitor.cancel()
+
+                            val rawFile = File(finalPathStr)
+                            val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
+
+                            val targetTree = if (outputUri != null) {
+                                DocumentFile.fromTreeUri(context, outputUri!!)
+                            } else {
+                                if (chooseZip || choosePdf) {
+                                    val parent = doc?.parentFile
+                                    if (parent != null && parent.canWrite()) {
+                                        parent
+                                    } else {
+                                        val defOut = prefs.getString("default_output_uri", null)
+                                        if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
+                                    }
                                 } else {
-                                    val defOut = prefs.getString("default_output_uri", null)
-                                    if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
+                                    DocumentFile.fromTreeUri(context, uri)
                                 }
-                            } else {
-                                DocumentFile.fromTreeUri(context, uri)
                             }
-                        }
 
-                        if (targetTree != null && targetTree.canWrite()) {
-                             if (finalFile.isDirectory) {
-                                copyToTree(context, finalFile, targetTree)
-                            } else {
-                                val mime = if(finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                copyToTree(context, finalFile, targetTree, mime)
-                            }
-                        } else {
-                            // Fallback: App Storage
-                            val destDir = context.getExternalFilesDir(null)
-                            if (destDir != null && finalFile.exists()) {
-                                val destFile = File(destDir, finalFile.name)
+                            if (targetTree != null && targetTree.canWrite()) {
                                 if (finalFile.isDirectory) {
-                                    finalFile.copyRecursively(destFile, overwrite = true)
-                                    finalFile.deleteRecursively()
+                                    copyToTree(context, finalFile, targetTree)
                                 } else {
-                                    finalFile.copyTo(destFile, overwrite = true)
-                                    finalFile.delete()
+                                    val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                    copyToTree(context, finalFile, targetTree, mime)
                                 }
-                                withContext(Dispatchers.Main) {
-                                    Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                            } else {
+                                val destDir = context.getExternalFilesDir(null)
+                                if (destDir != null && finalFile.exists()) {
+                                    val destFile = File(destDir, finalFile.name)
+                                    if (finalFile.isDirectory) {
+                                        finalFile.copyRecursively(destFile, overwrite = true)
+                                        finalFile.deleteRecursively()
+                                    } else {
+                                        finalFile.copyTo(destFile, overwrite = true)
+                                        finalFile.delete()
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }
-                        }
 
-                        cacheIn.deleteRecursively()
-                        cacheOutParent.deleteRecursively()
-                        progressFile.delete()
+                            cacheIn.deleteRecursively()
+                            cacheOutParent.deleteRecursively()
+                            progressFile.delete()
+                        }
 
                         withContext(Dispatchers.Main) {
                             isProcessing = false
@@ -1320,6 +1355,7 @@ fun BatoTab(
     var splitMode by remember { mutableIntStateOf(0) }
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
+    var pdfPassword by remember { mutableStateOf("") }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -1440,6 +1476,7 @@ fun BatoTab(
                             put("splitMode", splitMode)
                             put("lowRam", lowRam)
                             put("quality", quality)
+                            put("pdfPassword", pdfPassword)
                         }
                         val result = BatoEngine.processNextItem(context.cacheDir, params.toString())
                         if (result.has("status")) {
@@ -1449,7 +1486,7 @@ fun BatoTab(
                             } else if (status == "success") {
                                 val path = result.getString("path")
                                 val rawFile = File(path)
-                                val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality)
+                                val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
 
                                 if (outputUri != null) {
                                     val targetTree = DocumentFile.fromTreeUri(context, outputUri)
@@ -1726,6 +1763,7 @@ fun BatoTab(
             splitMode, { splitMode = it },
             lowRam, { lowRam = it },
             quality, { quality = it },
+            pdfPassword, { pdfPassword = it },
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate
@@ -1836,7 +1874,11 @@ fun copyToTree(
     fun upload(file: java.io.File, parent: DocumentFile, overrideMime: String? = null) {
         if (file.isDirectory) {
             val dir = parent.findFile(file.name)?.takeIf { it.isDirectory } ?: parent.createDirectory(file.name)!!
-            file.listFiles()?.forEach { child -> upload(child, dir, null) }
+            val children = file.listFiles()?.sortedWith(NaturalOrderComparator()) ?: emptyList()
+            for (child in children) {
+                upload(child, dir, null)
+                try { Thread.sleep(15) } catch (_: Exception) {}
+            }
         } else {
             val mime = overrideMime ?: inferredMime(file)
             val existing = parent.findFile(file.name)?.let { current ->
