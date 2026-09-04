@@ -303,19 +303,19 @@ object SmartStitcher {
             return packZip(File(resolvedOutputFolder)).absolutePath
         }
         if (finalPdf) {
-            return packPdf(File(resolvedOutputFolder), pdfPassword).absolutePath
+            return packPdf(File(resolvedOutputFolder), pdfPassword, quality).absolutePath
         }
 
         return resolvedOutputFolder
     }
 
     @JvmStatic
-    fun packArchive(sourcePath: String, fmtName: String, pdfPassword: String? = null): String {
+    fun packArchive(sourcePath: String, fmtName: String, pdfPassword: String? = null, quality: Int = 100): String {
         val file = File(sourcePath)
         if (!file.exists()) return sourcePath
         return when (fmtName.uppercase(Locale.ROOT)) {
             "ZIP" -> packZip(file).absolutePath
-            "PDF" -> packPdf(file, pdfPassword).absolutePath
+            "PDF" -> packPdf(file, pdfPassword, quality).absolutePath
             else -> sourcePath
         }
     }
@@ -734,7 +734,7 @@ object SmartStitcher {
         return zipFile
     }
 
-    private fun packPdf(sourceDir: File, pdfPassword: String? = null): File {
+    private fun packPdf(sourceDir: File, pdfPassword: String? = null, quality: Int = 100): File {
         val pdfFile = File(sourceDir.parentFile, "${sourceDir.name}.pdf")
         if (pdfFile.exists()) pdfFile.delete()
 
@@ -745,27 +745,45 @@ object SmartStitcher {
 
         if (files.isEmpty()) return sourceDir
 
-        val document = android.graphics.pdf.PdfDocument()
+        val pdDoc = com.tom_roush.pdfbox.pdmodel.PDDocument()
         try {
-            for ((idx, imgFile) in files.withIndex()) {
-                val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
-                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, idx + 1).create()
-                val page = document.startPage(pageInfo)
-                val canvas = page.canvas
-                canvas.drawBitmap(bitmap, 0f, 0f, null)
-                document.finishPage(page)
-                bitmap.recycle()
-            }
-            FileOutputStream(pdfFile).buffered().use { out ->
-                document.writeTo(out)
-            }
-        } finally {
-            document.close()
-        }
+            for (imgFile in files) {
+                val ext = imgFile.extension.lowercase(Locale.ROOT)
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(imgFile.absolutePath, options)
+                val width = options.outWidth
+                val height = options.outHeight
+                if (width <= 0 || height <= 0) continue
 
-        if (!pdfPassword.isNullOrBlank()) {
-            try {
-                val pdDoc = com.tom_roush.pdfbox.pdmodel.PDDocument.load(pdfFile)
+                val page = com.tom_roush.pdfbox.pdmodel.PDPage(
+                    com.tom_roush.pdfbox.pdmodel.common.PDRectangle(width.toFloat(), height.toFloat())
+                )
+                pdDoc.addPage(page)
+
+                val pdImage = if (ext == "jpg" || ext == "jpeg" || ext == "jfif") {
+                    imgFile.inputStream().use { ins ->
+                        com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(pdDoc, ins)
+                    }
+                } else {
+                    val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
+                    try {
+                        val baos = ByteArrayOutputStream()
+                        val compQuality = if (quality in 1..100) quality else 90
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, compQuality, baos)
+                        ByteArrayInputStream(baos.toByteArray()).use { ins ->
+                            com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(pdDoc, ins)
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+
+                com.tom_roush.pdfbox.pdmodel.PDPageContentStream(pdDoc, page).use { contentStream ->
+                    contentStream.drawImage(pdImage, 0f, 0f, width.toFloat(), height.toFloat())
+                }
+            }
+
+            if (!pdfPassword.isNullOrBlank()) {
                 val ap = com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission().apply {
                     setCanPrint(true)
                     setCanExtractContent(true)
@@ -773,11 +791,11 @@ object SmartStitcher {
                 val spp = com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy(pdfPassword, pdfPassword, ap)
                 spp.encryptionKeyLength = 128
                 pdDoc.protect(spp)
-                pdDoc.save(pdfFile)
-                pdDoc.close()
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
+
+            pdDoc.save(pdfFile)
+        } finally {
+            pdDoc.close()
         }
 
         sourceDir.deleteRecursively()

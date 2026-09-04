@@ -379,7 +379,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (resultFile.isDirectory && packaging != PackagingOption.FOLDER) {
-                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name, pdfPassword)
+                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name, pdfPassword, quality)
                 resultFile = File(packedPath)
             }
 
