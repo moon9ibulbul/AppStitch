@@ -519,10 +519,18 @@ object SmartStitcher {
         val rowBuffer = IntArray(maxWidth)
 
         while (splitOffset + splitHeight < maxHeight) {
-            val newSplitHeight = if (splitMode == 1) {
-                splitHeight
-            } else {
-                adjustSplitLocation(
+            val newSplitHeight = when (splitMode) {
+                1 -> splitHeight
+                2 -> adjustSplitLocation2D(
+                    combinedBitmap = combinedBitmap,
+                    splitHeight = splitHeight,
+                    splitOffset = splitOffset,
+                    sensitivity = sensitivity,
+                    ignorablePixels = ignorablePixels,
+                    scanStep = scanStep,
+                    rowBuffer = rowBuffer
+                )
+                else -> adjustSplitLocation(
                     combinedBitmap = combinedBitmap,
                     splitHeight = splitHeight,
                     splitOffset = splitOffset,
@@ -546,6 +554,140 @@ object SmartStitcher {
 
         combinedBitmap.recycle()
         return result
+    }
+
+    private fun adjustSplitLocation2D(
+        combinedBitmap: Bitmap,
+        splitHeight: Int,
+        splitOffset: Int,
+        sensitivity: Int,
+        ignorablePixels: Int,
+        scanStep: Int,
+        rowBuffer: IntArray
+    ): Int {
+        val threshold = (255 * (1.0 - (sensitivity / 100.0))).toInt().coerceAtLeast(5)
+        val maxHeight = combinedBitmap.height
+        val maxWidth = combinedBitmap.width
+        val window = 12
+        val winHeight = window * 2 + 1
+        val winBuffer = IntArray(winHeight * maxWidth)
+
+        var bestHeight = splitHeight
+        var minPenalty = Double.MAX_VALUE
+
+        val minH = (0.4 * splitHeight).toInt().coerceAtLeast(1)
+        val maxH = (1.3 * splitHeight).toInt().coerceAtMost(maxHeight - splitOffset - 1)
+
+        val candidateHeights = mutableListOf<Int>()
+        var h = splitHeight
+        while (h >= minH) {
+            candidateHeights.add(h)
+            h -= scanStep
+        }
+        h = splitHeight + scanStep
+        while (h <= maxH) {
+            candidateHeights.add(h)
+            h += scanStep
+        }
+
+        for (candH in candidateHeights) {
+            val splitRow = splitOffset + candH
+            if (splitRow < window || splitRow >= maxHeight - window) continue
+
+            val penalty = evaluateRow2DPenalty(
+                combinedBitmap = combinedBitmap,
+                splitRow = splitRow,
+                window = window,
+                threshold = threshold,
+                ignorablePixels = ignorablePixels,
+                winBuffer = winBuffer,
+                maxWidth = maxWidth
+            )
+
+            if (penalty == 0.0) {
+                return candH
+            }
+
+            if (penalty < minPenalty) {
+                minPenalty = penalty
+                bestHeight = candH
+            }
+        }
+
+        if (minPenalty < threshold * 10.0) {
+            return bestHeight
+        }
+
+        return adjustSplitLocation(
+            combinedBitmap = combinedBitmap,
+            splitHeight = splitHeight,
+            splitOffset = splitOffset,
+            sensitivity = sensitivity,
+            ignorablePixels = ignorablePixels,
+            scanStep = scanStep,
+            rowBuffer = rowBuffer
+        )
+    }
+
+    private fun evaluateRow2DPenalty(
+        combinedBitmap: Bitmap,
+        splitRow: Int,
+        window: Int,
+        threshold: Int,
+        ignorablePixels: Int,
+        winBuffer: IntArray,
+        maxWidth: Int
+    ): Double {
+        val winHeight = window * 2 + 1
+        val startY = splitRow - window
+        combinedBitmap.getPixels(winBuffer, 0, maxWidth, 0, startY, maxWidth, winHeight)
+
+        val startX = ignorablePixels.coerceIn(0, maxWidth - 1)
+        val endX = (maxWidth - ignorablePixels - 1).coerceIn(startX, maxWidth - 1)
+        if (startX >= endX) return 0.0
+
+        val centerRowOffset = window * maxWidth
+        var totalPenalty = 0.0
+
+        var prevLum = getLuminance(winBuffer[centerRowOffset + startX])
+        for (x in (startX + 1)..endX) {
+            val curLum = getLuminance(winBuffer[centerRowOffset + x])
+            val diff = Math.abs(curLum - prevLum)
+            if (diff > threshold) {
+                totalPenalty += (diff - threshold) * 10.0
+            }
+            prevLum = curLum
+        }
+
+        val xStep = if (maxWidth > 1000) 3 else 2
+        for (x in startX..endX step xStep) {
+            var prevVertLum = getLuminance(winBuffer[x])
+            for (r in 1 until winHeight) {
+                val curVertLum = getLuminance(winBuffer[r * maxWidth + x])
+                val vDiff = Math.abs(curVertLum - prevVertLum)
+                if (vDiff > threshold) {
+                    totalPenalty += (vDiff - threshold) * 5.0
+                }
+                prevVertLum = curVertLum
+            }
+        }
+
+        val leftGutterLum = getLuminance(winBuffer[centerRowOffset + startX])
+        val rightGutterLum = getLuminance(winBuffer[centerRowOffset + endX])
+        val midX = (startX + endX) / 2
+        val midLum = getLuminance(winBuffer[centerRowOffset + midX])
+
+        val gutterDiff = Math.abs(leftGutterLum - rightGutterLum)
+        val centerGutterDiff = Math.abs(midLum - leftGutterLum)
+
+        if (gutterDiff > threshold) {
+            totalPenalty += (gutterDiff - threshold) * 3.0
+        }
+        if (centerGutterDiff > threshold) {
+            totalPenalty += (centerGutterDiff - threshold) * 3.0
+        }
+
+        return totalPenalty
     }
 
     private fun adjustSplitLocation(
