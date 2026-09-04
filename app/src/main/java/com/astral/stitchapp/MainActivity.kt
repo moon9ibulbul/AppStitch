@@ -225,7 +225,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
-        fun isWebpOrFakeJpg(context: Context, uri: Uri): Boolean {
+        fun isFakeJpg(context: Context, uri: Uri): Boolean {
              return try {
                  context.contentResolver.openInputStream(uri)?.use { ins ->
                      val header = ByteArray(32)
@@ -235,11 +235,16 @@ class MainActivity : ComponentActivity() {
                      val isWebp = (headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
                      val isFakeJpg = headerStr.contains("Fake jpg")
                      val isAvif = read >= 12 && headerStr.substring(4, 12) == "ftypavif"
-                     isWebp || isFakeJpg || isAvif
+                     isFakeJpg || isWebp || isAvif
                  } ?: false
              } catch (e: Exception) {
                  false
              }
+        }
+
+        @JvmStatic
+        fun isWebpOrFakeJpg(context: Context, uri: Uri): Boolean {
+             return isFakeJpg(context, uri)
         }
 
         @JvmStatic
@@ -251,44 +256,37 @@ class MainActivity : ComponentActivity() {
                         if (!entry.isDirectory) {
                             val name = entry.name
                             val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                            val isImage = ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif")
+                            val isImage = ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
                             if (isImage) {
                                 val fileName = name.substringAfterLast('/')
-                                // Always try to decode to check if it's a "Fake jpg" or webp content
-                                // Mark the stream to read ahead? ZipInputStream doesn't support mark/reset.
-                                // Instead, we can try to decode, and if it fails or it's not a format we want to convert, handle accordingly.
-                                // For simplicity, we can rely on BitmapFactory's ability to decode mislabeled files.
-
-                                val isWebpExpected = ext == "webp"
-                                val isAvifExpected = ext == "avif"
-                                // We want to convert ANY webp/avif (real or mislabeled) to BMP here for consistency with copyFromTree
+                                val baseName = fileName.substringBeforeLast('.')
+                                val isJpg = ext in setOf("jpg", "jpeg", "jfif")
 
                                 val tempFile = File(destDir, "temp_$fileName")
                                 tempFile.outputStream().use { outs -> zis.copyTo(outs) }
 
-                                val bitmap = BitmapFactory.decodeFile(tempFile.absolutePath)
-                                if (bitmap != null) {
-                                    // Check if it's webp/avif content or if it's just expected to be webp/avif
+                                if (isJpg) {
+                                    val header = ByteArray(32)
+                                    val read = try {
+                                        tempFile.inputStream().use { it.read(header) }
+                                    } catch (_: Exception) { 0 }
+                                    val headerStr = if (read >= 12) String(header, 0, read, Charsets.US_ASCII) else ""
+                                    val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
+                                    val isFakeJpg = headerStr.contains("Fake jpg")
+                                    val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
+
                                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                                     BitmapFactory.decodeFile(tempFile.absolutePath, options)
-                                    val actualMime = options.outMimeType // e.g. "image/webp" or "image/avif"
+                                    val actualMime = options.outMimeType
 
-                                    if (actualMime == "image/webp" || actualMime == "image/avif" || isWebpExpected || isAvifExpected) {
-                                        val baseName = fileName.substringBeforeLast('.')
-                                        val targetFile = File(destDir, "$baseName.png")
-                                        targetFile.outputStream().use { outs ->
-                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                                        }
-                                        bitmap.recycle()
-                                        tempFile.delete()
+                                    if (isFakeJpg || isWebp || isAvif || actualMime == "image/webp" || actualMime == "image/avif") {
+                                        val targetFile = File(destDir, "$baseName.webp")
+                                        tempFile.renameTo(targetFile)
                                     } else {
-                                        // Keep as original
                                         val targetFile = File(destDir, fileName)
                                         tempFile.renameTo(targetFile)
-                                        bitmap.recycle()
                                     }
                                 } else {
-                                    // Decode failed, keep as original
                                     val targetFile = File(destDir, fileName)
                                     tempFile.renameTo(targetFile)
                                 }
@@ -439,7 +437,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.3") },
+                    title = { Text("AstralStitch v1.5.4") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -936,7 +934,7 @@ fun StitchTab(
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
-    var splitMode by remember { mutableIntStateOf(0) }
+    var splitMode by remember { mutableIntStateOf(2) }
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
     var pdfPassword by remember { mutableStateOf("") }
@@ -1039,7 +1037,7 @@ fun StitchTab(
             ignorable = s.optString("ignorable", "0")
             scanStep = s.optString("scanStep", "5")
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
-            splitMode = s.optInt("splitMode", 0)
+            splitMode = s.optInt("splitMode", 2)
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
             pdfPassword = s.optString("pdfPassword", "")
@@ -1053,7 +1051,7 @@ fun StitchTab(
             ignorable = "0"
             scanStep = "5"
             packagingOption = PackagingOption.FOLDER
-            splitMode = 0
+            splitMode = 2
             lowRam = false
             quality = 100
             pdfPassword = ""
@@ -1358,7 +1356,7 @@ fun BatoTab(
     var ignorable by remember { mutableStateOf("0") }
     var scanStep by remember { mutableStateOf("5") }
     var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
-    var splitMode by remember { mutableIntStateOf(0) }
+    var splitMode by remember { mutableIntStateOf(2) }
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
     var pdfPassword by remember { mutableStateOf("") }
@@ -1404,7 +1402,7 @@ fun BatoTab(
             ignorable = s.optString("ignorable", "0")
             scanStep = s.optString("scanStep", "5")
             packagingOption = try { PackagingOption.valueOf(s.optString("packaging", "FOLDER")) } catch(e:Exception) { PackagingOption.FOLDER }
-            splitMode = s.optInt("splitMode", 0)
+            splitMode = s.optInt("splitMode", 2)
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
         } else {
@@ -1417,7 +1415,7 @@ fun BatoTab(
             ignorable = "0"
             scanStep = "5"
             packagingOption = PackagingOption.FOLDER
-            splitMode = 0
+            splitMode = 2
             lowRam = false
             quality = 100
         }
@@ -1823,31 +1821,19 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         )
         if (!isImage) return
 
-        val isWebpOrFake = MainActivity.isWebpOrFakeJpg(ctx, doc.uri)
+        val isJpg = ext in setOf("jpg", "jpeg", "jfif")
+        val baseName = name.substringBeforeLast('.')
 
-        if (isWebpOrFake) {
-            val baseName = name.substringBeforeLast('.')
-            val targetName = "$baseName.png"
+        if (isJpg && MainActivity.isFakeJpg(ctx, doc.uri)) {
+            val targetName = "$baseName.webp"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_$index.png")
+                targetFile = java.io.File(base, "${baseName}_$index.webp")
                 index += 1
             }
-            val converted = ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                BitmapFactory.decodeStream(ins)
-            }
-            if (converted != null) {
-                targetFile.outputStream().use { outs ->
-                    converted.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                }
-                converted.recycle()
-            } else {
-                // If it was supposed to be webp but decode failed, just copy as is
-                val outFile = java.io.File(base, name)
-                ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
-                    outFile.outputStream().use { outs -> ins.copyTo(outs) }
-                }
+            ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
+                targetFile.outputStream().use { outs -> ins.copyTo(outs) }
             }
         } else {
             val outFile = java.io.File(base, name)
