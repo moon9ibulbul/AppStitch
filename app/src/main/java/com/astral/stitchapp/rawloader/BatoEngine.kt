@@ -353,15 +353,12 @@ object BatoEngine {
         val isFakeJpg = headerStr.contains("Fake jpg")
         val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
 
-        if (isWebp || isFakeJpg || isAvif) {
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            if (bitmap != null) {
-                val newFile = File(file.parentFile, file.nameWithoutExtension + ".png")
-                newFile.outputStream().use { outs ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                }
-                bitmap.recycle()
-                file.delete()
+        val ext = file.extension.lowercase(Locale.ROOT)
+        val isJpgExt = ext in setOf("jpg", "jpeg", "jfif")
+
+        if (isJpgExt && (isFakeJpg || isWebp || isAvif)) {
+            val newFile = File(file.parentFile, file.nameWithoutExtension + ".webp")
+            if (file.renameTo(newFile)) {
                 return newFile
             }
         }
@@ -641,7 +638,7 @@ object BatoEngine {
                 pdfOutput = params.optString("packaging") == "PDF",
                 pdfPassword = params.optString("pdfPassword", "").takeIf { it.isNotBlank() },
                 markDone = false,
-                splitMode = params.optInt("splitMode", 0),
+                splitMode = params.optInt("splitMode", 2),
                 quality = params.optInt("quality", 100)
             )
 

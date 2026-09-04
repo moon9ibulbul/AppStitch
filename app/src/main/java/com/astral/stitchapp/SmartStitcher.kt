@@ -122,7 +122,7 @@ object SmartStitcher {
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
-        splitMode: Int = 0,
+        splitMode: Int = 2,
         quality: Int = 100
     ): String = runBlocking {
         runAsync(
@@ -170,7 +170,7 @@ object SmartStitcher {
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
-        splitMode: Int = 0,
+        splitMode: Int = 2,
         quality: Int = 100
     ): String {
         var finalOutType = outputFilesType
