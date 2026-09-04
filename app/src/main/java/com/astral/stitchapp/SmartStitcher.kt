@@ -306,6 +306,17 @@ object SmartStitcher {
         return resolvedOutputFolder
     }
 
+    @JvmStatic
+    fun packArchive(sourcePath: String, fmtName: String): String {
+        val file = File(sourcePath)
+        if (!file.exists()) return sourcePath
+        return when (fmtName.uppercase(Locale.ROOT)) {
+            "ZIP" -> packZip(file).absolutePath
+            "PDF" -> packPdf(file).absolutePath
+            else -> sourcePath
+        }
+    }
+
     private fun helperProcess(
         images: List<Bitmap>,
         widthEnforceType: Int,
