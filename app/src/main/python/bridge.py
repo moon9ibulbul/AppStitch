@@ -1,4 +1,11 @@
 import os, json, shutil
+
+try:
+    from java import jclass
+    SmartStitcher = jclass("com.astral.stitchapp.SmartStitcher")
+except ImportError:
+    SmartStitcher = None
+
 import SmartStitchCore as ssc
 import main as stitch
 
@@ -6,7 +13,6 @@ class ProgressWriter:
     def __init__(self, path, offset=0):
         self.path = path
         self.processed = offset
-        # Keep the denominator non-zero so the UI has something to read immediately
         self.total = max(offset + 1, 1)
         self._write()
 
@@ -79,6 +85,30 @@ def run(input_folder,
         split_mode=0,
         quality=100):
 
+    if SmartStitcher is not None:
+        return str(SmartStitcher.run(
+            input_folder,
+            int(split_height),
+            str(output_files_type),
+            bool(batch_mode),
+            int(width_enforce_type),
+            int(custom_width),
+            int(senstivity),
+            int(ignorable_pixels),
+            int(scan_line_step),
+            bool(low_ram),
+            int(unit_images),
+            output_folder if output_folder else None,
+            filename_template if filename_template else None,
+            bool(zip_output),
+            bool(pdf_output),
+            progress_path if progress_path else None,
+            int(progress_offset),
+            bool(mark_done),
+            int(split_mode),
+            int(quality)
+        ))
+
     if output_files_type == ".webp":
         output_files_type = ".bmp"
         zip_output = False
@@ -88,9 +118,6 @@ def run(input_folder,
     progress_file = progress_path or os.path.join(resolved_output_folder, "progress.json")
 
     writer = ProgressWriter(progress_file, progress_offset)
-
-    # REMOVED GLOBAL MONKEY-PATCHING OF ssc.save_data
-    # We now pass the writer to main.run_stitch_process which handles it.
 
     stitch.run_stitch_process(
         input_folder=input_folder,
@@ -113,7 +140,6 @@ def run(input_folder,
 
     writer.finish(mark_done)
 
-    # Clean progress file from output folder before packaging
     prog_in_out = os.path.join(resolved_output_folder, "progress.json")
     if os.path.exists(prog_in_out):
         try:

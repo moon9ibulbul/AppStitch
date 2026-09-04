@@ -59,6 +59,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import com.tom_roush.pdfbox.cos.COSName
 
 val PauseIcon: ImageVector
     get() {
@@ -320,68 +324,30 @@ class MainActivity : ComponentActivity() {
                 return
             }
 
+            PDFBoxResourceLoader.init(context)
+            var document: PDDocument? = null
             try {
-                android.os.ParcelFileDescriptor.open(tempFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)?.use { pfd ->
-                    val renderer = android.graphics.pdf.PdfRenderer(pfd)
-                    val pageCount = renderer.pageCount
-                    for (i in 0 until pageCount) {
-                        val page = renderer.openPage(i)
-                        try {
-                            var scale = 2f
-                            if (page.width >= 1600 || page.height >= 1600) {
-                                scale = 1.5f
+                document = PDDocument.load(tempFile)
+                var imageIndex = 1
+                for (page in document.pages) {
+                    val resources = page.resources
+                    for (xObjectName in resources.xObjectNames) {
+                        val xObject = resources.getXObject(xObjectName)
+                        if (xObject is PDImageXObject) {
+                            val bitmap: Bitmap = xObject.image
+                            val fileName = String.format(java.util.Locale.ROOT, "page_%04d.png", imageIndex++)
+                            val targetFile = File(destDir, fileName)
+                            targetFile.outputStream().use { outs ->
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
                             }
-                            if (page.width >= 2400 || page.height >= 2400) {
-                                scale = 1f
-                            }
-
-                            var width = (page.width * scale).toInt()
-                            var height = (page.height * scale).toInt()
-
-                            var bitmap: Bitmap? = null
-                            try {
-                                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            } catch (oom: OutOfMemoryError) {
-                                System.gc()
-                                scale = 1f
-                                width = page.width
-                                height = page.height
-                                try {
-                                    bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                                } catch (oom2: OutOfMemoryError) {
-                                    System.gc()
-                                    // Extreme fallback: 0.5x scale
-                                    width = (page.width * 0.5f).toInt()
-                                    height = (page.height * 0.5f).toInt()
-                                    bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                                }
-                            }
-
-                            if (bitmap != null) {
-                                val canvas = android.graphics.Canvas(bitmap)
-                                canvas.drawColor(android.graphics.Color.WHITE)
-
-                                page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-
-                                val fileName = String.format(java.util.Locale.ROOT, "page_%04d.png", i + 1)
-                                val targetFile = File(destDir, fileName)
-                                targetFile.outputStream().use { outs ->
-                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outs)
-                                }
-                                bitmap.recycle()
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        } finally {
-                            try { page.close() } catch(_: Exception) {}
                         }
                     }
-                    renderer.close()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                try { tempFile.delete() } catch (_: Exception) {}
+                try { document?.close() } catch (e: Exception) {}
+                try { tempFile.delete() } catch (e: Exception) {}
             }
         }
 
@@ -474,7 +440,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.2") },
+                    title = { Text("AstralStitch v1.5.3") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -706,7 +672,7 @@ fun SettingsScreen(
 
                 Button(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://trakteer.id/astralexpresscrew/tip"))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://parlor.astralscans.top/donasi.html"))
                         context.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -1189,8 +1155,6 @@ fun StitchTab(
                         val dir = File(cacheOutParent, outputName)
                         dir.mkdirs()
 
-                        val py = Python.getInstance()
-                        val bridge = py.getModule("bridge")
                         val progressFile = File(context.cacheDir, "prog_single.json")
 
                         val monitor = launch {
@@ -1206,27 +1170,32 @@ fun StitchTab(
                                         }
                                     } catch(_:Exception){}
                                 }
-                                delay(500)
+                                delay(200)
                             }
                         }
 
-                        val finalPathStr = bridge.callAttr(
-                            "run", cacheIn.absolutePath,
-                            splitHeight.toIntOrNull()?:5000,
-                            outputType, false, widthEnforce,
-                            customWidth.toIntOrNull()?:720,
-                            sensitivity.toIntOrNull()?:90,
-                            ignorable.toIntOrNull()?:0,
-                            scanStep.toIntOrNull()?:5,
-                            lowRam, 20,
-                            dir.absolutePath,
-                            customFileName.takeIf { it.isNotBlank() },
-                            packagingOption == PackagingOption.ZIP,
-                            packagingOption == PackagingOption.PDF,
-                            progressFile.absolutePath, 0, true,
-                            splitMode,
-                            quality
-                        ).toString()
+                        val finalPathStr = SmartStitcher.runAsync(
+                            inputFolder = cacheIn.absolutePath,
+                            splitHeight = splitHeight.toIntOrNull() ?: 5000,
+                            outputFilesType = outputType,
+                            batchMode = false,
+                            widthEnforceType = widthEnforce,
+                            customWidth = customWidth.toIntOrNull() ?: 720,
+                            sensitivity = sensitivity.toIntOrNull() ?: 90,
+                            ignorablePixels = ignorable.toIntOrNull() ?: 0,
+                            scanLineStep = scanStep.toIntOrNull() ?: 5,
+                            lowRam = lowRam,
+                            unitImages = 20,
+                            outputFolder = dir.absolutePath,
+                            filenameTemplate = customFileName.takeIf { it.isNotBlank() },
+                            zipOutput = packagingOption == PackagingOption.ZIP,
+                            pdfOutput = packagingOption == PackagingOption.PDF,
+                            progressPath = progressFile.absolutePath,
+                            progressOffset = 0,
+                            markDone = true,
+                            splitMode = splitMode,
+                            quality = quality
+                        )
 
                         monitor.cancel()
 
@@ -1690,9 +1659,9 @@ fun BatoTab(
         }
 
         when(selectedSource) {
-            "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth())
-            "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth())
-            "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth())
+            "Ridibooks" -> OutlinedTextField(value = cookieInput, onValueChange = { cookieInput = it; prefs.edit().putString("ridi_cookie", it).apply() }, label = { Text("Ridibooks Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         }
 
         if (showScraperDialog) {

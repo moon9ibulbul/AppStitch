@@ -1,0 +1,742 @@
+package com.astral.stitchapp
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import kotlinx.coroutines.*
+import org.json.JSONObject
+import java.io.*
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+class NaturalOrderComparator : Comparator<File> {
+    override fun compare(f1: File, f2: File): Int {
+        val s1 = f1.name
+        val s2 = f2.name
+        var i1 = 0
+        var i2 = 0
+        while (i1 < s1.length && i2 < s2.length) {
+            val c1 = s1[i1]
+            val c2 = s2[i2]
+            if (c1.isDigit() && c2.isDigit()) {
+                var num1Str = ""
+                while (i1 < s1.length && s1[i1].isDigit()) {
+                    num1Str += s1[i1]
+                    i1++
+                }
+                var num2Str = ""
+                while (i2 < s2.length && s2[i2].isDigit()) {
+                    num2Str += s2[i2]
+                    i2++
+                }
+                val n1 = num1Str.toLongOrNull() ?: Long.MAX_VALUE
+                val n2 = num2Str.toLongOrNull() ?: Long.MAX_VALUE
+                if (n1 != n2) {
+                    return n1.compareTo(n2)
+                }
+            } else {
+                val cmp = c1.lowercaseChar().compareTo(c2.lowercaseChar())
+                if (cmp != 0) return cmp
+                i1++
+                i2++
+            }
+        }
+        return s1.length.compareTo(s2.length)
+    }
+}
+
+class ProgressWriter(private val progressPath: String?, offset: Int = 0) {
+    private var processed = offset
+    private var total = maxOf(offset + 1, 1)
+
+    init {
+        write()
+    }
+
+    @Synchronized
+    fun ensureTotal(desiredTotal: Int) {
+        if (desiredTotal > total) {
+            total = desiredTotal
+            write()
+        }
+    }
+
+    @Synchronized
+    fun addTotal(delta: Int) {
+        ensureTotal(total + delta)
+    }
+
+    @Synchronized
+    fun step(inc: Int = 1) {
+        processed += inc
+        if (processed > total) {
+            total = processed
+        }
+        write()
+    }
+
+    @Synchronized
+    fun finish(markDone: Boolean = true) {
+        processed = maxOf(processed, total)
+        write(done = markDone)
+    }
+
+    private fun write(done: Boolean = false) {
+        if (progressPath.isNullOrBlank()) return
+        try {
+            val file = File(progressPath)
+            val json = JSONObject().apply {
+                put("processed", processed)
+                put("total", total)
+                if (done) put("done", true)
+            }
+            file.writeText(json.toString())
+        } catch (_: Exception) {}
+    }
+}
+
+object SmartStitcher {
+
+    @JvmStatic
+    @JvmOverloads
+    fun run(
+        inputFolder: String,
+        splitHeight: Int = 5000,
+        outputFilesType: String = ".png",
+        batchMode: Boolean = false,
+        widthEnforceType: Int = 0,
+        customWidth: Int = 720,
+        sensitivity: Int = 90,
+        ignorablePixels: Int = 0,
+        scanLineStep: Int = 5,
+        lowRam: Boolean = false,
+        unitImages: Int = 20,
+        outputFolder: String? = null,
+        filenameTemplate: String? = null,
+        zipOutput: Boolean = false,
+        pdfOutput: Boolean = false,
+        progressPath: String? = null,
+        progressOffset: Int = 0,
+        markDone: Boolean = true,
+        splitMode: Int = 0,
+        quality: Int = 100
+    ): String = runBlocking {
+        runAsync(
+            inputFolder = inputFolder,
+            splitHeight = splitHeight,
+            outputFilesType = outputFilesType,
+            batchMode = batchMode,
+            widthEnforceType = widthEnforceType,
+            customWidth = customWidth,
+            sensitivity = sensitivity,
+            ignorablePixels = ignorablePixels,
+            scanLineStep = scanLineStep,
+            lowRam = lowRam,
+            unitImages = unitImages,
+            outputFolder = outputFolder,
+            filenameTemplate = filenameTemplate,
+            zipOutput = zipOutput,
+            pdfOutput = pdfOutput,
+            progressPath = progressPath,
+            progressOffset = progressOffset,
+            markDone = markDone,
+            splitMode = splitMode,
+            quality = quality
+        )
+    }
+
+    suspend fun runAsync(
+        inputFolder: String,
+        splitHeight: Int = 5000,
+        outputFilesType: String = ".png",
+        batchMode: Boolean = false,
+        widthEnforceType: Int = 0,
+        customWidth: Int = 720,
+        sensitivity: Int = 90,
+        ignorablePixels: Int = 0,
+        scanLineStep: Int = 5,
+        lowRam: Boolean = false,
+        unitImages: Int = 20,
+        outputFolder: String? = null,
+        filenameTemplate: String? = null,
+        zipOutput: Boolean = false,
+        pdfOutput: Boolean = false,
+        progressPath: String? = null,
+        progressOffset: Int = 0,
+        markDone: Boolean = true,
+        splitMode: Int = 0,
+        quality: Int = 100
+    ): String {
+        var finalOutType = outputFilesType
+        var finalZip = zipOutput
+        var finalPdf = pdfOutput
+        if (finalOutType == ".webp") {
+            finalOutType = ".bmp"
+            finalZip = false
+            finalPdf = false
+        }
+
+        val resolvedOutputFolder = resolveOutputFolder(inputFolder, outputFolder)
+        val progressFile = progressPath ?: File(resolvedOutputFolder, "progress.json").absolutePath
+        val writer = ProgressWriter(progressFile, progressOffset)
+
+        val folderPaths = getFolderPaths(batchMode, inputFolder, resolvedOutputFolder)
+        if (folderPaths.isEmpty()) {
+            writer.finish(markDone)
+            return resolvedOutputFolder
+        }
+
+        for ((inDirStr, outDirStr) in folderPaths) {
+            val inDir = File(inDirStr)
+            val outDir = File(outDirStr)
+            if (!outDir.exists()) outDir.mkdirs()
+
+            val parentFolderName = inDir.name.ifBlank { inDir.parentFile?.name ?: "Stitched" }
+
+            if (lowRam) {
+                var saveOffset = 0
+                var nextOffset: Int? = 0
+                var firstImage: Bitmap? = null
+
+                while (true) {
+                    writer.addTotal(4)
+                    val (images, newNextOffset) = loadUnitImagesParallel(inDir, firstImage, nextOffset ?: 0, unitImages)
+                    nextOffset = newNextOffset
+                    writer.step()
+
+                    if (images.isEmpty()) break
+
+                    val helperResult = helperProcess(
+                        images = images,
+                        widthEnforceType = widthEnforceType,
+                        customWidth = customWidth,
+                        splitHeight = splitHeight,
+                        sensitivity = sensitivity,
+                        ignorablePixels = ignorablePixels,
+                        scanLineStep = scanLineStep,
+                        splitMode = splitMode,
+                        progressWriter = writer
+                    )
+
+                    if (helperResult.isEmpty()) continue
+
+                    if (helperResult.size > 1 && nextOffset != null) {
+                        firstImage = helperResult.last()
+                        val saveList = helperResult.subList(0, helperResult.size - 1)
+                        writer.addTotal(saveList.size)
+                        saveOffset = saveSlicesParallel(
+                            slices = saveList,
+                            outputFolder = outDir,
+                            outputType = finalOutType,
+                            filenameTemplate = filenameTemplate,
+                            parentName = parentFolderName,
+                            quality = quality,
+                            startOffset = saveOffset,
+                            progressWriter = writer
+                        )
+                    } else {
+                        firstImage = null
+                        writer.addTotal(helperResult.size)
+                        saveOffset = saveSlicesParallel(
+                            slices = helperResult,
+                            outputFolder = outDir,
+                            outputType = finalOutType,
+                            filenameTemplate = filenameTemplate,
+                            parentName = parentFolderName,
+                            quality = quality,
+                            startOffset = saveOffset,
+                            progressWriter = writer
+                        )
+                    }
+
+                    if (nextOffset == null) break
+                }
+            } else {
+                writer.addTotal(4)
+                val images = loadImagesParallel(inDir)
+                writer.step()
+
+                if (images.isNotEmpty()) {
+                    val finalImages = helperProcess(
+                        images = images,
+                        widthEnforceType = widthEnforceType,
+                        customWidth = customWidth,
+                        splitHeight = splitHeight,
+                        sensitivity = sensitivity,
+                        ignorablePixels = ignorablePixels,
+                        scanLineStep = scanLineStep,
+                        splitMode = splitMode,
+                        progressWriter = writer
+                    )
+
+                    if (finalImages.isNotEmpty()) {
+                        writer.addTotal(finalImages.size)
+                        saveSlicesParallel(
+                            slices = finalImages,
+                            outputFolder = outDir,
+                            outputType = finalOutType,
+                            filenameTemplate = filenameTemplate,
+                            parentName = parentFolderName,
+                            quality = quality,
+                            startOffset = 0,
+                            progressWriter = writer
+                        )
+                    }
+                }
+            }
+        }
+
+        writer.finish(markDone)
+
+        val progFileInOut = File(resolvedOutputFolder, "progress.json")
+        if (progFileInOut.exists()) {
+            try { progFileInOut.delete() } catch (_: Exception) {}
+        }
+
+        if (finalZip) {
+            return packZip(File(resolvedOutputFolder)).absolutePath
+        }
+        if (finalPdf) {
+            return packPdf(File(resolvedOutputFolder)).absolutePath
+        }
+
+        return resolvedOutputFolder
+    }
+
+    private fun helperProcess(
+        images: List<Bitmap>,
+        widthEnforceType: Int,
+        customWidth: Int,
+        splitHeight: Int,
+        sensitivity: Int,
+        ignorablePixels: Int,
+        scanLineStep: Int,
+        splitMode: Int,
+        progressWriter: ProgressWriter
+    ): List<Bitmap> {
+        if (images.isEmpty()) return emptyList()
+
+        val resized = resizeImages(images, widthEnforceType, customWidth)
+        progressWriter.step()
+
+        val combined = combineImages(resized)
+        progressWriter.step()
+
+        val finalImages = splitImage(
+            combinedBitmap = combined,
+            splitHeight = splitHeight,
+            sensitivity = sensitivity,
+            ignorablePixels = ignorablePixels,
+            scanStep = scanLineStep,
+            splitMode = splitMode
+        )
+        progressWriter.step()
+
+        return finalImages
+    }
+
+    private fun resolveOutputFolder(inputFolder: String, outputFolder: String?): String {
+        val inputAbs = File(inputFolder).absoluteFile
+        if (!outputFolder.isNullOrBlank()) {
+            return File(outputFolder).absolutePath
+        }
+        val parentDir = inputAbs.parentFile
+        val folderName = inputAbs.name.ifBlank { parentDir?.name ?: "Folder" }
+        return File(parentDir, "$folderName [Stitched]").absolutePath
+    }
+
+    private fun getFolderPaths(batchMode: Boolean, inputFolder: String, outputFolder: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        val inAbs = File(inputFolder).absoluteFile
+        val outAbs = File(outputFolder).absoluteFile
+
+        if (!batchMode) {
+            result.add(Pair(inAbs.absolutePath, outAbs.absolutePath))
+        } else {
+            val children = inAbs.listFiles() ?: arrayOf()
+            for (child in children) {
+                if (child.isDirectory) {
+                    val outChild = File(outAbs, "${child.name} [Stitched]")
+                    result.add(Pair(child.absolutePath, outChild.absolutePath))
+                }
+            }
+        }
+        return result
+    }
+
+    private suspend fun loadImagesParallel(folder: File): List<Bitmap> = coroutineScope {
+        val files = folder.listFiles()?.filter { file ->
+            val ext = file.extension.lowercase(Locale.ROOT)
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+        }?.sortedWith(NaturalOrderComparator()) ?: listOf()
+
+        val deferreds = files.map { file ->
+            async(Dispatchers.IO) {
+                decodeImageFile(file)
+            }
+        }
+
+        deferreds.awaitAll().filterNotNull()
+    }
+
+    private suspend fun loadUnitImagesParallel(
+        folder: File,
+        firstImage: Bitmap?,
+        offset: Int,
+        unitLimit: Int
+    ): Pair<List<Bitmap>, Int?> = coroutineScope {
+        val result = mutableListOf<Bitmap>()
+        if (firstImage != null) {
+            result.add(firstImage)
+        }
+
+        val files = folder.listFiles()?.filter { file ->
+            val ext = file.extension.lowercase(Locale.ROOT)
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+        }?.sortedWith(NaturalOrderComparator()) ?: listOf()
+
+        if (files.isEmpty()) {
+            return@coroutineScope Pair(result, null)
+        }
+
+        val targetFiles = mutableListOf<File>()
+        var loopCount = 0
+        var imgCount = 0
+        var last = false
+
+        for (file in files) {
+            loopCount++
+            if (imgCount < unitLimit && loopCount > offset) {
+                targetFiles.add(file)
+                imgCount++
+                last = true
+            } else {
+                last = false
+            }
+        }
+
+        val deferreds = targetFiles.map { file ->
+            async(Dispatchers.IO) {
+                decodeImageFile(file)
+            }
+        }
+        val decoded = deferreds.awaitAll().filterNotNull()
+        result.addAll(decoded)
+
+        val nextOffset = if (result.size >= unitLimit && !last) {
+            offset + unitLimit
+        } else {
+            null
+        }
+
+        Pair(result, nextOffset)
+    }
+
+    private fun decodeImageFile(file: File): Bitmap? {
+        return try {
+            val options = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun resizeImages(images: List<Bitmap>, widthEnforceType: Int, customWidth: Int): List<Bitmap> {
+        if (widthEnforceType == 0 || images.isEmpty()) return images
+
+        val targetWidth = when (widthEnforceType) {
+            1 -> images.minOf { it.width }
+            2 -> customWidth
+            else -> return images
+        }
+
+        return images.map { img ->
+            if (img.width == targetWidth) {
+                img
+            } else {
+                val ratio = img.height.toDouble() / img.width.toDouble()
+                val targetHeight = (ratio * targetWidth).toInt()
+                if (targetHeight <= 0) return@map img
+
+                val resized = Bitmap.createScaledBitmap(img, targetWidth, targetHeight, true)
+                if (resized != img) {
+                    img.recycle()
+                }
+                resized
+            }
+        }
+    }
+
+    private fun combineImages(images: List<Bitmap>): Bitmap {
+        val maxWidth = images.maxOf { it.width }
+        val totalHeight = images.sumOf { it.height }
+
+        val combined = Bitmap.createBitmap(maxWidth, totalHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(combined)
+        canvas.drawColor(Color.WHITE)
+
+        var currentY = 0
+        for (img in images) {
+            canvas.drawBitmap(img, 0f, currentY.toFloat(), null)
+            currentY += img.height
+            img.recycle()
+        }
+        return combined
+    }
+
+    private fun splitImage(
+        combinedBitmap: Bitmap,
+        splitHeight: Int,
+        sensitivity: Int,
+        ignorablePixels: Int,
+        scanStep: Int,
+        splitMode: Int
+    ): List<Bitmap> {
+        val maxHeight = combinedBitmap.height
+        val maxWidth = combinedBitmap.width
+        val result = mutableListOf<Bitmap>()
+        var splitOffset = 0
+        val rowBuffer = IntArray(maxWidth)
+
+        while (splitOffset + splitHeight < maxHeight) {
+            val newSplitHeight = if (splitMode == 1) {
+                splitHeight
+            } else {
+                adjustSplitLocation(
+                    combinedBitmap = combinedBitmap,
+                    splitHeight = splitHeight,
+                    splitOffset = splitOffset,
+                    sensitivity = sensitivity,
+                    ignorablePixels = ignorablePixels,
+                    scanStep = scanStep,
+                    rowBuffer = rowBuffer
+                )
+            }
+
+            val slice = Bitmap.createBitmap(combinedBitmap, 0, splitOffset, maxWidth, newSplitHeight)
+            result.add(slice)
+            splitOffset += newSplitHeight
+        }
+
+        val remainingRows = maxHeight - splitOffset
+        if (remainingRows > 0) {
+            val slice = Bitmap.createBitmap(combinedBitmap, 0, splitOffset, maxWidth, remainingRows)
+            result.add(slice)
+        }
+
+        combinedBitmap.recycle()
+        return result
+    }
+
+    private fun adjustSplitLocation(
+        combinedBitmap: Bitmap,
+        splitHeight: Int,
+        splitOffset: Int,
+        sensitivity: Int,
+        ignorablePixels: Int,
+        scanStep: Int,
+        rowBuffer: IntArray
+    ): Int {
+        val threshold = (255 * (1.0 - (sensitivity / 100.0))).toInt()
+        var newSplitHeight = splitHeight
+        val maxHeight = combinedBitmap.height
+        val maxWidth = combinedBitmap.width
+        val lastRow = maxHeight - 1
+        var adjustInProgress = true
+        var countdown = true
+
+        while (adjustInProgress) {
+            adjustInProgress = false
+            val splitRow = splitOffset + newSplitHeight
+            if (splitRow > lastRow) break
+
+            combinedBitmap.getPixels(rowBuffer, 0, maxWidth, 0, splitRow, maxWidth, 1)
+
+            val startX = ignorablePixels
+            val endX = maxWidth - ignorablePixels - 1
+
+            if (startX <= endX) {
+                var prevPixel = getLuminance(rowBuffer[startX])
+                for (x in (startX + 1)..endX) {
+                    val currentPixel = getLuminance(rowBuffer[x])
+                    val diff = currentPixel - prevPixel
+                    if (diff < -threshold || diff > threshold) {
+                        if (countdown) {
+                            newSplitHeight -= scanStep
+                        } else {
+                            newSplitHeight += scanStep
+                        }
+                        adjustInProgress = true
+                        break
+                    }
+                    prevPixel = currentPixel
+                }
+            }
+
+            if (newSplitHeight < (0.4 * splitHeight).toInt()) {
+                newSplitHeight = splitHeight
+                countdown = false
+                adjustInProgress = true
+            }
+        }
+        return newSplitHeight
+    }
+
+    private inline fun getLuminance(pixel: Int): Int {
+        val r = (pixel shr 16) and 0xFF
+        val g = (pixel shr 8) and 0xFF
+        val b = pixel and 0xFF
+        return (r * 77 + g * 150 + b * 29) shr 8
+    }
+
+    private suspend fun saveSlicesParallel(
+        slices: List<Bitmap>,
+        outputFolder: File,
+        outputType: String,
+        filenameTemplate: String?,
+        parentName: String,
+        quality: Int,
+        startOffset: Int,
+        progressWriter: ProgressWriter?
+    ): Int = coroutineScope {
+        val ext = outputType.removePrefix(".")
+        val dateStr = SimpleDateFormat("yyyyMMdd", Locale.ROOT).format(Date())
+        val timeStr = SimpleDateFormat("HHmmss", Locale.ROOT).format(Date())
+
+        val deferreds = slices.mapIndexed { idx, sliceBitmap ->
+            val imageIndex = startOffset + idx + 1
+            val filename = buildFilename(imageIndex, ext, filenameTemplate, parentName, dateStr, timeStr)
+            val outFile = File(outputFolder, filename)
+
+            async(Dispatchers.IO) {
+                saveSingleBitmap(sliceBitmap, outFile, outputType, quality)
+                progressWriter?.step()
+            }
+        }
+
+        deferreds.awaitAll()
+        slices.forEach { it.recycle() }
+        startOffset + slices.size
+    }
+
+    private fun saveSingleBitmap(bitmap: Bitmap, file: File, outputType: String, quality: Int) {
+        when (outputType.lowercase(Locale.ROOT)) {
+            ".bmp" -> MainActivity.saveAsBmp(bitmap, file)
+            ".jpg", ".jpeg" -> {
+                file.outputStream().buffered().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(1, 100), out)
+                }
+            }
+            ".webp" -> {
+                file.outputStream().buffered().use { out ->
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        if (quality >= 100) {
+                            bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                        } else {
+                            bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality.coerceIn(1, 100), out)
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        bitmap.compress(Bitmap.CompressFormat.WEBP, quality.coerceIn(1, 100), out)
+                    }
+                }
+            }
+            else -> { // .png
+                file.outputStream().buffered().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+            }
+        }
+    }
+
+    private fun buildFilename(
+        idx: Int,
+        ext: String,
+        template: String?,
+        parentName: String,
+        dateStr: String,
+        timeStr: String
+    ): String {
+        val cleanExt = ext.removePrefix(".")
+        val tmpl = if (!template.isNullOrBlank()) template else "{num}.{ext}"
+        return tmpl
+            .replace("{num}", String.format(Locale.ROOT, "%02d", idx))
+            .replace("{ext}", cleanExt)
+            .replace("{parent}", parentName)
+            .replace("{time}", timeStr)
+            .replace("{date}", dateStr)
+            .replace("{char}", indexToLetters(idx))
+    }
+
+    private fun indexToLetters(idx: Int): String {
+        var num = idx
+        val result = StringBuilder()
+        while (num > 0) {
+            num--
+            val rem = num % 26
+            result.append(('a'.code + rem).toChar())
+            num /= 26
+        }
+        return if (result.isEmpty()) "a" else result.reverse().toString()
+    }
+
+    private fun packZip(sourceDir: File): File {
+        val zipFile = File(sourceDir.parentFile, "${sourceDir.name}.zip")
+        if (zipFile.exists()) zipFile.delete()
+
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+            val files = sourceDir.listFiles() ?: arrayOf()
+            files.sortWith(NaturalOrderComparator())
+            for (file in files) {
+                if (file.isFile) {
+                    val entry = ZipEntry(file.name)
+                    zos.putNextEntry(entry)
+                    file.inputStream().buffered().use { ins ->
+                        ins.copyTo(zos)
+                    }
+                    zos.closeEntry()
+                }
+            }
+        }
+        sourceDir.deleteRecursively()
+        return zipFile
+    }
+
+    private fun packPdf(sourceDir: File): File {
+        val pdfFile = File(sourceDir.parentFile, "${sourceDir.name}.pdf")
+        if (pdfFile.exists()) pdfFile.delete()
+
+        val files = sourceDir.listFiles()?.filter { f ->
+            val ext = f.extension.lowercase(Locale.ROOT)
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+        }?.sortedWith(NaturalOrderComparator()) ?: listOf()
+
+        if (files.isEmpty()) return sourceDir
+
+        val document = android.graphics.pdf.PdfDocument()
+        try {
+            for ((idx, imgFile) in files.withIndex()) {
+                val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
+                val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, idx + 1).create()
+                val page = document.startPage(pageInfo)
+                val canvas = page.canvas
+                canvas.drawBitmap(bitmap, 0f, 0f, null)
+                document.finishPage(page)
+                bitmap.recycle()
+            }
+            FileOutputStream(pdfFile).buffered().use { out ->
+                document.writeTo(out)
+            }
+        } finally {
+            document.close()
+        }
+        sourceDir.deleteRecursively()
+        return pdfFile
+    }
+}
