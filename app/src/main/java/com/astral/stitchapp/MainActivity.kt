@@ -726,9 +726,15 @@ fun StitchSettingsUI(
                 Text("Stitch Mode: ")
                 Spacer(Modifier.width(8.dp))
                 Box {
-                    OutlinedButton(onClick = { expandedMode = true }) { Text(if (splitMode == 1) "Direct (Fixed)" else "Smart (Legacy)") }
+                    val modeText = when (splitMode) {
+                        1 -> "Direct (Fixed)"
+                        2 -> "Super Smart"
+                        else -> "Smart (Legacy)"
+                    }
+                    OutlinedButton(onClick = { expandedMode = true }) { Text(modeText) }
                     DropdownMenu(expanded = expandedMode, onDismissRequest = { expandedMode = false }) {
                         DropdownMenuItem(text = { Text("Smart (Legacy)") }, onClick = { onSplitMode(0); expandedMode = false })
+                        DropdownMenuItem(text = { Text("Super Smart") }, onClick = { onSplitMode(2); expandedMode = false })
                         DropdownMenuItem(text = { Text("Direct (Fixed)") }, onClick = { onSplitMode(1); expandedMode = false })
                     }
                 }
