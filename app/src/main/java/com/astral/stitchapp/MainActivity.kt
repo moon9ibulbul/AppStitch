@@ -1155,8 +1155,6 @@ fun StitchTab(
                         val dir = File(cacheOutParent, outputName)
                         dir.mkdirs()
 
-                        val py = Python.getInstance()
-                        val bridge = py.getModule("bridge")
                         val progressFile = File(context.cacheDir, "prog_single.json")
 
                         val monitor = launch {
@@ -1172,27 +1170,32 @@ fun StitchTab(
                                         }
                                     } catch(_:Exception){}
                                 }
-                                delay(500)
+                                delay(200)
                             }
                         }
 
-                        val finalPathStr = bridge.callAttr(
-                            "run", cacheIn.absolutePath,
-                            splitHeight.toIntOrNull()?:5000,
-                            outputType, false, widthEnforce,
-                            customWidth.toIntOrNull()?:720,
-                            sensitivity.toIntOrNull()?:90,
-                            ignorable.toIntOrNull()?:0,
-                            scanStep.toIntOrNull()?:5,
-                            lowRam, 20,
-                            dir.absolutePath,
-                            customFileName.takeIf { it.isNotBlank() },
-                            packagingOption == PackagingOption.ZIP,
-                            packagingOption == PackagingOption.PDF,
-                            progressFile.absolutePath, 0, true,
-                            splitMode,
-                            quality
-                        ).toString()
+                        val finalPathStr = SmartStitcher.runAsync(
+                            inputFolder = cacheIn.absolutePath,
+                            splitHeight = splitHeight.toIntOrNull() ?: 5000,
+                            outputFilesType = outputType,
+                            batchMode = false,
+                            widthEnforceType = widthEnforce,
+                            customWidth = customWidth.toIntOrNull() ?: 720,
+                            sensitivity = sensitivity.toIntOrNull() ?: 90,
+                            ignorablePixels = ignorable.toIntOrNull() ?: 0,
+                            scanLineStep = scanStep.toIntOrNull() ?: 5,
+                            lowRam = lowRam,
+                            unitImages = 20,
+                            outputFolder = dir.absolutePath,
+                            filenameTemplate = customFileName.takeIf { it.isNotBlank() },
+                            zipOutput = packagingOption == PackagingOption.ZIP,
+                            pdfOutput = packagingOption == PackagingOption.PDF,
+                            progressPath = progressFile.absolutePath,
+                            progressOffset = 0,
+                            markDone = true,
+                            splitMode = splitMode,
+                            quality = quality
+                        )
 
                         monitor.cancel()
 
