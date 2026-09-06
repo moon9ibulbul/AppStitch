@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -657,18 +658,28 @@ fun SettingsScreen(
                     })
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Concurrent Local Tasks")
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Concurrent Local Tasks", style = MaterialTheme.typography.bodyMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         listOf(1, 2, 3, 4).forEach { count ->
-                            FilterChip(
-                                selected = maxConcurrent == count,
+                            val isSelected = maxConcurrent == count
+                            OutlinedButton(
                                 onClick = {
                                     maxConcurrent = count
                                     prefs.edit().putInt("max_concurrent_tasks", count).apply()
                                 },
-                                label = { Text("$count") }
-                            )
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 4.dp, horizontal = 2.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            ) {
+                                Text("$count")
+                            }
                         }
                     }
                 }
@@ -1189,7 +1200,7 @@ fun StitchTab(
                                     val name = doc?.name ?: "Input_${zipIndex + 1}"
 
                                     withContext(Dispatchers.Main) {
-                                        statusText = if (totalZipCount > 1) "Processing (${completedCount.get() + 1}/$totalZipCount): $name" else "Processing..."
+                                        statusText = if (totalZipCount > 1) "Processing batch ($totalZipCount files)..." else "Processing..."
                                     }
 
                                     val uniqueTime = "${System.currentTimeMillis()}_${zipIndex}"
