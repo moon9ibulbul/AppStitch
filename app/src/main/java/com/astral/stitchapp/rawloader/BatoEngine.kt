@@ -654,7 +654,7 @@ object BatoEngine {
 
             // Verify integrity
             val finalFiles = dlDir.listFiles()?.filter { it.isFile } ?: emptyList()
-            val expectedCount = images.size - skippedCount
+            val expectedCount = images.size - skippedCount.get()
             if (finalFiles.size < expectedCount) {
                 throw Exception("Incomplete download: Expected $expectedCount, got ${finalFiles.size}")
             }
