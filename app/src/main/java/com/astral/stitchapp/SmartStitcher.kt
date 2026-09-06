@@ -538,26 +538,21 @@ object SmartStitcher {
 
         val combined = Bitmap.createBitmap(maxWidth, totalHeight, Bitmap.Config.ARGB_8888)
 
-        val fillChunkSize = 1000
-        var fillY = 0
-        while (fillY < totalHeight) {
-            val chunkH = minOf(fillChunkSize, totalHeight - fillY)
-            val whiteBuffer = IntArray(maxWidth * chunkH) { Color.WHITE }
-            combined.setPixels(whiteBuffer, 0, maxWidth, 0, fillY, maxWidth, chunkH)
-            fillY += chunkH
-        }
+        val maxChunkH = 1000
+        val buffer = IntArray(maxWidth * maxChunkH)
 
         var currentY = 0
         for (img in images) {
             val w = img.width
             val h = img.height
             var imgY = 0
-            val copyChunkSize = 1000
             while (imgY < h) {
-                val chunkH = minOf(copyChunkSize, h - imgY)
-                val buffer = IntArray(w * chunkH)
-                img.getPixels(buffer, 0, w, 0, imgY, w, chunkH)
-                combined.setPixels(buffer, 0, w, 0, currentY + imgY, w, chunkH)
+                val chunkH = minOf(maxChunkH, h - imgY)
+                if (w < maxWidth) {
+                    buffer.fill(Color.WHITE, 0, maxWidth * chunkH)
+                }
+                img.getPixels(buffer, 0, maxWidth, 0, imgY, w, chunkH)
+                combined.setPixels(buffer, 0, maxWidth, 0, currentY + imgY, maxWidth, chunkH)
                 imgY += chunkH
             }
             currentY += h
@@ -663,7 +658,8 @@ object SmartStitcher {
                 threshold = threshold,
                 ignorablePixels = ignorablePixels,
                 winBuffer = winBuffer,
-                maxWidth = maxWidth
+                maxWidth = maxWidth,
+                currentMinPenalty = minPenalty
             )
 
             if (penalty == 0.0) {
@@ -698,7 +694,8 @@ object SmartStitcher {
         threshold: Int,
         ignorablePixels: Int,
         winBuffer: IntArray,
-        maxWidth: Int
+        maxWidth: Int,
+        currentMinPenalty: Double
     ): Double {
         val winHeight = window * 2 + 1
         val startY = splitRow - window
@@ -717,6 +714,7 @@ object SmartStitcher {
             val diff = Math.abs(curLum - prevLum)
             if (diff > threshold) {
                 totalPenalty += (diff - threshold) * 10.0
+                if (totalPenalty >= currentMinPenalty) return totalPenalty
             }
             prevLum = curLum
         }
@@ -732,6 +730,7 @@ object SmartStitcher {
                 }
                 prevVertLum = curVertLum
             }
+            if (totalPenalty >= currentMinPenalty) return totalPenalty
         }
 
         val leftGutterLum = getLuminance(winBuffer[centerRowOffset + startX])
