@@ -461,6 +461,20 @@ object SmartStitcher {
         }
     }
 
+    private fun extractSlice(source: Bitmap, x: Int, y: Int, width: Int, height: Int): Bitmap {
+        val slice = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val chunkSize = 1000
+        var currY = 0
+        while (currY < height) {
+            val chunkH = minOf(chunkSize, height - currY)
+            val buffer = IntArray(width * chunkH)
+            source.getPixels(buffer, 0, width, x, y + currY, width, chunkH)
+            slice.setPixels(buffer, 0, width, 0, currY, width, chunkH)
+            currY += chunkH
+        }
+        return slice
+    }
+
     private fun resizeImages(images: List<Bitmap>, widthEnforceType: Int, customWidth: Int): List<Bitmap> {
         if (widthEnforceType == 0 || images.isEmpty()) return images
 
@@ -478,11 +492,42 @@ object SmartStitcher {
                 val targetHeight = (ratio * targetWidth).toInt()
                 if (targetHeight <= 0) return@map img
 
-                val resized = Bitmap.createScaledBitmap(img, targetWidth, targetHeight, true)
-                if (resized != img) {
+                if (img.height <= 30000) {
+                    val resized = Bitmap.createScaledBitmap(img, targetWidth, targetHeight, true)
+                    if (resized != img) {
+                        img.recycle()
+                    }
+                    resized
+                } else {
+                    val resized = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                    val maxSrcChunk = 20000
+                    var srcY = 0
+                    while (srcY < img.height) {
+                        val srcChunkH = minOf(maxSrcChunk, img.height - srcY)
+                        val dstY = ((srcY.toDouble() / img.height) * targetHeight).toInt()
+                        val dstYEnd = (((srcY + srcChunkH).toDouble() / img.height) * targetHeight).toInt().coerceAtMost(targetHeight)
+                        val dstChunkH = dstYEnd - dstY
+                        if (dstChunkH > 0) {
+                            val srcChunk = extractSlice(img, 0, srcY, img.width, srcChunkH)
+                            val scaledChunk = Bitmap.createScaledBitmap(srcChunk, targetWidth, dstChunkH, true)
+                            if (scaledChunk != srcChunk) srcChunk.recycle()
+
+                            var cY = 0
+                            val cChunkSize = 1000
+                            while (cY < dstChunkH) {
+                                val cH = minOf(cChunkSize, dstChunkH - cY)
+                                val buf = IntArray(targetWidth * cH)
+                                scaledChunk.getPixels(buf, 0, targetWidth, 0, cY, targetWidth, cH)
+                                resized.setPixels(buf, 0, targetWidth, 0, dstY + cY, targetWidth, cH)
+                                cY += cH
+                            }
+                            scaledChunk.recycle()
+                        }
+                        srcY += srcChunkH
+                    }
                     img.recycle()
+                    resized
                 }
-                resized
             }
         }
     }
@@ -492,13 +537,30 @@ object SmartStitcher {
         val totalHeight = images.sumOf { it.height }
 
         val combined = Bitmap.createBitmap(maxWidth, totalHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(combined)
-        canvas.drawColor(Color.WHITE)
+
+        val fillChunkSize = 1000
+        var fillY = 0
+        while (fillY < totalHeight) {
+            val chunkH = minOf(fillChunkSize, totalHeight - fillY)
+            val whiteBuffer = IntArray(maxWidth * chunkH) { Color.WHITE }
+            combined.setPixels(whiteBuffer, 0, maxWidth, 0, fillY, maxWidth, chunkH)
+            fillY += chunkH
+        }
 
         var currentY = 0
         for (img in images) {
-            canvas.drawBitmap(img, 0f, currentY.toFloat(), null)
-            currentY += img.height
+            val w = img.width
+            val h = img.height
+            var imgY = 0
+            val copyChunkSize = 1000
+            while (imgY < h) {
+                val chunkH = minOf(copyChunkSize, h - imgY)
+                val buffer = IntArray(w * chunkH)
+                img.getPixels(buffer, 0, w, 0, imgY, w, chunkH)
+                combined.setPixels(buffer, 0, w, 0, currentY + imgY, w, chunkH)
+                imgY += chunkH
+            }
+            currentY += h
             img.recycle()
         }
         return combined
@@ -541,14 +603,14 @@ object SmartStitcher {
                 )
             }
 
-            val slice = Bitmap.createBitmap(combinedBitmap, 0, splitOffset, maxWidth, newSplitHeight)
+            val slice = extractSlice(combinedBitmap, 0, splitOffset, maxWidth, newSplitHeight)
             result.add(slice)
             splitOffset += newSplitHeight
         }
 
         val remainingRows = maxHeight - splitOffset
         if (remainingRows > 0) {
-            val slice = Bitmap.createBitmap(combinedBitmap, 0, splitOffset, maxWidth, remainingRows)
+            val slice = extractSlice(combinedBitmap, 0, splitOffset, maxWidth, remainingRows)
             result.add(slice)
         }
 
