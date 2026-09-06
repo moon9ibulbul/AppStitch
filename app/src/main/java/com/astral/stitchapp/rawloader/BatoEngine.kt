@@ -365,6 +365,15 @@ object BatoEngine {
         return file
     }
 
+    private fun copyRectPixels(src: Bitmap, srcRect: Rect, dst: Bitmap, dstRect: Rect) {
+        val w = srcRect.width()
+        val h = srcRect.height()
+        if (w <= 0 || h <= 0) return
+        val buffer = IntArray(w * h)
+        src.getPixels(buffer, 0, w, srcRect.left, srcRect.top, w, h)
+        dst.setPixels(buffer, 0, w, dstRect.left, dstRect.top, w, h)
+    }
+
     fun unscrambleLezhinImage(path: File, shuffleKey: String) {
         try {
             val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
@@ -407,21 +416,19 @@ object BatoEngine {
             }
 
             val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val paint = Paint().apply { isFilterBitmap = true }
 
             for ((k, v) in arr.withIndex()) {
                 val dstArea = getArea(k)
                 val srcArea = getArea(v)
                 if (dstArea != null && srcArea != null) {
-                    canvas.drawBitmap(bitmap, srcArea, dstArea, paint)
+                    copyRectPixels(bitmap, srcArea, result, dstArea)
                 }
             }
 
             for (idx in listOf(total, total + 1)) {
                 val area = getArea(idx)
                 if (area != null) {
-                    canvas.drawBitmap(bitmap, area, area, paint)
+                    copyRectPixels(bitmap, area, result, area)
                 }
             }
 
@@ -459,8 +466,6 @@ object BatoEngine {
             val unitHeight = defaultHeight / cols
 
             val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val paint = Paint().apply { isFilterBitmap = true }
 
             for (r in 0 until scrambleIndex.length()) {
                 val i = scrambleIndex.getInt(r)
@@ -471,7 +476,7 @@ object BatoEngine {
 
                 val srcRect = Rect(sx, sy, sx + unitWidth, sy + unitHeight)
                 val dstRect = Rect(dx, dy, dx + unitWidth, dy + unitHeight)
-                canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
+                copyRectPixels(bitmap, srcRect, result, dstRect)
             }
 
             path.outputStream().use { outs ->
