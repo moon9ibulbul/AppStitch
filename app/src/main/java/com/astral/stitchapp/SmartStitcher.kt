@@ -906,13 +906,6 @@ object SmartStitcher {
                     imgFile.inputStream().use { ins ->
                         com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(pdDoc, ins)
                     }
-                } else if (ext == "png") {
-                    val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
-                    try {
-                        com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdDoc, bitmap)
-                    } finally {
-                        bitmap.recycle()
-                    }
                 } else {
                     val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
                     try {
