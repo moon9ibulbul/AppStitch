@@ -10,7 +10,10 @@ import android.net.Uri
 import com.astral.stitchapp.SmartStitcher
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -541,76 +544,112 @@ object BatoEngine {
 
             // 1. DOWNLOADING PHASE
             updateStatus(cacheDir, itemId, "downloading", 0.0)
-            val localFiles = mutableListOf<Pair<String, File>>()
-            var skippedCount = 0
+            val localFiles = java.util.Collections.synchronizedList(mutableListOf<Pair<String, File>>())
+            val skippedCount = AtomicInteger(0)
+            val completedCount = AtomicInteger(0)
+            val downloadSemaphore = Semaphore(6)
 
-            for ((i, imgUrl) in images.withIndex()) {
-                val action = checkAction(cacheDir, itemId)
-                if (action == "paused") return@withContext JSONObject().apply { put("status", "paused") }
-                if (action == "removed") {
-                    if (dlDir.exists()) dlDir.deleteRecursively()
-                    return@withContext JSONObject().apply { put("status", "removed") }
-                }
+            coroutineScope {
+                val jobs = images.mapIndexed { i, imgUrl ->
+                    async(Dispatchers.IO) {
+                        val action = checkAction(cacheDir, itemId)
+                        if (action == "paused" || action == "removed") return@async action
 
-                var targetPath = downloadImage(imgUrl, dlDir, i + 1, item.cookie, referer)
-                if (sourceType == "naver") {
-                    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(targetPath.absolutePath, opts)
-                    if (opts.outWidth > 0 && opts.outWidth < 500) {
-                        targetPath.delete()
-                        skippedCount++
-                        continue
+                        val targetPath = downloadSemaphore.withPermit {
+                            downloadImage(imgUrl, dlDir, i + 1, item.cookie, referer)
+                        }
+
+                        if (sourceType == "naver") {
+                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeFile(targetPath.absolutePath, opts)
+                            if (opts.outWidth > 0 && opts.outWidth < 500) {
+                                targetPath.delete()
+                                skippedCount.incrementAndGet()
+                                val done = completedCount.incrementAndGet()
+                                if (done % 5 == 0 || done == total) {
+                                    updateStatus(cacheDir, itemId, "downloading", done.toDouble() / total)
+                                }
+                                return@async "ok"
+                            }
+                        }
+
+                        localFiles.add(Pair(imgUrl, targetPath))
+
+                        val done = completedCount.incrementAndGet()
+                        if (done % 5 == 0 || done == total) {
+                            updateStatus(cacheDir, itemId, "downloading", done.toDouble() / total)
+                        }
+                        "ok"
                     }
                 }
 
-                localFiles.add(Pair(imgUrl, targetPath))
-
-                if ((i + 1) % 5 == 0 || (i + 1) == total) {
-                    updateStatus(cacheDir, itemId, "downloading", (i + 1).toDouble() / total)
+                val results = jobs.awaitAll()
+                if (results.contains("paused")) return@coroutineScope JSONObject().apply { put("status", "paused") }
+                if (results.contains("removed")) {
+                    if (dlDir.exists()) dlDir.deleteRecursively()
+                    return@coroutineScope JSONObject().apply { put("status", "removed") }
                 }
-            }
+                null
+            }?.let { return@withContext it }
+
+            localFiles.sortBy { it.second.name }
 
             // 2. UNSCRAMBLING PHASE
             val needsUnscramble = sourceType in listOf("bomtoon", "lezhin")
             if (needsUnscramble) {
                 updateStatus(cacheDir, itemId, "unscrambling", 0.0)
-                for ((i, pair) in localFiles.withIndex()) {
-                    val (imgUrl, targetPath) = pair
-                    val action = checkAction(cacheDir, itemId)
-                    if (action == "paused") return@withContext JSONObject().apply { put("status", "paused") }
-                    if (action == "removed") {
+                val unscrambleCompleted = AtomicInteger(0)
+                val unscrambleSemaphore = Semaphore(maxOf(2, Runtime.getRuntime().availableProcessors()))
+
+                coroutineScope {
+                    val jobs = localFiles.map { pair ->
+                        async(Dispatchers.Default) {
+                            val (imgUrl, targetPath) = pair
+                            val action = checkAction(cacheDir, itemId)
+                            if (action == "paused" || action == "removed") return@async action
+
+                            val fragment = Uri.parse(imgUrl).fragment
+                            if (!fragment.isNullOrBlank()) {
+                                val paramsUnscram = mutableMapOf<String, String>()
+                                fragment.split("&").forEach { itemUnscram ->
+                                    if (itemUnscram.contains("=")) {
+                                        val parts = itemUnscram.split("=", limit = 2)
+                                        paramsUnscram[parts[0]] = parts[1]
+                                    }
+                                }
+
+                                unscrambleSemaphore.withPermit {
+                                    if (sourceType == "bomtoon") {
+                                        val scrambleData = paramsUnscram["scramble"]
+                                        if (!scrambleData.isNullOrBlank()) {
+                                            val decodedData = URLDecoder.decode(scrambleData, "UTF-8")
+                                            unscrambleBomtoonImage(targetPath, decodedData)
+                                        }
+                                    } else if (sourceType == "lezhin") {
+                                        val shuffleKey = paramsUnscram["shuffleKey"]
+                                        if (!shuffleKey.isNullOrBlank()) {
+                                            unscrambleLezhinImage(targetPath, shuffleKey)
+                                        }
+                                    }
+                                }
+                            }
+
+                            val done = unscrambleCompleted.incrementAndGet()
+                            if (done % 5 == 0 || done == localFiles.size) {
+                                updateStatus(cacheDir, itemId, "unscrambling", done.toDouble() / localFiles.size)
+                            }
+                            "ok"
+                        }
+                    }
+
+                    val results = jobs.awaitAll()
+                    if (results.contains("paused")) return@coroutineScope JSONObject().apply { put("status", "paused") }
+                    if (results.contains("removed")) {
                         if (dlDir.exists()) dlDir.deleteRecursively()
-                        return@withContext JSONObject().apply { put("status", "removed") }
+                        return@coroutineScope JSONObject().apply { put("status", "removed") }
                     }
-
-                    val fragment = Uri.parse(imgUrl).fragment
-                    if (!fragment.isNullOrBlank()) {
-                        val paramsUnscram = mutableMapOf<String, String>()
-                        fragment.split("&").forEach { itemUnscram ->
-                            if (itemUnscram.contains("=")) {
-                                val parts = itemUnscram.split("=", limit = 2)
-                                paramsUnscram[parts[0]] = parts[1]
-                            }
-                        }
-
-                        if (sourceType == "bomtoon") {
-                            val scrambleData = paramsUnscram["scramble"]
-                            if (!scrambleData.isNullOrBlank()) {
-                                val decodedData = URLDecoder.decode(scrambleData, "UTF-8")
-                                unscrambleBomtoonImage(targetPath, decodedData)
-                            }
-                        } else if (sourceType == "lezhin") {
-                            val shuffleKey = paramsUnscram["shuffleKey"]
-                            if (!shuffleKey.isNullOrBlank()) {
-                                unscrambleLezhinImage(targetPath, shuffleKey)
-                            }
-                        }
-                    }
-
-                    if ((i + 1) % 5 == 0 || (i + 1) == localFiles.size) {
-                        updateStatus(cacheDir, itemId, "unscrambling", (i + 1).toDouble() / localFiles.size)
-                    }
-                }
+                    null
+                }?.let { return@withContext it }
             }
 
             // Verify integrity
