@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -53,7 +54,11 @@ import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.astral.stitchapp.rawloader.BatoEngine
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -533,6 +538,7 @@ fun SettingsScreen(
     var soundEnabled by remember { mutableStateOf(prefs.getBoolean("sound_enabled", true)) }
     var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
     var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
+    var maxConcurrent by remember { mutableIntStateOf(prefs.getInt("max_concurrent_tasks", 1)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
 
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -650,6 +656,32 @@ fun SettingsScreen(
                         }
                         prefs.edit().putBoolean("choose_pdf", it).apply()
                     })
+                }
+
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Concurrent Local Tasks", style = MaterialTheme.typography.bodyMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(1, 2, 3, 4).forEach { count ->
+                            val isSelected = maxConcurrent == count
+                            OutlinedButton(
+                                onClick = {
+                                    maxConcurrent = count
+                                    prefs.edit().putInt("max_concurrent_tasks", count).apply()
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 4.dp, horizontal = 2.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            ) {
+                                Text("$count")
+                            }
+                        }
+                    }
                 }
 
                 HorizontalDivider()
@@ -1155,130 +1187,150 @@ fun StitchTab(
 
                 scope.launch(Dispatchers.IO) {
                     try {
+                        val maxConcurrent = prefs.getInt("max_concurrent_tasks", 1)
+                        val semaphore = Semaphore(maxConcurrent)
                         val totalZipCount = inputUris.size
-                        for ((zipIndex, uri) in inputUris.withIndex()) {
-                            val doc = if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
-                            val name = doc?.name ?: "Input_${zipIndex + 1}"
+                        val completedCount = AtomicInteger(0)
+                        val individualProgress = ConcurrentHashMap<Int, Float>()
 
-                            withContext(Dispatchers.Main) {
-                                statusText = if (totalZipCount > 1) "Processing (${zipIndex + 1}/$totalZipCount): $name" else "Processing..."
-                                progress = 0f
-                            }
+                        val tasks = inputUris.mapIndexed { zipIndex, uri ->
+                            async(Dispatchers.IO) {
+                                semaphore.withPermit {
+                                    val doc = if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, uri) else DocumentFile.fromTreeUri(context, uri)
+                                    val name = doc?.name ?: "Input_${zipIndex + 1}"
 
-                            val uniqueTime = "${System.currentTimeMillis()}_$zipIndex"
-                            val cacheIn = File(context.cacheDir, "stitch_in_$uniqueTime")
-                            cacheIn.deleteRecursively(); cacheIn.mkdirs()
-
-                            if (chooseZip) {
-                                MainActivity.extractFromZip(context, uri, cacheIn)
-                            } else if (choosePdf) {
-                                MainActivity.extractFromPdf(context, uri, cacheIn)
-                            } else {
-                                copyFromTree(context, uri, cacheIn)
-                            }
-
-                            val cacheOutParent = File(context.cacheDir, "stitch_out_$uniqueTime")
-                            val outputName = if (chooseZip || choosePdf) {
-                                name.substringBeforeLast(".") + " [Stitched]"
-                            } else {
-                                "$name [Stitched]"
-                            }
-                            cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
-                            val dir = File(cacheOutParent, outputName)
-                            dir.mkdirs()
-
-                            val progressFile = File(context.cacheDir, "prog_$uniqueTime.json")
-
-                            val monitor = launch {
-                                while (isActive) {
-                                    if (progressFile.exists()) {
-                                        try {
-                                            val j = JSONObject(progressFile.readText())
-                                            val p = j.optInt("processed", 0)
-                                            val t = j.optInt("total", 1)
-                                            val prog = if (t > 0) p.toFloat() / t else 0f
-                                            withContext(Dispatchers.Main) {
-                                                progress = prog
-                                            }
-                                        } catch (_: Exception) {}
-                                    }
-                                    delay(200)
-                                }
-                            }
-
-                            val finalPathStr = SmartStitcher.runAsync(
-                                inputFolder = cacheIn.absolutePath,
-                                splitHeight = splitHeight.toIntOrNull() ?: 5000,
-                                outputFilesType = outputType,
-                                batchMode = false,
-                                widthEnforceType = widthEnforce,
-                                customWidth = customWidth.toIntOrNull() ?: 720,
-                                sensitivity = sensitivity.toIntOrNull() ?: 90,
-                                ignorablePixels = ignorable.toIntOrNull() ?: 0,
-                                scanLineStep = scanStep.toIntOrNull() ?: 5,
-                                lowRam = lowRam,
-                                unitImages = 20,
-                                outputFolder = dir.absolutePath,
-                                filenameTemplate = customFileName.takeIf { it.isNotBlank() },
-                                zipOutput = packagingOption == PackagingOption.ZIP,
-                                pdfOutput = packagingOption == PackagingOption.PDF,
-                                pdfPassword = pdfPassword.takeIf { it.isNotBlank() },
-                                progressPath = progressFile.absolutePath,
-                                progressOffset = 0,
-                                markDone = true,
-                                splitMode = splitMode,
-                                quality = quality
-                            )
-
-                            monitor.cancel()
-
-                            val rawFile = File(finalPathStr)
-                            val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
-
-                            val targetTree = if (outputUri != null) {
-                                DocumentFile.fromTreeUri(context, outputUri!!)
-                            } else {
-                                if (chooseZip || choosePdf) {
-                                    val parent = doc?.parentFile
-                                    if (parent != null && parent.canWrite()) {
-                                        parent
-                                    } else {
-                                        val defOut = prefs.getString("default_output_uri", null)
-                                        if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
-                                    }
-                                } else {
-                                    DocumentFile.fromTreeUri(context, uri)
-                                }
-                            }
-
-                            if (targetTree != null && targetTree.canWrite()) {
-                                if (finalFile.isDirectory) {
-                                    copyToTree(context, finalFile, targetTree)
-                                } else {
-                                    val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                    copyToTree(context, finalFile, targetTree, mime)
-                                }
-                            } else {
-                                val destDir = context.getExternalFilesDir(null)
-                                if (destDir != null && finalFile.exists()) {
-                                    val destFile = File(destDir, finalFile.name)
-                                    if (finalFile.isDirectory) {
-                                        finalFile.copyRecursively(destFile, overwrite = true)
-                                        finalFile.deleteRecursively()
-                                    } else {
-                                        finalFile.copyTo(destFile, overwrite = true)
-                                        finalFile.delete()
-                                    }
                                     withContext(Dispatchers.Main) {
-                                        Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                        statusText = if (totalZipCount > 1) "Processing batch ($totalZipCount files)..." else "Processing..."
+                                    }
+
+                                    val uniqueTime = "${System.currentTimeMillis()}_${zipIndex}"
+                                    val cacheIn = File(context.cacheDir, "stitch_in_$uniqueTime")
+                                    cacheIn.deleteRecursively(); cacheIn.mkdirs()
+
+                                    if (chooseZip) {
+                                        MainActivity.extractFromZip(context, uri, cacheIn)
+                                    } else if (choosePdf) {
+                                        MainActivity.extractFromPdf(context, uri, cacheIn)
+                                    } else {
+                                        copyFromTree(context, uri, cacheIn)
+                                    }
+
+                                    val cacheOutParent = File(context.cacheDir, "stitch_out_$uniqueTime")
+                                    val outputName = if (chooseZip || choosePdf) {
+                                        name.substringBeforeLast(".") + " [Stitched]"
+                                    } else {
+                                        "$name [Stitched]"
+                                    }
+                                    cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
+                                    val dir = File(cacheOutParent, outputName)
+                                    dir.mkdirs()
+
+                                    val progressFile = File(context.cacheDir, "prog_$uniqueTime.json")
+
+                                    val monitor = launch {
+                                        while (isActive) {
+                                            if (progressFile.exists()) {
+                                                try {
+                                                    val j = JSONObject(progressFile.readText())
+                                                    val p = j.optInt("processed", 0)
+                                                    val t = j.optInt("total", 1)
+                                                    val prog = if (t > 0) p.toFloat() / t else 0f
+                                                    individualProgress[zipIndex] = prog
+                                                    val currentSum = individualProgress.values.sum()
+                                                    val overallProg = (completedCount.get() + currentSum) / totalZipCount
+                                                    withContext(Dispatchers.Main) {
+                                                        progress = overallProg.coerceIn(0f, 1f)
+                                                    }
+                                                } catch (_: Exception) {}
+                                            }
+                                            delay(200)
+                                        }
+                                    }
+
+                                    val finalPathStr = SmartStitcher.runAsync(
+                                        inputFolder = cacheIn.absolutePath,
+                                        splitHeight = splitHeight.toIntOrNull() ?: 5000,
+                                        outputFilesType = outputType,
+                                        batchMode = false,
+                                        widthEnforceType = widthEnforce,
+                                        customWidth = customWidth.toIntOrNull() ?: 720,
+                                        sensitivity = sensitivity.toIntOrNull() ?: 90,
+                                        ignorablePixels = ignorable.toIntOrNull() ?: 0,
+                                        scanLineStep = scanStep.toIntOrNull() ?: 5,
+                                        lowRam = lowRam,
+                                        unitImages = 20,
+                                        outputFolder = dir.absolutePath,
+                                        filenameTemplate = customFileName.takeIf { it.isNotBlank() },
+                                        zipOutput = packagingOption == PackagingOption.ZIP,
+                                        pdfOutput = packagingOption == PackagingOption.PDF,
+                                        pdfPassword = pdfPassword.takeIf { it.isNotBlank() },
+                                        progressPath = progressFile.absolutePath,
+                                        progressOffset = 0,
+                                        markDone = true,
+                                        splitMode = splitMode,
+                                        quality = quality
+                                    )
+
+                                    monitor.cancel()
+
+                                    val rawFile = File(finalPathStr)
+                                    val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
+
+                                    val targetTree = if (outputUri != null) {
+                                        DocumentFile.fromTreeUri(context, outputUri!!)
+                                    } else {
+                                        if (chooseZip || choosePdf) {
+                                            val parent = doc?.parentFile
+                                            if (parent != null && parent.canWrite()) {
+                                                parent
+                                            } else {
+                                                val defOut = prefs.getString("default_output_uri", null)
+                                                if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
+                                            }
+                                        } else {
+                                            DocumentFile.fromTreeUri(context, uri)
+                                        }
+                                    }
+
+                                    if (targetTree != null && targetTree.canWrite()) {
+                                        if (finalFile.isDirectory) {
+                                            copyToTree(context, finalFile, targetTree)
+                                        } else {
+                                            val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                            copyToTree(context, finalFile, targetTree, mime)
+                                        }
+                                    } else {
+                                        val destDir = context.getExternalFilesDir(null)
+                                        if (destDir != null && finalFile.exists()) {
+                                            val destFile = File(destDir, finalFile.name)
+                                            if (finalFile.isDirectory) {
+                                                finalFile.copyRecursively(destFile, overwrite = true)
+                                                finalFile.deleteRecursively()
+                                            } else {
+                                                finalFile.copyTo(destFile, overwrite = true)
+                                                finalFile.delete()
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+
+                                    cacheIn.deleteRecursively()
+                                    cacheOutParent.deleteRecursively()
+                                    progressFile.delete()
+
+                                    individualProgress.remove(zipIndex)
+                                    val finishedCount = completedCount.incrementAndGet()
+                                    withContext(Dispatchers.Main) {
+                                        progress = (finishedCount.toFloat() / totalZipCount).coerceIn(0f, 1f)
+                                        statusText = if (finishedCount < totalZipCount) "Processing ($finishedCount/$totalZipCount)" else "Done!"
                                     }
                                 }
                             }
-
-                            cacheIn.deleteRecursively()
-                            cacheOutParent.deleteRecursively()
-                            progressFile.delete()
                         }
+
+                        tasks.awaitAll()
 
                         withContext(Dispatchers.Main) {
                             isProcessing = false
