@@ -1073,9 +1073,7 @@ object SmartStitcher {
                 }
             }
             else -> { // .png
-                file.outputStream().buffered().use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
+                saveOptimizedPng(bitmap, file)
             }
         }
     }
@@ -1199,5 +1197,179 @@ object SmartStitcher {
 
         sourceDir.deleteRecursively()
         return pdfFile
+    }
+
+    private fun saveOptimizedPng(bitmap: Bitmap, file: File) {
+        val width = bitmap.width
+        val height = bitmap.height
+        val hasAlpha = bitmap.hasAlpha()
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val bytesPerPixel = if (hasAlpha) 4 else 3
+        val rowSize = width * bytesPerPixel
+        val rawData = ByteArray(height * (rowSize + 1))
+
+        var rawIdx = 0
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            rawData[rawIdx++] = 1 // Sub filter
+            var prevR = 0; var prevG = 0; var prevB = 0; var prevA = 0
+            for (x in 0 until width) {
+                val p = pixels[rowOffset + x]
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                val a = (p ushr 24) and 0xFF
+
+                rawData[rawIdx++] = ((r - prevR) and 0xFF).toByte()
+                rawData[rawIdx++] = ((g - prevG) and 0xFF).toByte()
+                rawData[rawIdx++] = ((b - prevB) and 0xFF).toByte()
+                if (hasAlpha) {
+                    rawData[rawIdx++] = ((a - prevA) and 0xFF).toByte()
+                    prevA = a
+                }
+                prevR = r; prevG = g; prevB = b
+            }
+        }
+
+        val idatCompressor = ByteArrayOutputStream()
+        val deflater = java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION)
+        try {
+            val dos = java.util.zip.DeflaterOutputStream(idatCompressor, deflater)
+            dos.write(rawData)
+            dos.finish()
+            dos.close()
+        } finally {
+            deflater.end()
+        }
+
+        val idatBytes = idatCompressor.toByteArray()
+
+        file.outputStream().buffered().use { out ->
+            val dataOut = DataOutputStream(out)
+            // PNG signature
+            dataOut.write(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A))
+
+            // IHDR chunk
+            val ihdr = ByteArrayOutputStream()
+            val ihdrDos = DataOutputStream(ihdr)
+            ihdrDos.writeInt(width)
+            ihdrDos.writeInt(height)
+            ihdrDos.writeByte(8) // bit depth
+            ihdrDos.writeByte(if (hasAlpha) 6 else 2) // RGBA vs RGB
+            ihdrDos.writeByte(0) // compression
+            ihdrDos.writeByte(0) // filter
+            ihdrDos.writeByte(0) // interlace
+            ihdrDos.flush()
+            writePngChunk(dataOut, "IHDR", ihdr.toByteArray())
+
+            // IDAT chunk
+            writePngChunk(dataOut, "IDAT", idatBytes)
+
+            // IEND chunk
+            writePngChunk(dataOut, "IEND", ByteArray(0))
+            dataOut.flush()
+        }
+    }
+
+    private fun writePngChunk(dos: DataOutputStream, type: String, data: ByteArray) {
+        dos.writeInt(data.size)
+        val typeBytes = type.toByteArray(Charsets.US_ASCII)
+        dos.write(typeBytes)
+        dos.write(data)
+
+        val crc = java.util.zip.CRC32()
+        crc.update(typeBytes)
+        crc.update(data)
+        dos.writeInt(crc.value.toInt())
+    }
+
+    private fun createDirectPngImageXObject(
+        pdDoc: com.tom_roush.pdfbox.pdmodel.PDDocument,
+        pngFile: File
+    ): com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject? {
+        try {
+            val bytes = pngFile.readBytes()
+            if (bytes.size < 8) return null
+            if (bytes[0] != 0x89.toByte() || bytes[1] != 'P'.code.toByte() ||
+                bytes[2] != 'N'.code.toByte() || bytes[3] != 'G'.code.toByte()) {
+                return null
+            }
+
+            var offset = 8
+            var width = 0
+            var height = 0
+            var bitDepth = 0
+            var colorType = 0
+            var interlaceMethod = 0
+
+            val idatStreams = ByteArrayOutputStream()
+
+            while (offset + 8 <= bytes.size) {
+                val length = ((bytes[offset].toInt() and 0xFF) shl 24) or
+                        ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+                        ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+                        (bytes[offset + 3].toInt() and 0xFF)
+                val typeStr = String(bytes, offset + 4, 4, Charsets.US_ASCII)
+                val dataOffset = offset + 8
+
+                if (dataOffset + length > bytes.size) break
+
+                if (typeStr == "IHDR") {
+                    width = ((bytes[dataOffset].toInt() and 0xFF) shl 24) or
+                            ((bytes[dataOffset + 1].toInt() and 0xFF) shl 16) or
+                            ((bytes[dataOffset + 2].toInt() and 0xFF) shl 8) or
+                            (bytes[dataOffset + 3].toInt() and 0xFF)
+                    height = ((bytes[dataOffset + 4].toInt() and 0xFF) shl 24) or
+                            ((bytes[dataOffset + 5].toInt() and 0xFF) shl 16) or
+                            ((bytes[dataOffset + 6].toInt() and 0xFF) shl 8) or
+                            (bytes[dataOffset + 7].toInt() and 0xFF)
+                    bitDepth = bytes[dataOffset + 8].toInt() and 0xFF
+                    colorType = bytes[dataOffset + 9].toInt() and 0xFF
+                    interlaceMethod = bytes[dataOffset + 12].toInt() and 0xFF
+                } else if (typeStr == "IDAT") {
+                    idatStreams.write(bytes, dataOffset, length)
+                } else if (typeStr == "IEND") {
+                    break
+                }
+                offset += 12 + length
+            }
+
+            if (interlaceMethod != 0 || (colorType != 0 && colorType != 2)) {
+                return null
+            }
+
+            val idatBytes = idatStreams.toByteArray()
+            if (idatBytes.isEmpty() || width <= 0 || height <= 0) return null
+
+            val pdStream = com.tom_roush.pdfbox.pdmodel.common.PDStream(
+                pdDoc,
+                ByteArrayInputStream(idatBytes),
+                com.tom_roush.pdfbox.cos.COSName.FLATE_DECODE
+            )
+            val cosDict = pdStream.cosObject
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.TYPE, com.tom_roush.pdfbox.cos.COSName.XOBJECT)
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.SUBTYPE, com.tom_roush.pdfbox.cos.COSName.IMAGE)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.WIDTH, width)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.HEIGHT, height)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.BITS_PER_COMPONENT, bitDepth)
+            cosDict.setItem(
+                com.tom_roush.pdfbox.cos.COSName.COLORSPACE,
+                if (colorType == 0) com.tom_roush.pdfbox.cos.COSName.DEVICEGRAY else com.tom_roush.pdfbox.cos.COSName.DEVICERGB
+            )
+
+            val decodeParms = com.tom_roush.pdfbox.cos.COSDictionary()
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.PREDICTOR, 15)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.COLUMNS, width)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.COLORS, if (colorType == 2) 3 else 1)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.BITS_PER_COMPONENT, bitDepth)
+
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.DECODE_PARMS, decodeParms)
+
+            return com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject(pdStream, null)
+        } catch (_: Exception) {
+            return null
+        }
     }
 }
