@@ -320,6 +320,123 @@ object SmartStitcher {
         }
     }
 
+    class VirtualCanvas(val images: List<Bitmap>) {
+        val width: Int = if (images.isEmpty()) 0 else images.maxOf { it.width }
+        val height: Int = images.sumOf { it.height }
+        private val startYs = IntArray(images.size)
+
+        init {
+            var currY = 0
+            for (i in images.indices) {
+                startYs[i] = currY
+                currY += images[i].height
+            }
+        }
+
+        private fun findImageIndex(virtualY: Int): Int {
+            var low = 0
+            var high = startYs.size - 1
+            while (low <= high) {
+                val mid = (low + high) ushr 1
+                val startY = startYs[mid]
+                val endY = startY + images[mid].height
+                if (virtualY in startY until endY) {
+                    return mid
+                } else if (virtualY < startY) {
+                    high = mid - 1
+                } else {
+                    low = mid + 1
+                }
+            }
+            return -1
+        }
+
+        fun getPixels(pixels: IntArray, offset: Int, stride: Int, x: Int, y: Int, width: Int, height: Int) {
+            var rowsLeft = height
+            var currVirtualY = y
+            var destOffset = offset
+
+            while (rowsLeft > 0) {
+                val imgIdx = findImageIndex(currVirtualY)
+                if (imgIdx < 0 || imgIdx >= images.size) break
+                val bmp = images[imgIdx]
+                val bmpStartY = startYs[imgIdx]
+                val localY = currVirtualY - bmpStartY
+                val rowsAvailable = minOf(rowsLeft, bmp.height - localY)
+
+                val bmpW = bmp.width
+                val copyW = minOf(width, maxOf(0, bmpW - x))
+
+                if (copyW > 0) {
+                    if (bmpW < width + x) {
+                        for (r in 0 until rowsAvailable) {
+                            val rowStart = destOffset + r * stride
+                            pixels.fill(Color.WHITE, rowStart, rowStart + width)
+                        }
+                    }
+                    bmp.getPixels(pixels, destOffset, stride, x, localY, copyW, rowsAvailable)
+                } else {
+                    for (r in 0 until rowsAvailable) {
+                        val rowStart = destOffset + r * stride
+                        pixels.fill(Color.WHITE, rowStart, rowStart + width)
+                    }
+                }
+
+                currVirtualY += rowsAvailable
+                destOffset += rowsAvailable * stride
+                rowsLeft -= rowsAvailable
+            }
+        }
+
+        fun extractSlice(x: Int, y: Int, width: Int, height: Int): Bitmap {
+            val slice = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val chunkSize = 1000
+            var currY = 0
+            while (currY < height) {
+                val chunkH = minOf(chunkSize, height - currY)
+                val buffer = IntArray(width * chunkH)
+                getPixels(buffer, 0, width, x, y + currY, width, chunkH)
+                slice.setPixels(buffer, 0, width, 0, currY, width, chunkH)
+                currY += chunkH
+            }
+            return slice
+        }
+
+        fun recycle() {
+            for (img in images) {
+                if (!img.isRecycled) {
+                    img.recycle()
+                }
+            }
+        }
+    }
+
+    private val threadLocalWinBuffer = object : ThreadLocal<IntArray>() {
+        override fun initialValue(): IntArray? = null
+    }
+
+    private fun getWinBuffer(size: Int): IntArray {
+        var buf = threadLocalWinBuffer.get()
+        if (buf == null || buf.size < size) {
+            buf = IntArray(size)
+            threadLocalWinBuffer.set(buf)
+        }
+        return buf
+    }
+
+    private val threadLocalRowBuffer = object : ThreadLocal<IntArray>() {
+        override fun initialValue(): IntArray? = null
+    }
+
+    private fun getRowBuffer(size: Int): IntArray {
+        var buf = threadLocalRowBuffer.get()
+        if (buf == null || buf.size < size) {
+            buf = IntArray(size)
+            threadLocalRowBuffer.set(buf)
+        }
+        return buf
+    }
+
     private fun helperProcess(
         images: List<Bitmap>,
         widthEnforceType: Int,
@@ -336,11 +453,11 @@ object SmartStitcher {
         val resized = resizeImages(images, widthEnforceType, customWidth)
         progressWriter.step()
 
-        val combined = combineImages(resized)
+        val canvas = VirtualCanvas(resized)
         progressWriter.step()
 
         val finalImages = splitImage(
-            combinedBitmap = combined,
+            canvas = canvas,
             splitHeight = splitHeight,
             sensitivity = sensitivity,
             ignorablePixels = ignorablePixels,
@@ -562,110 +679,164 @@ object SmartStitcher {
     }
 
     private fun splitImage(
-        combinedBitmap: Bitmap,
+        canvas: VirtualCanvas,
         splitHeight: Int,
         sensitivity: Int,
         ignorablePixels: Int,
         scanStep: Int,
         splitMode: Int
     ): List<Bitmap> {
-        val maxHeight = combinedBitmap.height
-        val maxWidth = combinedBitmap.width
+        val maxHeight = canvas.height
+        val maxWidth = canvas.width
         val result = mutableListOf<Bitmap>()
         var splitOffset = 0
-        val rowBuffer = IntArray(maxWidth)
 
         while (splitOffset + splitHeight < maxHeight) {
             val newSplitHeight = when (splitMode) {
                 1 -> splitHeight
                 2 -> adjustSplitLocation2D(
-                    combinedBitmap = combinedBitmap,
+                    canvas = canvas,
                     splitHeight = splitHeight,
                     splitOffset = splitOffset,
                     sensitivity = sensitivity,
                     ignorablePixels = ignorablePixels,
-                    scanStep = scanStep,
-                    rowBuffer = rowBuffer
+                    scanStep = scanStep
                 )
                 else -> adjustSplitLocation(
-                    combinedBitmap = combinedBitmap,
+                    canvas = canvas,
                     splitHeight = splitHeight,
                     splitOffset = splitOffset,
                     sensitivity = sensitivity,
                     ignorablePixels = ignorablePixels,
-                    scanStep = scanStep,
-                    rowBuffer = rowBuffer
+                    scanStep = scanStep
                 )
             }
 
-            val slice = extractSlice(combinedBitmap, 0, splitOffset, maxWidth, newSplitHeight)
+            val slice = canvas.extractSlice(0, splitOffset, maxWidth, newSplitHeight)
             result.add(slice)
             splitOffset += newSplitHeight
         }
 
         val remainingRows = maxHeight - splitOffset
         if (remainingRows > 0) {
-            val slice = extractSlice(combinedBitmap, 0, splitOffset, maxWidth, remainingRows)
+            val slice = canvas.extractSlice(0, splitOffset, maxWidth, remainingRows)
             result.add(slice)
         }
 
-        combinedBitmap.recycle()
+        canvas.recycle()
         return result
     }
 
     private fun adjustSplitLocation2D(
-        combinedBitmap: Bitmap,
+        canvas: VirtualCanvas,
         splitHeight: Int,
         splitOffset: Int,
         sensitivity: Int,
         ignorablePixels: Int,
-        scanStep: Int,
-        rowBuffer: IntArray
+        scanStep: Int
     ): Int {
         val threshold = (255 * (1.0 - (sensitivity / 100.0))).toInt().coerceAtLeast(5)
-        val maxHeight = combinedBitmap.height
-        val maxWidth = combinedBitmap.width
+        val maxHeight = canvas.height
+        val maxWidth = canvas.width
         val window = 12
-        val winHeight = window * 2 + 1
-        val winBuffer = IntArray(winHeight * maxWidth)
-
-        var bestHeight = splitHeight
-        var minPenalty = Double.MAX_VALUE
 
         val minH = (0.4 * splitHeight).toInt().coerceAtLeast(1)
         val maxH = (1.3 * splitHeight).toInt().coerceAtMost(maxHeight - splitOffset - 1)
 
-        val candidateHeights = mutableListOf<Int>()
+        val coarseStep = maxOf(scanStep * 3, 15)
+
+        val coarseCandidates = mutableListOf<Int>()
         var h = splitHeight
         while (h >= minH) {
-            candidateHeights.add(h)
-            h -= scanStep
+            coarseCandidates.add(h)
+            h -= coarseStep
         }
-        h = splitHeight + scanStep
+        h = splitHeight + coarseStep
         while (h <= maxH) {
-            candidateHeights.add(h)
-            h += scanStep
+            coarseCandidates.add(h)
+            h += coarseStep
         }
 
-        for (candH in candidateHeights) {
-            val splitRow = splitOffset + candH
-            if (splitRow < window || splitRow >= maxHeight - window) continue
+        var bestCoarseHeight = splitHeight
+        var minCoarsePenalty = Double.MAX_VALUE
 
-            val penalty = evaluateRow2DPenalty(
-                combinedBitmap = combinedBitmap,
-                splitRow = splitRow,
-                window = window,
-                threshold = threshold,
-                ignorablePixels = ignorablePixels,
-                winBuffer = winBuffer,
-                maxWidth = maxWidth,
-                currentMinPenalty = minPenalty
-            )
+        val coarseResults = runBlocking(Dispatchers.Default) {
+            coarseCandidates.map { candH ->
+                async {
+                    val splitRow = splitOffset + candH
+                    if (splitRow < window || splitRow >= maxHeight - window) {
+                        Pair(candH, Double.MAX_VALUE)
+                    } else {
+                        val penalty = evaluateRow2DPenalty(
+                            canvas = canvas,
+                            splitRow = splitRow,
+                            window = window,
+                            threshold = threshold,
+                            ignorablePixels = ignorablePixels,
+                            maxWidth = maxWidth,
+                            currentMinPenalty = Double.MAX_VALUE
+                        )
+                        Pair(candH, penalty)
+                    }
+                }
+            }.awaitAll()
+        }
 
+        for ((candH, penalty) in coarseResults) {
             if (penalty == 0.0) {
                 return candH
             }
+            if (penalty < minCoarsePenalty) {
+                minCoarsePenalty = penalty
+                bestCoarseHeight = candH
+            }
+        }
 
+        val fineMinH = (bestCoarseHeight - coarseStep).coerceAtLeast(minH)
+        val fineMaxH = (bestCoarseHeight + coarseStep).coerceAtMost(maxH)
+        val fineStep = minOf(scanStep, 2).coerceAtLeast(1)
+
+        val fineCandidates = mutableListOf<Int>()
+        var fh = bestCoarseHeight
+        while (fh >= fineMinH) {
+            fineCandidates.add(fh)
+            fh -= fineStep
+        }
+        fh = bestCoarseHeight + fineStep
+        while (fh <= fineMaxH) {
+            fineCandidates.add(fh)
+            fh += fineStep
+        }
+
+        var bestHeight = bestCoarseHeight
+        var minPenalty = minCoarsePenalty
+
+        val fineResults = runBlocking(Dispatchers.Default) {
+            fineCandidates.map { candH ->
+                async {
+                    val splitRow = splitOffset + candH
+                    if (splitRow < window || splitRow >= maxHeight - window) {
+                        Pair(candH, Double.MAX_VALUE)
+                    } else {
+                        val penalty = evaluateRow2DPenalty(
+                            canvas = canvas,
+                            splitRow = splitRow,
+                            window = window,
+                            threshold = threshold,
+                            ignorablePixels = ignorablePixels,
+                            maxWidth = maxWidth,
+                            currentMinPenalty = Double.MAX_VALUE
+                        )
+                        Pair(candH, penalty)
+                    }
+                }
+            }.awaitAll()
+        }
+
+        for ((candH, penalty) in fineResults) {
+            if (penalty == 0.0) {
+                return candH
+            }
             if (penalty < minPenalty) {
                 minPenalty = penalty
                 bestHeight = candH
@@ -677,33 +848,57 @@ object SmartStitcher {
         }
 
         return adjustSplitLocation(
-            combinedBitmap = combinedBitmap,
+            canvas = canvas,
             splitHeight = splitHeight,
             splitOffset = splitOffset,
             sensitivity = sensitivity,
             ignorablePixels = ignorablePixels,
-            scanStep = scanStep,
-            rowBuffer = rowBuffer
+            scanStep = scanStep
         )
     }
 
     private fun evaluateRow2DPenalty(
-        combinedBitmap: Bitmap,
+        canvas: VirtualCanvas,
         splitRow: Int,
         window: Int,
         threshold: Int,
         ignorablePixels: Int,
-        winBuffer: IntArray,
         maxWidth: Int,
         currentMinPenalty: Double
     ): Double {
-        val winHeight = window * 2 + 1
-        val startY = splitRow - window
-        combinedBitmap.getPixels(winBuffer, 0, maxWidth, 0, startY, maxWidth, winHeight)
-
         val startX = ignorablePixels.coerceIn(0, maxWidth - 1)
         val endX = (maxWidth - ignorablePixels - 1).coerceIn(startX, maxWidth - 1)
         if (startX >= endX) return 0.0
+
+        val rowBuffer = getRowBuffer(maxWidth)
+        canvas.getPixels(rowBuffer, 0, maxWidth, 0, splitRow, maxWidth, 1)
+
+        var isSolidGutter = true
+        val firstLum = getLuminance(rowBuffer[startX])
+        for (x in (startX + 1)..endX step 4) {
+            val diff = Math.abs(getLuminance(rowBuffer[x]) - firstLum)
+            if (diff > threshold) {
+                isSolidGutter = false
+                break
+            }
+        }
+        if (isSolidGutter) {
+            for (x in (startX + 1)..endX) {
+                val diff = Math.abs(getLuminance(rowBuffer[x]) - firstLum)
+                if (diff > threshold) {
+                    isSolidGutter = false
+                    break
+                }
+            }
+            if (isSolidGutter) {
+                return 0.0
+            }
+        }
+
+        val winHeight = window * 2 + 1
+        val startY = splitRow - window
+        val winBuffer = getWinBuffer(winHeight * maxWidth)
+        canvas.getPixels(winBuffer, 0, maxWidth, 0, startY, maxWidth, winHeight)
 
         val centerRowOffset = window * maxWidth
         var totalPenalty = 0.0
@@ -752,28 +947,29 @@ object SmartStitcher {
     }
 
     private fun adjustSplitLocation(
-        combinedBitmap: Bitmap,
+        canvas: VirtualCanvas,
         splitHeight: Int,
         splitOffset: Int,
         sensitivity: Int,
         ignorablePixels: Int,
-        scanStep: Int,
-        rowBuffer: IntArray
+        scanStep: Int
     ): Int {
         val threshold = (255 * (1.0 - (sensitivity / 100.0))).toInt()
         var newSplitHeight = splitHeight
-        val maxHeight = combinedBitmap.height
-        val maxWidth = combinedBitmap.width
+        val maxHeight = canvas.height
+        val maxWidth = canvas.width
         val lastRow = maxHeight - 1
         var adjustInProgress = true
         var countdown = true
+
+        val rowBuffer = getRowBuffer(maxWidth)
 
         while (adjustInProgress) {
             adjustInProgress = false
             val splitRow = splitOffset + newSplitHeight
             if (splitRow > lastRow) break
 
-            combinedBitmap.getPixels(rowBuffer, 0, maxWidth, 0, splitRow, maxWidth, 1)
+            canvas.getPixels(rowBuffer, 0, maxWidth, 0, splitRow, maxWidth, 1)
 
             val startX = ignorablePixels
             val endX = maxWidth - ignorablePixels - 1
