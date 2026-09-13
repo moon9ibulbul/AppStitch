@@ -1073,9 +1073,7 @@ object SmartStitcher {
                 }
             }
             else -> { // .png
-                file.outputStream().buffered().use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                }
+                saveOptimizedPng(bitmap, file)
             }
         }
     }
@@ -1163,18 +1161,6 @@ object SmartStitcher {
                     imgFile.inputStream().use { ins ->
                         com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(pdDoc, ins)
                     }
-                } else if (ext == "png") {
-                    val directImage = createDirectPngImageXObject(pdDoc, imgFile)
-                    if (directImage != null) {
-                        directImage
-                    } else {
-                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
-                        try {
-                            com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdDoc, bitmap)
-                        } finally {
-                            bitmap.recycle()
-                        }
-                    }
                 } else {
                     val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
                     try {
@@ -1211,6 +1197,92 @@ object SmartStitcher {
 
         sourceDir.deleteRecursively()
         return pdfFile
+    }
+
+    private fun saveOptimizedPng(bitmap: Bitmap, file: File) {
+        val width = bitmap.width
+        val height = bitmap.height
+        val hasAlpha = bitmap.hasAlpha()
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val bytesPerPixel = if (hasAlpha) 4 else 3
+        val rowSize = width * bytesPerPixel
+        val rawData = ByteArray(height * (rowSize + 1))
+
+        var rawIdx = 0
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            rawData[rawIdx++] = 1 // Sub filter
+            var prevR = 0; var prevG = 0; var prevB = 0; var prevA = 0
+            for (x in 0 until width) {
+                val p = pixels[rowOffset + x]
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                val a = (p ushr 24) and 0xFF
+
+                rawData[rawIdx++] = ((r - prevR) and 0xFF).toByte()
+                rawData[rawIdx++] = ((g - prevG) and 0xFF).toByte()
+                rawData[rawIdx++] = ((b - prevB) and 0xFF).toByte()
+                if (hasAlpha) {
+                    rawData[rawIdx++] = ((a - prevA) and 0xFF).toByte()
+                    prevA = a
+                }
+                prevR = r; prevG = g; prevB = b
+            }
+        }
+
+        val idatCompressor = ByteArrayOutputStream()
+        val deflater = java.util.zip.Deflater(java.util.zip.Deflater.BEST_COMPRESSION)
+        try {
+            val dos = java.util.zip.DeflaterOutputStream(idatCompressor, deflater)
+            dos.write(rawData)
+            dos.finish()
+            dos.close()
+        } finally {
+            deflater.end()
+        }
+
+        val idatBytes = idatCompressor.toByteArray()
+
+        file.outputStream().buffered().use { out ->
+            val dataOut = DataOutputStream(out)
+            // PNG signature
+            dataOut.write(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A))
+
+            // IHDR chunk
+            val ihdr = ByteArrayOutputStream()
+            val ihdrDos = DataOutputStream(ihdr)
+            ihdrDos.writeInt(width)
+            ihdrDos.writeInt(height)
+            ihdrDos.writeByte(8) // bit depth
+            ihdrDos.writeByte(if (hasAlpha) 6 else 2) // RGBA vs RGB
+            ihdrDos.writeByte(0) // compression
+            ihdrDos.writeByte(0) // filter
+            ihdrDos.writeByte(0) // interlace
+            ihdrDos.flush()
+            writePngChunk(dataOut, "IHDR", ihdr.toByteArray())
+
+            // IDAT chunk
+            writePngChunk(dataOut, "IDAT", idatBytes)
+
+            // IEND chunk
+            writePngChunk(dataOut, "IEND", ByteArray(0))
+            dataOut.flush()
+        }
+    }
+
+    private fun writePngChunk(dos: DataOutputStream, type: String, data: ByteArray) {
+        dos.writeInt(data.size)
+        val typeBytes = type.toByteArray(Charsets.US_ASCII)
+        dos.write(typeBytes)
+        dos.write(data)
+
+        val crc = java.util.zip.CRC32()
+        crc.update(typeBytes)
+        crc.update(data)
+        dos.writeInt(crc.value.toInt())
     }
 
     private fun createDirectPngImageXObject(
