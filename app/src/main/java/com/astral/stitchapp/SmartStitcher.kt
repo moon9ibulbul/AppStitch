@@ -1164,11 +1164,16 @@ object SmartStitcher {
                         com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory.createFromStream(pdDoc, ins)
                     }
                 } else if (ext == "png") {
-                    val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
-                    try {
-                        com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdDoc, bitmap)
-                    } finally {
-                        bitmap.recycle()
+                    val directImage = createDirectPngImageXObject(pdDoc, imgFile)
+                    if (directImage != null) {
+                        directImage
+                    } else {
+                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
+                        try {
+                            com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(pdDoc, bitmap)
+                        } finally {
+                            bitmap.recycle()
+                        }
                     }
                 } else {
                     val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath) ?: continue
@@ -1206,5 +1211,93 @@ object SmartStitcher {
 
         sourceDir.deleteRecursively()
         return pdfFile
+    }
+
+    private fun createDirectPngImageXObject(
+        pdDoc: com.tom_roush.pdfbox.pdmodel.PDDocument,
+        pngFile: File
+    ): com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject? {
+        try {
+            val bytes = pngFile.readBytes()
+            if (bytes.size < 8) return null
+            if (bytes[0] != 0x89.toByte() || bytes[1] != 'P'.code.toByte() ||
+                bytes[2] != 'N'.code.toByte() || bytes[3] != 'G'.code.toByte()) {
+                return null
+            }
+
+            var offset = 8
+            var width = 0
+            var height = 0
+            var bitDepth = 0
+            var colorType = 0
+            var interlaceMethod = 0
+
+            val idatStreams = ByteArrayOutputStream()
+
+            while (offset + 8 <= bytes.size) {
+                val length = ((bytes[offset].toInt() and 0xFF) shl 24) or
+                        ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+                        ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+                        (bytes[offset + 3].toInt() and 0xFF)
+                val typeStr = String(bytes, offset + 4, 4, Charsets.US_ASCII)
+                val dataOffset = offset + 8
+
+                if (dataOffset + length > bytes.size) break
+
+                if (typeStr == "IHDR") {
+                    width = ((bytes[dataOffset].toInt() and 0xFF) shl 24) or
+                            ((bytes[dataOffset + 1].toInt() and 0xFF) shl 16) or
+                            ((bytes[dataOffset + 2].toInt() and 0xFF) shl 8) or
+                            (bytes[dataOffset + 3].toInt() and 0xFF)
+                    height = ((bytes[dataOffset + 4].toInt() and 0xFF) shl 24) or
+                            ((bytes[dataOffset + 5].toInt() and 0xFF) shl 16) or
+                            ((bytes[dataOffset + 6].toInt() and 0xFF) shl 8) or
+                            (bytes[dataOffset + 7].toInt() and 0xFF)
+                    bitDepth = bytes[dataOffset + 8].toInt() and 0xFF
+                    colorType = bytes[dataOffset + 9].toInt() and 0xFF
+                    interlaceMethod = bytes[dataOffset + 12].toInt() and 0xFF
+                } else if (typeStr == "IDAT") {
+                    idatStreams.write(bytes, dataOffset, length)
+                } else if (typeStr == "IEND") {
+                    break
+                }
+                offset += 12 + length
+            }
+
+            if (interlaceMethod != 0 || (colorType != 0 && colorType != 2)) {
+                return null
+            }
+
+            val idatBytes = idatStreams.toByteArray()
+            if (idatBytes.isEmpty() || width <= 0 || height <= 0) return null
+
+            val pdStream = com.tom_roush.pdfbox.pdmodel.common.PDStream(
+                pdDoc,
+                ByteArrayInputStream(idatBytes),
+                com.tom_roush.pdfbox.cos.COSName.FLATE_DECODE
+            )
+            val cosDict = pdStream.cosObject
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.TYPE, com.tom_roush.pdfbox.cos.COSName.XOBJECT)
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.SUBTYPE, com.tom_roush.pdfbox.cos.COSName.IMAGE)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.WIDTH, width)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.HEIGHT, height)
+            cosDict.setInt(com.tom_roush.pdfbox.cos.COSName.BITS_PER_COMPONENT, bitDepth)
+            cosDict.setItem(
+                com.tom_roush.pdfbox.cos.COSName.COLORSPACE,
+                if (colorType == 0) com.tom_roush.pdfbox.cos.COSName.DEVICEGRAY else com.tom_roush.pdfbox.cos.COSName.DEVICERGB
+            )
+
+            val decodeParms = com.tom_roush.pdfbox.cos.COSDictionary()
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.PREDICTOR, 15)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.COLUMNS, width)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.COLORS, if (colorType == 2) 3 else 1)
+            decodeParms.setInt(com.tom_roush.pdfbox.cos.COSName.BITS_PER_COMPONENT, bitDepth)
+
+            cosDict.setItem(com.tom_roush.pdfbox.cos.COSName.DECODE_PARMS, decodeParms)
+
+            return com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject(pdStream, null)
+        } catch (_: Exception) {
+            return null
+        }
     }
 }
