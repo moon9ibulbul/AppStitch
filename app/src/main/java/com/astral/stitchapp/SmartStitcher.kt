@@ -362,23 +362,33 @@ object SmartStitcher {
                 val bmp = images[imgIdx]
                 val bmpStartY = startYs[imgIdx]
                 val localY = currVirtualY - bmpStartY
-                val rowsAvailable = minOf(rowsLeft, bmp.height - localY)
+                val safeLocalY = localY.coerceIn(0, maxOf(0, bmp.height - 1))
+                val rowsAvailable = minOf(rowsLeft, maxOf(0, bmp.height - safeLocalY))
 
                 val bmpW = bmp.width
-                val copyW = minOf(width, maxOf(0, bmpW - x))
+                val safeX = x.coerceIn(0, maxOf(0, bmpW - 1))
+                val copyW = minOf(width, maxOf(0, bmpW - safeX))
 
-                if (copyW > 0) {
+                if (copyW > 0 && rowsAvailable > 0) {
                     if (bmpW < width + x) {
                         for (r in 0 until rowsAvailable) {
                             val rowStart = destOffset + r * stride
-                            pixels.fill(Color.WHITE, rowStart, rowStart + width)
+                            val fillEnd = minOf(pixels.size, rowStart + width)
+                            if (rowStart < fillEnd) {
+                                pixels.fill(Color.WHITE, rowStart, fillEnd)
+                            }
                         }
                     }
-                    bmp.getPixels(pixels, destOffset, stride, x, localY, copyW, rowsAvailable)
-                } else {
+                    if (safeX + copyW <= bmp.width && safeLocalY + rowsAvailable <= bmp.height) {
+                        bmp.getPixels(pixels, destOffset, stride, safeX, safeLocalY, copyW, rowsAvailable)
+                    }
+                } else if (rowsAvailable > 0) {
                     for (r in 0 until rowsAvailable) {
                         val rowStart = destOffset + r * stride
-                        pixels.fill(Color.WHITE, rowStart, rowStart + width)
+                        val fillEnd = minOf(pixels.size, rowStart + width)
+                        if (rowStart < fillEnd) {
+                            pixels.fill(Color.WHITE, rowStart, fillEnd)
+                        }
                     }
                 }
 
@@ -394,9 +404,15 @@ object SmartStitcher {
             var currY = 0
             while (currY < height) {
                 val chunkH = minOf(chunkSize, height - currY)
-                val buffer = IntArray(width * chunkH)
-                getPixels(buffer, 0, width, x, y + currY, width, chunkH)
-                slice.setPixels(buffer, 0, width, 0, currY, width, chunkH)
+                if (chunkH > 0) {
+                    val buffer = IntArray(width * chunkH)
+                    getPixels(buffer, 0, width, x, y + currY, width, chunkH)
+                    val safeDstY = currY.coerceIn(0, slice.height - 1)
+                    val safeDstH = minOf(chunkH, slice.height - safeDstY)
+                    if (safeDstH > 0) {
+                        slice.setPixels(buffer, 0, width, 0, safeDstY, width, safeDstH)
+                    }
+                }
                 currY += chunkH
             }
             return slice
@@ -584,9 +600,18 @@ object SmartStitcher {
         var currY = 0
         while (currY < height) {
             val chunkH = minOf(chunkSize, height - currY)
-            val buffer = IntArray(width * chunkH)
-            source.getPixels(buffer, 0, width, x, y + currY, width, chunkH)
-            slice.setPixels(buffer, 0, width, 0, currY, width, chunkH)
+            val safeY = (y + currY).coerceIn(0, maxOf(0, source.height - 1))
+            val safeChunkH = minOf(chunkH, maxOf(0, source.height - safeY))
+            val safeX = x.coerceIn(0, maxOf(0, source.width - 1))
+            val safeW = minOf(width, maxOf(0, source.width - safeX))
+            val safeDstY = currY.coerceIn(0, maxOf(0, slice.height - 1))
+            val safeDstH = minOf(safeChunkH, maxOf(0, slice.height - safeDstY))
+
+            if (safeChunkH > 0 && safeW > 0 && safeDstH > 0) {
+                val buffer = IntArray(width * safeChunkH)
+                source.getPixels(buffer, 0, width, safeX, safeY, safeW, safeChunkH)
+                slice.setPixels(buffer, 0, width, 0, safeDstY, safeW, safeDstH)
+            }
             currY += chunkH
         }
         return slice
@@ -633,9 +658,16 @@ object SmartStitcher {
                             val cChunkSize = 1000
                             while (cY < dstChunkH) {
                                 val cH = minOf(cChunkSize, dstChunkH - cY)
-                                val buf = IntArray(targetWidth * cH)
-                                scaledChunk.getPixels(buf, 0, targetWidth, 0, cY, targetWidth, cH)
-                                resized.setPixels(buf, 0, targetWidth, 0, dstY + cY, targetWidth, cH)
+                                val safeCY = cY.coerceIn(0, maxOf(0, scaledChunk.height - 1))
+                                val safeCH = minOf(cH, maxOf(0, scaledChunk.height - safeCY))
+                                val safeDstY = (dstY + cY).coerceIn(0, maxOf(0, resized.height - 1))
+                                val safeDstCH = minOf(safeCH, maxOf(0, resized.height - safeDstY))
+
+                                if (safeCH > 0 && safeDstCH > 0) {
+                                    val buf = IntArray(targetWidth * safeDstCH)
+                                    scaledChunk.getPixels(buf, 0, targetWidth, 0, safeCY, targetWidth, safeDstCH)
+                                    resized.setPixels(buf, 0, targetWidth, 0, safeDstY, targetWidth, safeDstCH)
+                                }
                                 cY += cH
                             }
                             scaledChunk.recycle()
@@ -665,11 +697,19 @@ object SmartStitcher {
             var imgY = 0
             while (imgY < h) {
                 val chunkH = minOf(maxChunkH, h - imgY)
-                if (w < maxWidth) {
-                    buffer.fill(Color.WHITE, 0, maxWidth * chunkH)
+                val safeImgY = imgY.coerceIn(0, maxOf(0, h - 1))
+                val safeChunkH = minOf(chunkH, maxOf(0, h - safeImgY))
+                val safeDstY = (currentY + imgY).coerceIn(0, maxOf(0, combined.height - 1))
+                val safeDstH = minOf(safeChunkH, maxOf(0, combined.height - safeDstY))
+                val safeW = minOf(w, maxWidth)
+
+                if (safeChunkH > 0 && safeDstH > 0 && safeW > 0) {
+                    if (w < maxWidth) {
+                        buffer.fill(Color.WHITE, 0, maxWidth * safeDstH)
+                    }
+                    img.getPixels(buffer, 0, maxWidth, 0, safeImgY, safeW, safeDstH)
+                    combined.setPixels(buffer, 0, maxWidth, 0, safeDstY, safeW, safeDstH)
                 }
-                img.getPixels(buffer, 0, maxWidth, 0, imgY, w, chunkH)
-                combined.setPixels(buffer, 0, maxWidth, 0, currentY + imgY, maxWidth, chunkH)
                 imgY += chunkH
             }
             currentY += h
@@ -896,7 +936,7 @@ object SmartStitcher {
         }
 
         val winHeight = window * 2 + 1
-        val startY = splitRow - window
+        val startY = (splitRow - window).coerceIn(0, maxOf(0, canvas.height - winHeight))
         val winBuffer = getWinBuffer(winHeight * maxWidth)
         canvas.getPixels(winBuffer, 0, maxWidth, 0, startY, maxWidth, winHeight)
 

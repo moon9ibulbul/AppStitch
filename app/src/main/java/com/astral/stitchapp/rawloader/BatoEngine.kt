@@ -369,12 +369,29 @@ object BatoEngine {
     }
 
     private fun copyRectPixels(src: Bitmap, srcRect: Rect, dst: Bitmap, dstRect: Rect) {
-        val w = srcRect.width()
-        val h = srcRect.height()
+        val safeSrcLeft = srcRect.left.coerceIn(0, src.width)
+        val safeSrcTop = srcRect.top.coerceIn(0, src.height)
+        val safeSrcRight = srcRect.right.coerceIn(safeSrcLeft, src.width)
+        val safeSrcBottom = srcRect.bottom.coerceIn(safeSrcTop, src.height)
+
+        val safeDstLeft = dstRect.left.coerceIn(0, dst.width)
+        val safeDstTop = dstRect.top.coerceIn(0, dst.height)
+        val safeDstRight = dstRect.right.coerceIn(safeDstLeft, dst.width)
+        val safeDstBottom = dstRect.bottom.coerceIn(safeDstTop, dst.height)
+
+        val srcW = safeSrcRight - safeSrcLeft
+        val srcH = safeSrcBottom - safeSrcTop
+        val dstW = safeDstRight - safeDstLeft
+        val dstH = safeDstBottom - safeDstTop
+
+        val w = minOf(srcW, dstW)
+        val h = minOf(srcH, dstH)
+
         if (w <= 0 || h <= 0) return
+
         val buffer = IntArray(w * h)
-        src.getPixels(buffer, 0, w, srcRect.left, srcRect.top, w, h)
-        dst.setPixels(buffer, 0, w, dstRect.left, dstRect.top, w, h)
+        src.getPixels(buffer, 0, w, safeSrcLeft, safeSrcTop, w, h)
+        dst.setPixels(buffer, 0, w, safeDstLeft, safeDstTop, w, h)
     }
 
     fun unscrambleLezhinImage(path: File, shuffleKey: String) {

@@ -177,7 +177,8 @@ class MainActivity : ComponentActivity() {
                 rowByteBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
 
                 for (y in 0 until height) {
-                    bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1)
+                    val safeY = y.coerceIn(0, maxOf(0, bitmap.height - 1))
+                    bitmap.getPixels(rowPixels, 0, width, 0, safeY, width, 1)
                     rowByteBuffer.clear()
                     rowByteBuffer.asIntBuffer().put(rowPixels)
                     out.write(rowByteBuffer.array())
