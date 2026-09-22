@@ -444,12 +444,31 @@ object BatoEngine {
             val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
             val w = bitmap.width
             val h = bitmap.height
+            val totalTiles = cols * cols
+            val keyArray = desckey.split("a")
+            if (keyArray.size != totalTiles) {
+                bitmap.recycle()
+                return
+            }
+
+            var isSequential = true
+            for (i in 0 until totalTiles) {
+                val num = keyArray[i].toIntOrNull()
+                if (num != i) {
+                    isSequential = false
+                    break
+                }
+            }
+            if (isSequential) {
+                bitmap.recycle()
+                return
+            }
+
             val unitWidth = w / cols
             val unitHeight = h / cols
-            val keyArray = desckey.split("a")
             val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 
-            for (index in 0 until cols * cols) {
+            for (index in 0 until totalTiles) {
                 val keyValStr = keyArray.getOrNull(index)?.ifEmpty { "0" } ?: "0"
                 val keyValue = keyValStr.toIntOrNull() ?: 0
                 val sourceRow = keyValue / cols
