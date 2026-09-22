@@ -444,19 +444,39 @@ object BatoEngine {
             val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
             val w = bitmap.width
             val h = bitmap.height
-            val unitWidth = w / cols
-            val unitHeight = h / cols
             val keyArray = desckey.split("a")
+            val totalTiles = keyArray.size
+            val effectiveCols = Math.sqrt(totalTiles.toDouble()).toInt()
+            if (effectiveCols * effectiveCols != totalTiles || effectiveCols < 1) {
+                bitmap.recycle()
+                return
+            }
+
+            var isSequential = true
+            for (i in 0 until totalTiles) {
+                val num = keyArray[i].ifEmpty { "0" }.toIntOrNull() ?: 0
+                if (num != i) {
+                    isSequential = false
+                    break
+                }
+            }
+            if (isSequential) {
+                bitmap.recycle()
+                return
+            }
+
+            val unitWidth = w / effectiveCols
+            val unitHeight = h / effectiveCols
             val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 
-            for (index in 0 until cols * cols) {
+            for (index in 0 until totalTiles) {
                 val keyValStr = keyArray.getOrNull(index)?.ifEmpty { "0" } ?: "0"
                 val keyValue = keyValStr.toIntOrNull() ?: 0
-                val destinationRow = keyValue / cols
-                val sourceRow = index / cols
-                val sourceX = (index % cols) * unitWidth
+                val sourceRow = keyValue / effectiveCols
+                val sourceX = (keyValue % effectiveCols) * unitWidth
                 val sourceY = sourceRow * unitHeight
-                val destinationX = (keyValue % cols) * unitWidth
+                val destinationRow = index / effectiveCols
+                val destinationX = (index % effectiveCols) * unitWidth
                 val destinationY = destinationRow * unitHeight
 
                 val srcRect = Rect(sourceX, sourceY, sourceX + unitWidth, sourceY + unitHeight)
