@@ -52,6 +52,8 @@ import androidx.documentfile.provider.DocumentFile
 import java.util.zip.ZipInputStream
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.astral.stitchapp.rawloader.BatoEngine
+import com.astral.stitchapp.rawloader.PatchManager
+import com.astral.stitchapp.rawloader.Patch
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -472,7 +474,8 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
             Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 1) 1f else 0f).alpha(if (selectedTab == 1) 1f else 0f)) {
                 BatoTab(
                     availableTemplates = availableTemplates,
-                    onRefreshTemplates = { refreshTemplates() }
+                    onRefreshTemplates = { refreshTemplates() },
+                    showSettings = showSettings
                 )
             }
         }
@@ -541,6 +544,7 @@ fun SettingsScreen(
     var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
     var maxConcurrent by remember { mutableIntStateOf(prefs.getInt("max_concurrent_tasks", 1)) }
     var defaultOutputUri by remember { mutableStateOf(prefs.getString("default_output_uri", null)) }
+    var installedPatches by remember { mutableStateOf(PatchManager.loadAll(context)) }
 
     val pickDefaultOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -591,6 +595,19 @@ fun SettingsScreen(
                 }
             } catch(e:Exception) {
                 Toast.makeText(context, "Import Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val patchImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val patch = PatchManager.importFromUri(context, uri)
+            if (patch != null) {
+                installedPatches = PatchManager.loadAll(context)
+                Toast.makeText(context, "Patch imported: ${patch.name}", Toast.LENGTH_SHORT).show()
+                onTemplatesImported()
+            } else {
+                Toast.makeText(context, "Failed to import patch (.asp)", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -680,6 +697,55 @@ fun SettingsScreen(
                                 )
                             ) {
                                 Text("$count")
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                Text("Manage Patches", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = { patchImportLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Import Patch (.asp)")
+                }
+
+                if (installedPatches.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        installedPatches.forEach { patch ->
+                            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(patch.name, style = MaterialTheme.typography.bodyMedium)
+                                        Text("Type: ${patch.type}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        OutlinedButton(
+                                            onClick = { patchImportLauncher.launch(arrayOf("*/*")) },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Reupload", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        Button(
+                                            onClick = {
+                                                PatchManager.deletePatch(context, patch.id)
+                                                installedPatches = PatchManager.loadAll(context)
+                                                Toast.makeText(context, "Patch deleted", Toast.LENGTH_SHORT).show()
+                                                onTemplatesImported()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Delete", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1363,11 +1429,16 @@ fun StitchTab(
 @Composable
 fun BatoTab(
     availableTemplates: List<Template>,
-    onRefreshTemplates: () -> Unit
+    onRefreshTemplates: () -> Unit,
+    showSettings: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
+
+    val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "Naver Webtoon")
+    val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
     var expandedSource by remember { mutableStateOf(false) }
@@ -1377,8 +1448,6 @@ fun BatoTab(
     var cookieInput by remember { mutableStateOf(prefs.getString("ridi_cookie", "") ?: "") }
     var bomtoonCookieInput by remember { mutableStateOf(prefs.getString("bomtoon_cookie", "") ?: "") }
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
-    var newtokiCookieInput by remember { mutableStateOf(prefs.getString("newtoki_cookie", "") ?: "") }
-    var myreadingmangaCookieInput by remember { mutableStateOf(prefs.getString("myreadingmanga_cookie", "") ?: "") }
 
     var autoRetry by remember { mutableStateOf(true) }
     var showScraperDialog by remember { mutableStateOf(false) }
@@ -1535,7 +1604,7 @@ fun BatoTab(
                             put("quality", quality)
                             put("pdfPassword", pdfPassword)
                         }
-                        val result = BatoEngine.processNextItem(context.cacheDir, params.toString())
+                        val result = BatoEngine.processNextItem(context, params.toString())
                         if (result.has("status")) {
                             val status = result.getString("status")
                             if (status == "empty") {
@@ -1623,10 +1692,12 @@ fun BatoTab(
             Box {
                 OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
                 DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
-                    DropdownMenuItem(text = { Text("Ridibooks") }, onClick = { selectedSource = "Ridibooks"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("Bomtoon") }, onClick = { selectedSource = "Bomtoon"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("Lezhin") }, onClick = { selectedSource = "Lezhin"; expandedSource = false })
-                    DropdownMenuItem(text = { Text("Naver Webtoon") }, onClick = { selectedSource = "Naver Webtoon"; expandedSource = false })
+                    allSources.forEach { src ->
+                        DropdownMenuItem(
+                            text = { Text(src) },
+                            onClick = { selectedSource = src; expandedSource = false }
+                        )
+                    }
                 }
             }
         }
@@ -1656,18 +1727,20 @@ fun BatoTab(
                         isAddingToQueue = true
                         scope.launch(Dispatchers.IO) {
                             try {
+                                val patchObj = installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
                                     "Bomtoon" -> "bomtoon"
                                     "Lezhin" -> "lezhin"
                                     "Naver Webtoon" -> "naver"
-                                    else -> "ridi"
+                                    else -> patchObj?.type ?: "ridi"
                                 }
 
-                                val scraperInfo = when(type) {
-                                    "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
-                                    "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
-                                    "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
+                                val scraperInfo = when {
+                                    type == "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
+                                    type == "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
+                                    type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
+                                    patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                     else -> null
                                 }
 
@@ -1721,7 +1794,7 @@ fun BatoTab(
                             }
                         }
                     },
-                    enabled = urlInput.isNotBlank()
+                    enabled = urlInput.isNotBlank() || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin")
                 ) { Text("Add") }
             }
         }
@@ -1748,11 +1821,12 @@ fun BatoTab(
                 onDismiss = { showScraperDialog = false },
                 onScrapeSuccess = { title, images, cookie ->
                     showScraperDialog = false
+                    val patchObj = installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                     val type = when(selectedSource) {
                         "Ridibooks" -> "ridi"
                         "Bomtoon" -> "bomtoon"
                         "Lezhin" -> "lezhin"
-                        else -> ""
+                        else -> patchObj?.type ?: ""
                     }
                     if (cookie.isNotBlank()) {
                         when(type) {

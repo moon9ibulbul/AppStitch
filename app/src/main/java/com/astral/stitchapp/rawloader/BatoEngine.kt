@@ -439,6 +439,46 @@ object BatoEngine {
         dst.setPixels(buffer, 0, w, safeDstLeft, safeDstTop, w, h)
     }
 
+    fun unscrambleMangagoImage(path: File, desckey: String, cols: Int) {
+        try {
+            val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
+            val w = bitmap.width
+            val h = bitmap.height
+            val unitWidth = w / cols
+            val unitHeight = h / cols
+            val keyArray = desckey.split("a")
+            val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+
+            for (index in 0 until cols * cols) {
+                val keyValStr = keyArray.getOrNull(index)?.ifEmpty { "0" } ?: "0"
+                val keyValue = keyValStr.toIntOrNull() ?: 0
+                val destinationRow = keyValue / cols
+                val sourceRow = index / cols
+                val sourceX = (index % cols) * unitWidth
+                val sourceY = sourceRow * unitHeight
+                val destinationX = (keyValue % cols) * unitWidth
+                val destinationY = destinationRow * unitHeight
+
+                val srcRect = Rect(sourceX, sourceY, sourceX + unitWidth, sourceY + unitHeight)
+                val dstRect = Rect(destinationX, destinationY, destinationX + unitWidth, destinationY + unitHeight)
+                copyRectPixels(bitmap, srcRect, result, dstRect)
+            }
+
+            path.outputStream().use { outs ->
+                val ext = path.extension.lowercase(Locale.ROOT)
+                if (ext == "png") {
+                    result.compress(Bitmap.CompressFormat.PNG, 100, outs)
+                } else {
+                    result.compress(Bitmap.CompressFormat.JPEG, 100, outs)
+                }
+            }
+            bitmap.recycle()
+            result.recycle()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun unscrambleLezhinImage(path: File, shuffleKey: String) {
         try {
             val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
@@ -559,7 +599,9 @@ object BatoEngine {
         }
     }
 
-    suspend fun processNextItem(cacheDir: File, stitchParamsJson: String): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun processNextItem(context: Context, stitchParamsJson: String): JSONObject = processNextItem(context.cacheDir, stitchParamsJson, context)
+
+    suspend fun processNextItem(cacheDir: File, stitchParamsJson: String, context: Context? = null): JSONObject = withContext(Dispatchers.IO) {
         val item = getAndLockNextPending(cacheDir)
             ?: return@withContext JSONObject().apply { put("status", "empty") }
 
@@ -581,7 +623,7 @@ object BatoEngine {
             if (sourceType == "naver") {
                 images.addAll(getNaverImages(url))
                 referer = "https://comic.naver.com/"
-            } else if (sourceType in listOf("ridi", "bomtoon", "lezhin")) {
+            } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
                 } else {
@@ -592,7 +634,11 @@ object BatoEngine {
                     "ridi" -> "https://ridibooks.com/"
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
-                    else -> null
+                    else -> {
+                        if (context != null) {
+                            PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
+                        } else null
+                    }
                 }
             }
 
@@ -657,7 +703,9 @@ object BatoEngine {
             localFiles.sortBy { it.second.name }
 
             // 2. UNSCRAMBLING PHASE
-            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin")
+            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin", "mangago") ||
+                images.any { Uri.parse(it).fragment?.contains("desckey=") == true || Uri.parse(it).fragment?.contains("scramble=") == true || Uri.parse(it).fragment?.contains("shuffleKey=") == true }
+
             if (needsUnscramble) {
                 updateStatus(cacheDir, itemId, "unscrambling", 0.0)
                 val unscrambleCompleted = AtomicInteger(0)
@@ -681,13 +729,17 @@ object BatoEngine {
                                 }
 
                                 unscrambleSemaphore.withPermit {
-                                    if (sourceType == "bomtoon") {
+                                    if (paramsUnscram.containsKey("desckey")) {
+                                        val desckey = URLDecoder.decode(paramsUnscram["desckey"], "UTF-8")
+                                        val cols = paramsUnscram["cols"]?.toIntOrNull() ?: 2
+                                        unscrambleMangagoImage(targetPath, desckey, cols)
+                                    } else if (sourceType == "bomtoon" || paramsUnscram.containsKey("scramble")) {
                                         val scrambleData = paramsUnscram["scramble"]
                                         if (!scrambleData.isNullOrBlank()) {
                                             val decodedData = URLDecoder.decode(scrambleData, "UTF-8")
                                             unscrambleBomtoonImage(targetPath, decodedData)
                                         }
-                                    } else if (sourceType == "lezhin") {
+                                    } else if (sourceType == "lezhin" || paramsUnscram.containsKey("shuffleKey")) {
                                         val shuffleKey = paramsUnscram["shuffleKey"]
                                         if (!shuffleKey.isNullOrBlank()) {
                                             unscrambleLezhinImage(targetPath, shuffleKey)
