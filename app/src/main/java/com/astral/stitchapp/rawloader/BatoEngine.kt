@@ -452,11 +452,11 @@ object BatoEngine {
             for (index in 0 until cols * cols) {
                 val keyValStr = keyArray.getOrNull(index)?.ifEmpty { "0" } ?: "0"
                 val keyValue = keyValStr.toIntOrNull() ?: 0
-                val destinationRow = keyValue / cols
-                val sourceRow = index / cols
-                val sourceX = (index % cols) * unitWidth
+                val sourceRow = keyValue / cols
+                val sourceX = (keyValue % cols) * unitWidth
                 val sourceY = sourceRow * unitHeight
-                val destinationX = (keyValue % cols) * unitWidth
+                val destinationRow = index / cols
+                val destinationX = (index % cols) * unitWidth
                 val destinationY = destinationRow * unitHeight
 
                 val srcRect = Rect(sourceX, sourceY, sourceX + unitWidth, sourceY + unitHeight)
