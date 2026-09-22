@@ -444,16 +444,17 @@ object BatoEngine {
             val bitmap = BitmapFactory.decodeFile(path.absolutePath) ?: return
             val w = bitmap.width
             val h = bitmap.height
-            val totalTiles = cols * cols
             val keyArray = desckey.split("a")
-            if (keyArray.size != totalTiles) {
+            val totalTiles = keyArray.size
+            val effectiveCols = Math.sqrt(totalTiles.toDouble()).toInt()
+            if (effectiveCols * effectiveCols != totalTiles || effectiveCols < 1) {
                 bitmap.recycle()
                 return
             }
 
             var isSequential = true
             for (i in 0 until totalTiles) {
-                val num = keyArray[i].toIntOrNull()
+                val num = keyArray[i].ifEmpty { "0" }.toIntOrNull() ?: 0
                 if (num != i) {
                     isSequential = false
                     break
@@ -464,18 +465,18 @@ object BatoEngine {
                 return
             }
 
-            val unitWidth = w / cols
-            val unitHeight = h / cols
+            val unitWidth = w / effectiveCols
+            val unitHeight = h / effectiveCols
             val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 
             for (index in 0 until totalTiles) {
                 val keyValStr = keyArray.getOrNull(index)?.ifEmpty { "0" } ?: "0"
                 val keyValue = keyValStr.toIntOrNull() ?: 0
-                val sourceRow = keyValue / cols
-                val sourceX = (keyValue % cols) * unitWidth
+                val sourceRow = keyValue / effectiveCols
+                val sourceX = (keyValue % effectiveCols) * unitWidth
                 val sourceY = sourceRow * unitHeight
-                val destinationRow = index / cols
-                val destinationX = (index % cols) * unitWidth
+                val destinationRow = index / effectiveCols
+                val destinationX = (index % effectiveCols) * unitWidth
                 val destinationY = destinationRow * unitHeight
 
                 val srcRect = Rect(sourceX, sourceY, sourceX + unitWidth, sourceY + unitHeight)
