@@ -378,9 +378,21 @@ object BatoEngine {
                     if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
                 }
 
-                conn.inputStream.use { ins ->
-                    target.outputStream().use { outs -> ins.copyTo(outs) }
-                }
+                val rawEncSeed = conn.getHeaderField("x-enc-seed")
+                val rawEncLen = conn.getHeaderField("x-enc-len")
+                val rawEncAlgo = conn.getHeaderField("x-enc-algo")
+                val rawScrambleSeed = conn.getHeaderField("x-scramble-seed")
+                val rawScrambleGrid = conn.getHeaderField("x-scramble-grid")
+                val rawScrambleAlgo = conn.getHeaderField("x-scramble-algo")
+                val rawScrambleHash = conn.getHeaderField("x-scramble-hash")
+
+                val bytes = conn.inputStream.use { it.readBytes() }
+                val processed = processComixBytesIfNeeded(
+                    bytes,
+                    rawEncSeed, rawEncLen, rawEncAlgo,
+                    rawScrambleSeed, rawScrambleGrid, rawScrambleAlgo, rawScrambleHash
+                )
+                target.writeBytes(processed)
                 return fixImageExtension(target)
             } catch (e: Exception) {
                 lastException = e
@@ -599,6 +611,164 @@ object BatoEngine {
         }
     }
 
+    fun processComixBytesIfNeeded(
+        bytes: ByteArray,
+        rawEncSeed: String?,
+        rawEncLen: String?,
+        rawEncAlgo: String?,
+        rawScrambleSeed: String?,
+        rawScrambleGrid: String?,
+        rawScrambleAlgo: String?,
+        rawScrambleHash: String?
+    ): ByteArray {
+        val encSeed = rawEncSeed?.toLongOrNull()?.toInt()
+        val encLen = rawEncLen?.toIntOrNull()
+        val scrambleSeed = rawScrambleSeed?.toLongOrNull()?.toInt()
+        val scrambleHash = when (rawScrambleHash?.trim()) {
+            "03632" -> 58414
+            "02900" -> 117532
+            else -> 0
+        }
+
+        val needsXor = encSeed != null && encSeed != 0 && encLen != null
+        val shouldDescrambleGrid = rawScrambleGrid == "5x5" &&
+                (rawScrambleAlgo == null || rawScrambleAlgo == "1" || rawScrambleAlgo == "2" || rawScrambleAlgo == "3") &&
+                scrambleSeed != null && scrambleSeed != 0
+
+        if (!needsXor && !shouldDescrambleGrid) return bytes
+
+        val decodedBytes = if (needsXor && encSeed != null && encLen != null) {
+            decodeComixXorBytes(bytes, encSeed, encLen, rawEncAlgo)
+        } else {
+            bytes
+        }
+
+        if (shouldDescrambleGrid && scrambleSeed != null) {
+            val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size) ?: return decodedBytes
+            val seed = scrambleSeed xor scrambleHash
+            val descrambled = descrambleComixGrid(bitmap, seed, rawScrambleAlgo)
+            bitmap.recycle()
+
+            val bos = java.io.ByteArrayOutputStream()
+            descrambled.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+            descrambled.recycle()
+            return bos.toByteArray()
+        }
+
+        return decodedBytes
+    }
+
+    private fun decodeComixXorBytes(bytes: ByteArray, seed: Int, length: Int, algo: String?): ByteArray {
+        if (algo != "2") {
+            return decodeComixLcg(bytes, seed, length)
+        }
+        val candidates = listOf(
+            decodeComixXorshift(bytes, seed or 1, length, false),
+            decodeComixXorshift(bytes, seed, length, false),
+            decodeComixXorshift(bytes, seed or 1, length, true),
+            decodeComixLcg(bytes, seed, length)
+        )
+        return candidates.firstOrNull { hasComixImageSignature(it) } ?: candidates.first()
+    }
+
+    private fun decodeComixXorshift(bytes: ByteArray, initialState: Int, length: Int, highByte: Boolean): ByteArray {
+        val result = bytes.copyOf()
+        var state = initialState
+        val limit = minOf(result.size, length)
+        for (i in 0 until limit) {
+            state = state xor (state shl 13)
+            state = state xor (state ushr 17)
+            state = state xor (state shl 5)
+            val key = if (highByte) state ushr 24 else state and 0xFF
+            result[i] = (result[i].toInt() xor key).toByte()
+        }
+        return result
+    }
+
+    private fun decodeComixLcg(bytes: ByteArray, seed: Int, length: Int): ByteArray {
+        val result = bytes.copyOf()
+        var state = seed
+        val limit = minOf(result.size, length)
+        for (i in 0 until limit) {
+            state = state * 1000005 + 1234567891
+            result[i] = (result[i].toInt() xor (state ushr 24)).toByte()
+        }
+        return result
+    }
+
+    private fun hasComixImageSignature(bytes: ByteArray): Boolean {
+        if (bytes.size < 12) return false
+        val isWebp = bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() &&
+                bytes[3] == 'F'.code.toByte() && bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() &&
+                bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()
+        val isJpeg = bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()
+        val isPng = bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+        return isWebp || isJpeg || isPng
+    }
+
+    private fun descrambleComixGrid(bitmap: Bitmap, seed: Int, algo: String?): Bitmap {
+        val gridCols = 5
+        val gridRows = 5
+        val numTiles = gridCols * gridRows
+        val width = bitmap.width
+        val height = bitmap.height
+        val tileW = width / gridCols
+        val tileH = height / gridRows
+
+        val order = if (algo == "3") buildComixOrder(seed, numTiles) else buildComixOrderLcg(seed, numTiles)
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        canvas.drawBitmap(bitmap, 0f, 0f, null)
+
+        for (dstIdx in 0 until numTiles) {
+            val srcIdx = order[dstIdx]
+            val srcCol = srcIdx % gridCols
+            val srcRow = srcIdx / gridCols
+            val dstCol = dstIdx % gridCols
+            val dstRow = dstIdx / gridCols
+            val srcRect = Rect(srcCol * tileW, srcRow * tileH, (srcCol + 1) * tileW, (srcRow + 1) * tileH)
+            val dstRect = Rect(dstCol * tileW, dstRow * tileH, (dstCol + 1) * tileW, (dstRow + 1) * tileH)
+            canvas.drawBitmap(bitmap, srcRect, dstRect, null)
+        }
+        return output
+    }
+
+    private fun buildComixOrder(seed: Int, n: Int): IntArray {
+        val arr = IntArray(n) { it }
+        var state = seed or 1
+        for (i in n - 1 downTo 1) {
+            state = state xor (state shl 13)
+            state = state xor (state ushr 17)
+            state = state xor (state shl 5)
+            val j = (state.toLong() and 0xFFFFFFFFL) % (i + 1)
+            val tmp = arr[i]
+            arr[i] = arr[j.toInt()]
+            arr[j.toInt()] = tmp
+        }
+        val inverse = IntArray(n)
+        for (i in arr.indices) {
+            inverse[arr[i]] = i
+        }
+        return inverse
+    }
+
+    private fun buildComixOrderLcg(seed: Int, n: Int): IntArray {
+        val arr = IntArray(n) { it }
+        var state = seed
+        for (i in n - 1 downTo 1) {
+            state = state * 1664525 + 1013904223
+            val j = (state.toLong() and 0xFFFFFFFFL) % (i + 1)
+            val tmp = arr[i]
+            arr[i] = arr[j.toInt()]
+            arr[j.toInt()] = tmp
+        }
+        val inverse = IntArray(n)
+        for (i in arr.indices) {
+            inverse[arr[i]] = i
+        }
+        return inverse
+    }
+
     suspend fun processNextItem(context: Context, stitchParamsJson: String): JSONObject = processNextItem(context.cacheDir, stitchParamsJson, context)
 
     suspend fun processNextItem(cacheDir: File, stitchParamsJson: String, context: Context? = null): JSONObject = withContext(Dispatchers.IO) {
@@ -634,6 +804,9 @@ object BatoEngine {
                     "ridi" -> "https://ridibooks.com/"
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
+                    "comix" -> "https://comix.to/"
+                    "kagane" -> "https://kagane.to/"
+                    "xcomic" -> "https://xcomic.me/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }

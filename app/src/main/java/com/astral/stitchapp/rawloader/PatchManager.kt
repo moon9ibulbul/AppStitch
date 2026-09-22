@@ -118,7 +118,7 @@ object PatchManager {
 
     private fun initDefaultPatches(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val initialized = prefs.getBoolean("default_initialized_v1", false)
+        val initialized = prefs.getBoolean("default_initialized_v2", false)
         if (initialized) return
 
         try {
@@ -153,7 +153,7 @@ object PatchManager {
                 }
                 persist(context, current)
             }
-            prefs.edit().putBoolean("default_initialized_v1", true).apply()
+            prefs.edit().putBoolean("default_initialized_v2", true).apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
