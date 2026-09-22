@@ -876,7 +876,7 @@ object BatoEngine {
             localFiles.sortBy { it.second.name }
 
             // 2. UNSCRAMBLING PHASE
-            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin", "mangago") ||
+            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin") ||
                 images.any { Uri.parse(it).fragment?.contains("desckey=") == true || Uri.parse(it).fragment?.contains("scramble=") == true || Uri.parse(it).fragment?.contains("shuffleKey=") == true }
 
             if (needsUnscramble) {
