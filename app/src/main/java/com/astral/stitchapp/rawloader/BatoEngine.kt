@@ -270,41 +270,86 @@ object BatoEngine {
     }
 
     fun getNaverChapterInfo(urlStr: String): JSONObject {
-        return try {
-            val html = fetchHtml(urlStr)
-            var title = "Naver Webtoon Chapter"
-            val matcher = Pattern.compile("<meta property=\"og:title\" content=\"([^\"]+)\"").matcher(html)
-            if (matcher.find()) {
-                val rawTitle = matcher.group(1) ?: ""
-                title = rawTitle.replace(" - Naver Webtoon", "").trim()
+        val urlsToTry = mutableListOf(urlStr)
+        if (urlStr.contains("comic.naver.com") && !urlStr.contains("m.comic.naver.com")) {
+            urlsToTry.add(urlStr.replace("https://comic.naver.com", "https://m.comic.naver.com"))
+        } else if (urlStr.contains("m.comic.naver.com")) {
+            urlsToTry.add(urlStr.replace("https://m.comic.naver.com", "https://comic.naver.com"))
+        }
+
+        for (u in urlsToTry) {
+            try {
+                val html = fetchHtml(u)
+                if (html.isNotBlank()) {
+                    var title = ""
+                    val ogMatcher = Pattern.compile("<meta property=\"og:title\" content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (ogMatcher.find()) {
+                        title = ogMatcher.group(1) ?: ""
+                    } else {
+                        val titleMatcher = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE).matcher(html)
+                        if (titleMatcher.find()) {
+                            title = titleMatcher.group(1) ?: ""
+                        }
+                    }
+                    if (title.isNotBlank()) {
+                        title = title.replace(" - Naver Webtoon", "")
+                            .replace(" - 네이버 웹툰", "")
+                            .replace(" :: 네이버 웹툰", "")
+                            .replace(" : 네이버 웹툰", "")
+                            .trim()
+                        return JSONObject().apply {
+                            put("title", title)
+                            put("url", urlStr)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            JSONObject().apply {
-                put("title", title)
-                put("url", urlStr)
-            }
-        } catch (e: Exception) {
-            JSONObject().apply { put("error", e.message ?: "Failed to fetch page") }
+        }
+        return JSONObject().apply {
+            put("title", "Naver Webtoon Chapter")
+            put("url", urlStr)
         }
     }
 
     fun getNaverImages(urlStr: String): List<String> {
-        val html = fetchHtml(urlStr)
-        if (html.isBlank()) return emptyList()
-
-        val images = mutableListOf<String>()
-        // Match image URLs inside .wt_viewer or #section_viewer or fallback
-        val pattern = Pattern.compile("(https?://image-comic\\.pstatic\\.net/webtoon/[^\"'\\s]+\\.(?:jpg|png|jpeg))", Pattern.CASE_INSENSITIVE)
-        val matcher = pattern.matcher(html)
-        val seen = mutableSetOf<String>()
-
-        while (matcher.find()) {
-            val imgUrl = matcher.group(1) ?: continue
-            if (imgUrl in seen) continue
-            if (listOf("title_thumbnail", "banner", "display_ad", "agerate").any { imgUrl.contains(it) }) continue
-            seen.add(imgUrl)
-            images.add(imgUrl)
+        val urlsToTry = mutableListOf(urlStr)
+        if (urlStr.contains("comic.naver.com") && !urlStr.contains("m.comic.naver.com")) {
+            urlsToTry.add(urlStr.replace("https://comic.naver.com", "https://m.comic.naver.com"))
+        } else if (urlStr.contains("m.comic.naver.com")) {
+            urlsToTry.add(urlStr.replace("https://m.comic.naver.com", "https://comic.naver.com"))
         }
-        return images
+
+        val pattern = Pattern.compile("(https?://image-comic\\.pstatic\\.net/(?:mobilewebimg|webtoon)/[^\"'\\s]+\\.(?:jpg|png|jpeg))", Pattern.CASE_INSENSITIVE)
+        val ignoreKeywords = listOf("thumbnail", "banner", "display_ad", "agerate", "logo", "titledescimage", "bg_")
+
+        for (u in urlsToTry) {
+            try {
+                val html = fetchHtml(u)
+                if (html.isBlank()) continue
+
+                val matcher = pattern.matcher(html)
+                val images = mutableListOf<String>()
+                val seen = mutableSetOf<String>()
+
+                while (matcher.find()) {
+                    val imgUrl = matcher.group(1) ?: continue
+                    if (imgUrl in seen) continue
+                    if (ignoreKeywords.any { imgUrl.contains(it, ignoreCase = true) }) continue
+                    seen.add(imgUrl)
+                    images.add(imgUrl)
+                }
+
+                if (images.isNotEmpty()) {
+                    return images
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        return emptyList()
     }
 
     private fun downloadImage(urlStr: String, destDir: File, idx: Int, cookie: String?, referer: String?): File {
