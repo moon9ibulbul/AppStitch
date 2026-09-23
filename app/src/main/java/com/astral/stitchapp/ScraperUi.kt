@@ -340,37 +340,40 @@ object ScraperScripts {
         };
 
         function getViewerImages() {
-            let imgs = Array.from(document.querySelectorAll('img[opacity]'));
-            if (imgs.length > 0) {
-                const filtered = imgs.filter(img => {
-                    const src = img.src || img.getAttribute('src') || '';
-                    if (src.startsWith('blob:')) return true;
-                    if (src.startsWith('http:') || src.startsWith('https:') || src.startsWith('data:')) {
-                        return false;
+            let imgs = [];
+            const opacityImgs = Array.from(document.querySelectorAll('img[opacity]'));
+            if (opacityImgs.length > 0) {
+                imgs = opacityImgs;
+            } else {
+                const allImgs = Array.from(document.querySelectorAll('img'));
+                const parentMap = new Map();
+                allImgs.forEach(img => {
+                    const parent = img.parentElement;
+                    if (parent) {
+                        parentMap.set(parent, (parentMap.get(parent) || 0) + 1);
                     }
-                    return true;
                 });
-                if (filtered.length > 0) return filtered;
+                for (const [parent, count] of parentMap.entries()) {
+                    if (count >= 5) {
+                        imgs = Array.from(parent.querySelectorAll('img'));
+                        break;
+                    }
+                }
+                if (imgs.length === 0) {
+                    imgs = allImgs.filter(img => (img.src && img.src.startsWith('blob:')) || img.hasAttribute('opacity'));
+                }
             }
 
-            const allImgs = Array.from(document.querySelectorAll('img'));
-            const parentMap = new Map();
-            allImgs.forEach(img => {
-                const parent = img.parentElement;
-                if (parent) {
-                    parentMap.set(parent, (parentMap.get(parent) || 0) + 1);
-                }
+            imgs = imgs.filter(img => {
+                const src = img.src || img.getAttribute('src') || '';
+                return !src.startsWith('http:') && !src.startsWith('https:') && !src.startsWith('data:');
             });
-            for (const [parent, count] of parentMap.entries()) {
-                if (count >= 5) {
-                    return Array.from(parent.querySelectorAll('img')).filter(img => {
-                        const src = img.src || img.getAttribute('src') || '';
-                        return !src.startsWith('http:') && !src.startsWith('https:') && !src.startsWith('data:');
-                    });
-                }
+
+            if (imgs.length > 1) {
+                imgs = imgs.slice(0, imgs.length - 1);
             }
 
-            return allImgs.filter(img => (img.src && img.src.startsWith('blob:')) || img.hasAttribute('opacity'));
+            return imgs;
         }
 
         function isBlobLoaded(img) {
@@ -420,22 +423,10 @@ object ScraperScripts {
 
                 const loadedImgs = imgs.filter(isBlobLoaded);
                 const loaded = loadedImgs.length;
-                let isReady = (loaded >= total && total > 0);
-
-                if (!isReady && loaded > 0) {
-                    const scrollContainer = document.documentElement || document.body;
-                    const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
-                    const currentScroll = window.scrollY || window.pageYOffset || scrollContainer.scrollTop || 0;
-                    const atBottom = maxScroll > 0 && currentScroll >= maxScroll - 100;
-
-                    if (sameCountTicks > 12 || (atBottom && sameCountTicks > 4)) {
-                        log("MrBlue: Auto-load finished with " + loaded + "/" + total + " loaded blobs.");
-                        isReady = true;
-                    }
-                }
+                const isReady = (loaded >= total && total > 0);
 
                 if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(loaded, isReady ? loaded : total, isReady);
+                    Android.updateProgress(loaded, total, isReady);
                 }
 
                 log("Loading MrBlue blobs: " + loaded + " / " + total);
@@ -443,7 +434,7 @@ object ScraperScripts {
                 if (isReady) {
                     clearInterval(window._mrblueState.autoScrollInterval);
                     window._mrblueState.autoScrollInterval = null;
-                    log("All " + loaded + " image blobs loaded! Ready to scrape.");
+                    log("All " + total + " image blobs loaded! Ready to scrape.");
                     window.scrollTo(0, 0);
                     return;
                 }
@@ -476,19 +467,23 @@ object ScraperScripts {
             log("Starting MrBlue Scraper...");
             try {
                 const imgs = getViewerImages();
-                const loadedImgs = imgs.filter(isBlobLoaded);
-                if (loadedImgs.length === 0) {
-                    throw new Error("No loaded viewer images found on page.");
+                if (imgs.length === 0) {
+                    throw new Error("No viewer images found on page.");
                 }
 
-                log("Converting " + loadedImgs.length + " blob images to base64...");
+                const unloaded = imgs.filter(img => !isBlobLoaded(img));
+                if (unloaded.length > 0) {
+                    throw new Error("Please wait until all image blobs are loaded (" + (imgs.length - unloaded.length) + "/" + imgs.length + ")");
+                }
+
+                log("Converting " + imgs.length + " blob images to base64...");
                 const dataUrls = [];
-                for (let i = 0; i < loadedImgs.length; i++) {
+                for (let i = 0; i < imgs.length; i++) {
                     if (window.Android && window.Android.updateProgress) {
-                        Android.updateProgress(i + 1, loadedImgs.length, false);
+                        Android.updateProgress(i + 1, imgs.length, false);
                     }
-                    log("Converting image " + (i + 1) + "/" + loadedImgs.length + "...");
-                    const dataUrl = await blobToDataUrl(loadedImgs[i].src);
+                    log("Converting image " + (i + 1) + "/" + imgs.length + "...");
+                    const dataUrl = await blobToDataUrl(imgs[i].src);
                     if (dataUrl) {
                         dataUrls.push(dataUrl);
                     } else {
@@ -497,7 +492,7 @@ object ScraperScripts {
                 }
 
                 if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(loadedImgs.length, loadedImgs.length, true);
+                    Android.updateProgress(imgs.length, imgs.length, true);
                 }
 
                 let pageTitle = document.title.replace('- MrBlue', '').replace('미스터블루', '').trim();
