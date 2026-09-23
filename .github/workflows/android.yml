@@ -56,10 +56,18 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug
 
-      # Upload artifact APK
-      - name: Upload APK
+      # Upload artifact APK arm64-v8a
+      - name: Upload ARM64-v8a APK
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: StitchApp-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: StitchApp-arm64-v8a-debug
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+
+      # Upload artifact APK armeabi-v7a
+      - name: Upload ARMeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: StitchApp-armeabi-v7a-debug
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
