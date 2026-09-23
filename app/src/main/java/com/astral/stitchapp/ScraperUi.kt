@@ -369,10 +369,6 @@ object ScraperScripts {
                 return !src.startsWith('http:') && !src.startsWith('https:') && !src.startsWith('data:');
             });
 
-            if (imgs.length > 1) {
-                imgs = imgs.slice(0, imgs.length - 1);
-            }
-
             return imgs;
         }
 
@@ -423,10 +419,22 @@ object ScraperScripts {
 
                 const loadedImgs = imgs.filter(isBlobLoaded);
                 const loaded = loadedImgs.length;
-                const isReady = (loaded >= total && total > 0);
+                let isReady = (loaded >= total && total > 0);
+
+                if (!isReady && loaded > 0) {
+                    const scrollContainer = document.documentElement || document.body;
+                    const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
+                    const currentScroll = window.scrollY || window.pageYOffset || scrollContainer.scrollTop || 0;
+                    const atBottom = maxScroll > 0 && currentScroll >= maxScroll - 100;
+
+                    if (sameCountTicks > 10 || (atBottom && sameCountTicks > 3)) {
+                        log("MrBlue: Auto-load completed with " + loaded + "/" + total + " loaded blobs.");
+                        isReady = true;
+                    }
+                }
 
                 if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(loaded, total, isReady);
+                    Android.updateProgress(loaded, isReady ? loaded : total, isReady);
                 }
 
                 log("Loading MrBlue blobs: " + loaded + " / " + total);
@@ -434,7 +442,7 @@ object ScraperScripts {
                 if (isReady) {
                     clearInterval(window._mrblueState.autoScrollInterval);
                     window._mrblueState.autoScrollInterval = null;
-                    log("All " + total + " image blobs loaded! Ready to scrape.");
+                    log("All " + loaded + " image blobs loaded! Ready to scrape.");
                     window.scrollTo(0, 0);
                     return;
                 }
@@ -453,7 +461,7 @@ object ScraperScripts {
 
                 if (loaded === lastLoadedCount) {
                     sameCountTicks++;
-                    if (sameCountTicks > 20) {
+                    if (sameCountTicks > 15) {
                         window.scrollTo(0, scrollContainer.scrollHeight);
                     }
                 } else {
@@ -467,23 +475,19 @@ object ScraperScripts {
             log("Starting MrBlue Scraper...");
             try {
                 const imgs = getViewerImages();
-                if (imgs.length === 0) {
-                    throw new Error("No viewer images found on page.");
+                const loadedImgs = imgs.filter(isBlobLoaded);
+                if (loadedImgs.length === 0) {
+                    throw new Error("No loaded viewer images found on page.");
                 }
 
-                const unloaded = imgs.filter(img => !isBlobLoaded(img));
-                if (unloaded.length > 0) {
-                    throw new Error("Please wait until all image blobs are loaded (" + (imgs.length - unloaded.length) + "/" + imgs.length + ")");
-                }
-
-                log("Converting " + imgs.length + " blob images to base64...");
+                log("Converting " + loadedImgs.length + " blob images to base64...");
                 const dataUrls = [];
-                for (let i = 0; i < imgs.length; i++) {
+                for (let i = 0; i < loadedImgs.length; i++) {
                     if (window.Android && window.Android.updateProgress) {
-                        Android.updateProgress(i + 1, imgs.length, false);
+                        Android.updateProgress(i + 1, loadedImgs.length, false);
                     }
-                    log("Converting image " + (i + 1) + "/" + imgs.length + "...");
-                    const dataUrl = await blobToDataUrl(imgs[i].src);
+                    log("Converting image " + (i + 1) + "/" + loadedImgs.length + "...");
+                    const dataUrl = await blobToDataUrl(loadedImgs[i].src);
                     if (dataUrl) {
                         dataUrls.push(dataUrl);
                     } else {
@@ -492,7 +496,7 @@ object ScraperScripts {
                 }
 
                 if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(imgs.length, imgs.length, true);
+                    Android.updateProgress(loadedImgs.length, loadedImgs.length, true);
                 }
 
                 let pageTitle = document.title.replace('- MrBlue', '').replace('미스터블루', '').trim();
