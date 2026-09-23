@@ -140,6 +140,14 @@ object BatoEngine {
                     e.printStackTrace()
                 }
 
+                val existingRidi = queue.filter { it.url == url }
+                existingRidi.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
                 if (queue.none { it.url == url }) {
                     queue.add(QueueItem(url = url, title = title, type = "ridi", cookie = cookie))
                     added = 1
@@ -147,6 +155,14 @@ object BatoEngine {
             } else if (sourceType == "naver") {
                 val info = getNaverChapterInfo(url)
                 val title = info.optString("title", "Naver Chapter")
+                val existingNaver = queue.filter { it.url == url }
+                existingNaver.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
                 if (queue.none { it.url == url }) {
                     queue.add(QueueItem(url = url, title = title, type = "naver"))
                     added = 1
@@ -165,14 +181,59 @@ object BatoEngine {
 
     suspend fun addDirectJob(cacheDir: File, title: String, images: List<String>, cookie: String = "", sourceType: String = "ridi"): JSONObject = queueMutex.withLock {
         val queue = loadQueue(cacheDir)
+
+        val sanitizedTitle = sanitizeFilename(title)
+        val existingIndices = queue.indices.filter {
+            val qTitle = queue[it].title
+            qTitle.equals(title, ignoreCase = true) || sanitizeFilename(qTitle).equals(sanitizedTitle, ignoreCase = true)
+        }
+        for (i in existingIndices.reversed()) {
+            val oldItem = queue[i]
+            if (oldItem.status == "done" || oldItem.status == "failed") {
+                val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                queue.removeAt(i)
+            }
+        }
+
+        val jobId = UUID.randomUUID().toString()
         val fakeUrl = "direct://${sanitizeFilename(title)}/${System.currentTimeMillis()}"
+
+        val processedImages = mutableListOf<String>()
+        val prescrapedDir = File(cacheDir, "prescraped_cache/$jobId")
+
+        images.forEachIndexed { idx, img ->
+            if (img.startsWith("data:")) {
+                if (!prescrapedDir.exists()) prescrapedDir.mkdirs()
+                val ext = when {
+                    img.startsWith("data:image/png") -> ".png"
+                    img.startsWith("data:image/webp") -> ".webp"
+                    else -> ".jpg"
+                }
+                val filename = String.format(Locale.ROOT, "prescraped_%04d%s", idx + 1, ext)
+                val targetFile = File(prescrapedDir, filename)
+                try {
+                    val base64Data = img.substringAfter("base64,")
+                    val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    targetFile.writeBytes(bytes)
+                    processedImages.add(targetFile.absolutePath)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    processedImages.add(img)
+                }
+            } else {
+                processedImages.add(img)
+            }
+        }
+
         queue.add(
             QueueItem(
+                id = jobId,
                 url = fakeUrl,
                 title = title,
                 type = sourceType,
                 cookie = cookie,
-                preScrapedImages = images
+                preScrapedImages = processedImages
             )
         )
         saveQueue(cacheDir, queue)
@@ -182,6 +243,8 @@ object BatoEngine {
     suspend fun removeItem(cacheDir: File, itemId: String) = queueMutex.withLock {
         val queue = loadQueue(cacheDir)
         queue.removeAll { it.id == itemId }
+        val prescrapedDir = File(cacheDir, "prescraped_cache/$itemId")
+        if (prescrapedDir.exists()) prescrapedDir.deleteRecursively()
         saveQueue(cacheDir, queue)
     }
 
@@ -205,6 +268,11 @@ object BatoEngine {
 
     suspend fun clearCompleted(cacheDir: File) = queueMutex.withLock {
         val queue = loadQueue(cacheDir)
+        val doneItems = queue.filter { it.status == "done" }
+        doneItems.forEach { item ->
+            val prescrapedDir = File(cacheDir, "prescraped_cache/${item.id}")
+            if (prescrapedDir.exists()) prescrapedDir.deleteRecursively()
+        }
         queue.removeAll { it.status == "done" }
         saveQueue(cacheDir, queue)
     }
@@ -226,7 +294,13 @@ object BatoEngine {
         val idx = queue.indexOfFirst { it.id == itemId }
         if (idx != -1) {
             if (queue[idx].status != "paused" || status == "paused") {
-                queue[idx] = queue[idx].copy(status = status, progress = progress)
+                var updatedItem = queue[idx].copy(status = status, progress = progress)
+                if (status == "done" || status == "failed") {
+                    updatedItem = updatedItem.copy(preScrapedImages = emptyList())
+                    val prescrapedDir = File(cacheDir, "prescraped_cache/$itemId")
+                    if (prescrapedDir.exists()) prescrapedDir.deleteRecursively()
+                }
+                queue[idx] = updatedItem
                 saveQueue(cacheDir, queue)
             }
         }
@@ -353,6 +427,17 @@ object BatoEngine {
     }
 
     private fun downloadImage(urlStr: String, destDir: File, idx: Int, cookie: String?, referer: String?): File {
+        if (File(urlStr).exists()) {
+            val srcFile = File(urlStr)
+            val ext = if (srcFile.extension.isNotBlank()) ".${srcFile.extension}" else ".jpg"
+            val filename = String.format(Locale.ROOT, "img_%04d%s", idx, ext)
+            val target = File(destDir, filename)
+            if (srcFile.absolutePath != target.absolutePath) {
+                srcFile.copyTo(target, overwrite = true)
+            }
+            return fixImageExtension(target)
+        }
+
         if (urlStr.startsWith("data:")) {
             val ext = when {
                 urlStr.startsWith("data:image/png") -> ".png"
@@ -810,7 +895,9 @@ object BatoEngine {
                             queue[idx] = qItem.copy(retryCount = qItem.retryCount + 1, status = "pending")
                             newStatus = "pending"
                         } else {
-                            queue[idx] = qItem.copy(status = "failed")
+                            val prescrapedDir = File(cacheDir, "prescraped_cache/$itemId")
+                            if (prescrapedDir.exists()) prescrapedDir.deleteRecursively()
+                            queue[idx] = qItem.copy(status = "failed", preScrapedImages = emptyList())
                         }
                         saveQueue(cacheDir, queue)
                     }
