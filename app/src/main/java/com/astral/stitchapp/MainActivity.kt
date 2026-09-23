@@ -545,15 +545,14 @@ fun CookieWebViewDialog(
                                         if (intent.resolveActivity(ctx.packageManager) != null) {
                                             ctx.startActivity(intent)
                                         } else {
-                                            var fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                            if (fallbackUrl.isNullOrEmpty() && (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://") || reqUrl.startsWith("kakaotalk://"))) {
-                                                val match = Regex("S\\.browser_fallback_url=([^;]+)").find(reqUrl)
-                                                if (match != null) {
-                                                    fallbackUrl = java.net.URLDecoder.decode(match.groupValues[1], "UTF-8")
-                                                }
+                                            val rawFallback = intent.getStringExtra("browser_fallback_url") ?: run {
+                                                if (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://") || reqUrl.startsWith("kakaotalk://")) {
+                                                    val match = Regex("S\\.browser_fallback_url=([^;]+)").find(reqUrl)
+                                                    if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else null
+                                                } else null
                                             }
-                                            if (!fallbackUrl.isNullOrEmpty()) {
-                                                view?.loadUrl(fixKakaoUrl(fallbackUrl))
+                                            if (!rawFallback.isNullOrEmpty()) {
+                                                view?.loadUrl(fixKakaoUrl(rawFallback))
                                             }
                                         }
                                         true
@@ -589,15 +588,14 @@ fun CookieWebViewDialog(
                                                 if (intent.resolveActivity(ctx.packageManager) != null) {
                                                     ctx.startActivity(intent)
                                                 } else {
-                                                    var fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                                    if (fallbackUrl.isNullOrEmpty() && (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://") || popupUrl.startsWith("kakaotalk://"))) {
-                                                        val match = Regex("S\\.browser_fallback_url=([^;]+)").find(popupUrl)
-                                                        if (match != null) {
-                                                            fallbackUrl = java.net.URLDecoder.decode(match.groupValues[1], "UTF-8")
-                                                        }
+                                                    val rawFallback = intent.getStringExtra("browser_fallback_url") ?: run {
+                                                        if (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://") || popupUrl.startsWith("kakaotalk://")) {
+                                                            val match = Regex("S\\.browser_fallback_url=([^;]+)").find(popupUrl)
+                                                            if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else null
+                                                        } else null
                                                     }
-                                                    if (!fallbackUrl.isNullOrEmpty()) {
-                                                        view.loadUrl(fixKakaoUrl(fallbackUrl))
+                                                    if (!rawFallback.isNullOrEmpty()) {
+                                                        view.loadUrl(fixKakaoUrl(rawFallback))
                                                     }
                                                 }
                                                 true
