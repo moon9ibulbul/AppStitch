@@ -258,8 +258,8 @@ object ScraperScripts {
         function extractShuffleKeys() {
             const html = document.documentElement.innerHTML;
             const patterns = [
-                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\${"$"}\${"$"}\undefined\\"?)/g,
-                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\${"$"}\${"$}undefined"|null)/g,
+                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?${"$"}${"$}undefined\\"?)/g,
+                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"${"$"}${"$}undefined"|null)/g,
             ];
             for (const pat of patterns) {
                 let m;
