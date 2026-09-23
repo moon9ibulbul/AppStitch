@@ -258,14 +258,14 @@ object ScraperScripts {
         function extractShuffleKeys() {
             const html = document.documentElement.innerHTML;
             const patterns = [
-                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?\${"$"}${"$"}undefined\\"?)/g,
-                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"\${"$"}${"$"}undefined"|null)/g,
+                /\\"path\\":\\"([^"\\]+)\\",\\"cutType\\":\\"contents\\",\\"shuffleKey\\":(\d+|\\"?${"$"}${"$}undefined\\"?)/g,
+                /"path"\s*:\s*"([^"]+)",\s*"cutType"\s*:\s*"contents",\s*"shuffleKey"\s*:\s*(\d+|"${"$"}${"$}undefined"|null)/g,
             ];
             for (const pat of patterns) {
                 let m;
                 while ((m = pat.exec(html)) !== null) {
                     const path = m[1].replace(/\\+/g, '');
-                    const rawKey = m[2].replace(/["\\]/g, '').replace('${"$"}${"$"}undefined', '').trim();
+                    const rawKey = m[2].replace(/["\\]/g, '').replace('${"$"}${"$}undefined', '').trim();
                     const idxMatch = path.split('/').pop().match(/^(\d+)/);
                     if (!idxMatch) continue;
                     const index = parseInt(idxMatch[1]);
@@ -328,16 +328,194 @@ object ScraperScripts {
         };
     })();
     """.trimIndent()
+
+    val MRBLUE = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        window._mrblueState = window._mrblueState || {
+            isScanning: false,
+            autoScrollInterval: null
+        };
+
+        function getViewerImages() {
+            let imgs = Array.from(document.querySelectorAll('img[opacity]'));
+            if (imgs.length > 0) return imgs;
+
+            const allImgs = Array.from(document.querySelectorAll('img'));
+            const parentMap = new Map();
+            allImgs.forEach(img => {
+                const parent = img.parentElement;
+                if (parent) {
+                    parentMap.set(parent, (parentMap.get(parent) || 0) + 1);
+                }
+            });
+            for (const [parent, count] of parentMap.entries()) {
+                if (count >= 5) {
+                    return Array.from(parent.querySelectorAll('img'));
+                }
+            }
+
+            return allImgs.filter(img => (img.src && img.src.startsWith('blob:')) || img.hasAttribute('opacity'));
+        }
+
+        function isBlobLoaded(img) {
+            if (!img) return false;
+            const src = img.src || img.getAttribute('src') || '';
+            const opacity = img.getAttribute('opacity');
+            return src.startsWith('blob:') && opacity !== '0';
+        }
+
+        async function blobToDataUrl(blobUrl) {
+            try {
+                const response = await fetch(blobUrl);
+                const blob = await response.blob();
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (e) {
+                log("Error converting blob: " + e.message);
+                return null;
+            }
+        }
+
+        window.startMrBlueAutoLoad = function() {
+            log("MrBlue: Initializing viewer monitor...");
+            if (window._mrblueState.autoScrollInterval) {
+                clearInterval(window._mrblueState.autoScrollInterval);
+            }
+
+            let scrollPos = 0;
+            let lastLoadedCount = -1;
+            let sameCountTicks = 0;
+
+            window._mrblueState.autoScrollInterval = setInterval(() => {
+                const imgs = getViewerImages();
+                const total = imgs.length;
+
+                if (total === 0) {
+                    if (window.Android && window.Android.updateProgress) {
+                        Android.updateProgress(0, 0, false);
+                    }
+                    log("Waiting for viewer images to load...");
+                    return;
+                }
+
+                const loadedImgs = imgs.filter(isBlobLoaded);
+                const loaded = loadedImgs.length;
+                const isReady = (loaded >= total && total > 0);
+
+                if (window.Android && window.Android.updateProgress) {
+                    Android.updateProgress(loaded, total, isReady);
+                }
+
+                log("Loading MrBlue blobs: " + loaded + " / " + total);
+
+                if (isReady) {
+                    clearInterval(window._mrblueState.autoScrollInterval);
+                    window._mrblueState.autoScrollInterval = null;
+                    log("All " + total + " image blobs loaded! Ready to scrape.");
+                    window.scrollTo(0, 0);
+                    return;
+                }
+
+                const scrollContainer = document.documentElement || document.body;
+                const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
+
+                const nextUnloaded = imgs.find(img => !isBlobLoaded(img));
+                if (nextUnloaded) {
+                    nextUnloaded.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    scrollPos += 800;
+                    if (scrollPos > maxScroll + 1000) scrollPos = 0;
+                    window.scrollTo(0, scrollPos);
+                }
+
+                if (loaded === lastLoadedCount) {
+                    sameCountTicks++;
+                    if (sameCountTicks > 30) {
+                        window.scrollTo(0, scrollContainer.scrollHeight);
+                    }
+                } else {
+                    lastLoadedCount = loaded;
+                    sameCountTicks = 0;
+                }
+            }, 500);
+        };
+
+        window.runScraper = async function() {
+            log("Starting MrBlue Scraper...");
+            try {
+                const imgs = getViewerImages();
+                if (imgs.length === 0) {
+                    throw new Error("No viewer images found on page.");
+                }
+
+                const unloaded = imgs.filter(img => !isBlobLoaded(img));
+                if (unloaded.length > 0) {
+                    throw new Error("Please wait until all image blobs are loaded (" + (imgs.length - unloaded.length) + "/" + imgs.length + ")");
+                }
+
+                log("Converting " + imgs.length + " blob images to base64...");
+                const dataUrls = [];
+                for (let i = 0; i < imgs.length; i++) {
+                    if (window.Android && window.Android.updateProgress) {
+                        Android.updateProgress(i + 1, imgs.length, false);
+                    }
+                    log("Converting image " + (i + 1) + "/" + imgs.length + "...");
+                    const dataUrl = await blobToDataUrl(imgs[i].src);
+                    if (dataUrl) {
+                        dataUrls.push(dataUrl);
+                    } else {
+                        throw new Error("Failed to read blob for image " + (i + 1));
+                    }
+                }
+
+                if (window.Android && window.Android.updateProgress) {
+                    Android.updateProgress(imgs.length, imgs.length, true);
+                }
+
+                let pageTitle = document.title.replace('- MrBlue', '').replace('미스터블루', '').trim();
+                if (!pageTitle) pageTitle = "MrBlue Chapter";
+
+                const result = {
+                    title: pageTitle,
+                    images: dataUrls,
+                    cookie: document.cookie
+                };
+
+                log("MrBlue: Successfully scraped " + dataUrls.length + " images!");
+                if (window.Android && window.Android.onImagesFound) {
+                    Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("MrBlue Scraper Error: " + e.message);
+            }
+        };
+
+        window.startMrBlueAutoLoad();
+    })();
+    """.trimIndent()
 }
 
 class ScraperJsInterface(
     private val onResult: (String, List<String>, String) -> Unit,
-    private val onLog: (String) -> Unit
+    private val onLog: (String) -> Unit,
+    private val onProgress: ((Int, Int, Boolean) -> Unit)? = null
 ) {
     @JavascriptInterface
     fun log(msg: String) {
         Log.d("ScraperJS", msg)
         onLog(msg)
+    }
+
+    @JavascriptInterface
+    fun updateProgress(loaded: Int, total: Int, isReady: Boolean) {
+        onProgress?.invoke(loaded, total, isReady)
     }
 
     @JavascriptInterface
@@ -394,6 +572,11 @@ fun ScraperWebViewDialog(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var status by remember { mutableStateOf("Loading page...") }
 
+    val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
+    var loadedCount by remember { mutableIntStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var isScrapeReady by remember { mutableStateOf(!isMrBlue) }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -418,7 +601,12 @@ fun ScraperWebViewDialog(
                                     val currentCookie = cm.getCookie(url) ?: ""
                                     onScrapeSuccess(t, i, currentCookie)
                                 },
-                                onLog = { msg -> status = msg }
+                                onLog = { msg -> status = msg },
+                                onProgress = { loaded, total, ready ->
+                                    loadedCount = loaded
+                                    totalCount = total
+                                    isScrapeReady = ready
+                                }
                             ), "Android")
 
                             webViewClient = object : WebViewClient() {
@@ -441,13 +629,47 @@ fun ScraperWebViewDialog(
                             webView = this
                         }
                     },
-                    modifier = Modifier.fillMaxSize().padding(bottom = 100.dp)
+                    modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)
                 )
 
                 Column(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)).padding(8.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
                 ) {
+                    if (isMrBlue || totalCount > 0) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (!isScrapeReady && totalCount > 0) {
+                                LinearProgressIndicator(
+                                    progress = { loadedCount.toFloat() / totalCount.toFloat() },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Loading images: $loadedCount / $totalCount",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else if (!isScrapeReady && totalCount == 0) {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Detecting viewer images...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            } else if (isScrapeReady && totalCount > 0) {
+                                Text(
+                                    text = "All $totalCount images loaded! Ready to scrape.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
+
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
@@ -479,6 +701,7 @@ fun ScraperWebViewDialog(
                                     webView?.evaluateJavascript("window.runScraper();", null)
                                 }
                             },
+                            enabled = isScrapeReady,
                             modifier = Modifier.weight(1f)
                         ) { Text("Scrape") }
                     }
