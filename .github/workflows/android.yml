@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       # Hapus stub wrapper kalau ada (penyebab error 126)
       - name: Remove stub gradle wrapper if present
