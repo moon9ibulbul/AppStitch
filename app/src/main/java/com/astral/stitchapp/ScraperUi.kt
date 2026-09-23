@@ -638,6 +638,11 @@ fun ScraperWebViewDialog(
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                     val reqUrl = request?.url?.toString() ?: return false
                                     if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
+                                        if (reqUrl.contains("#webTalkLogin")) {
+                                            val cleanUrl = reqUrl.replace("#webTalkLogin", "")
+                                            view?.loadUrl(cleanUrl)
+                                            return true
+                                        }
                                         return false
                                     }
                                     return try {
@@ -648,7 +653,11 @@ fun ScraperWebViewDialog(
                                         } else {
                                             val fallbackUrl = intent.getStringExtra("browser_fallback_url")
                                             if (!fallbackUrl.isNullOrEmpty()) {
-                                                view?.loadUrl(fallbackUrl)
+                                                val cleanFallback = fallbackUrl.replace("#webTalkLogin", "")
+                                                view?.loadUrl(cleanFallback)
+                                            } else if (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://")) {
+                                                val fallback = "https://accounts.kakao.com/login"
+                                                view?.loadUrl(fallback)
                                             }
                                         }
                                         true
@@ -689,7 +698,8 @@ fun ScraperWebViewDialog(
                                         override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                             val popupUrl = request?.url?.toString() ?: return false
                                             if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                view.loadUrl(popupUrl)
+                                                val cleanUrl = if (popupUrl.contains("#webTalkLogin")) popupUrl.replace("#webTalkLogin", "") else popupUrl
+                                                view.loadUrl(cleanUrl)
                                                 return true
                                             }
                                             return try {
@@ -700,7 +710,11 @@ fun ScraperWebViewDialog(
                                                 } else {
                                                     val fallbackUrl = intent.getStringExtra("browser_fallback_url")
                                                     if (!fallbackUrl.isNullOrEmpty()) {
-                                                        view.loadUrl(fallbackUrl)
+                                                        val cleanFallback = fallbackUrl.replace("#webTalkLogin", "")
+                                                        view.loadUrl(cleanFallback)
+                                                    } else if (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://")) {
+                                                        val fallback = "https://accounts.kakao.com/login"
+                                                        view.loadUrl(fallback)
                                                     }
                                                 }
                                                 true
@@ -713,7 +727,8 @@ fun ScraperWebViewDialog(
                                             super.onPageStarted(v, popupUrl, favicon)
                                             if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
                                                 v?.stopLoading()
-                                                view.loadUrl(popupUrl)
+                                                val cleanUrl = if (popupUrl.contains("#webTalkLogin")) popupUrl.replace("#webTalkLogin", "") else popupUrl
+                                                view.loadUrl(cleanUrl)
                                             }
                                         }
                                     }
@@ -726,7 +741,8 @@ fun ScraperWebViewDialog(
                                     return true
                                 }
                             }
-                            loadUrl(url)
+                            val initialUrl = if (url.contains("#webTalkLogin")) url.replace("#webTalkLogin", "") else url
+                            loadUrl(initialUrl)
                             webView = this
                         }
                     },
