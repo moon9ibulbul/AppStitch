@@ -591,7 +591,7 @@ object SmartStitcher {
             if (bmp != null) return bmp
 
             if (file.extension.equals("jxl", ignoreCase = true)) {
-                return io.github.awxkee.jxlcoder.JxlCoder.decode(file.readBytes())
+                return com.awxkee.jxlcoder.JxlCoder.Convenience.decode(file.readBytes())
             }
             null
         } catch (e: Exception) {
