@@ -582,6 +582,21 @@ class ScraperJsInterface(
     }
 }
 
+private fun fixKakaoUrl(u: String): String {
+    if (u.contains("accounts.kakao.com/login")) {
+        var clean = u.replace("#webTalkLogin", "")
+        if (!clean.contains("talk_login_error=true")) {
+            clean = if (clean.contains("?")) {
+                clean.replace("?", "?talk_login_error=true&")
+            } else {
+                "$clean?talk_login_error=true"
+            }
+        }
+        return clean
+    }
+    return u
+}
+
 @Composable
 fun ScraperWebViewDialog(
     url: String,
@@ -638,6 +653,10 @@ fun ScraperWebViewDialog(
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                     val reqUrl = request?.url?.toString() ?: return false
                                     if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
+                                        if (reqUrl.contains("accounts.kakao.com/login") && (reqUrl.contains("#webTalkLogin") || !reqUrl.contains("talk_login_error=true"))) {
+                                            view?.loadUrl(fixKakaoUrl(reqUrl))
+                                            return true
+                                        }
                                         return false
                                     }
                                     return try {
@@ -646,9 +665,14 @@ fun ScraperWebViewDialog(
                                         if (intent.resolveActivity(ctx.packageManager) != null) {
                                             ctx.startActivity(intent)
                                         } else {
-                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                            if (!fallbackUrl.isNullOrEmpty()) {
-                                                view?.loadUrl(fallbackUrl)
+                                            val rawFallback = intent.getStringExtra("browser_fallback_url") ?: run {
+                                                if (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://") || reqUrl.startsWith("kakaotalk://")) {
+                                                    val match = Regex("S\\.browser_fallback_url=([^;]+)").find(reqUrl)
+                                                    if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else null
+                                                } else null
+                                            }
+                                            if (!rawFallback.isNullOrEmpty()) {
+                                                view?.loadUrl(fixKakaoUrl(rawFallback))
                                             }
                                         }
                                         true
@@ -689,7 +713,7 @@ fun ScraperWebViewDialog(
                                         override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                             val popupUrl = request?.url?.toString() ?: return false
                                             if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                view.loadUrl(popupUrl)
+                                                view.loadUrl(fixKakaoUrl(popupUrl))
                                                 return true
                                             }
                                             return try {
@@ -698,9 +722,14 @@ fun ScraperWebViewDialog(
                                                 if (intent.resolveActivity(ctx.packageManager) != null) {
                                                     ctx.startActivity(intent)
                                                 } else {
-                                                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                                    if (!fallbackUrl.isNullOrEmpty()) {
-                                                        view.loadUrl(fallbackUrl)
+                                                    val rawFallback = intent.getStringExtra("browser_fallback_url") ?: run {
+                                                        if (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://") || popupUrl.startsWith("kakaotalk://")) {
+                                                            val match = Regex("S\\.browser_fallback_url=([^;]+)").find(popupUrl)
+                                                            if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else null
+                                                        } else null
+                                                    }
+                                                    if (!rawFallback.isNullOrEmpty()) {
+                                                        view.loadUrl(fixKakaoUrl(rawFallback))
                                                     }
                                                 }
                                                 true
@@ -713,7 +742,7 @@ fun ScraperWebViewDialog(
                                             super.onPageStarted(v, popupUrl, favicon)
                                             if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
                                                 v?.stopLoading()
-                                                view.loadUrl(popupUrl)
+                                                view.loadUrl(fixKakaoUrl(popupUrl))
                                             }
                                         }
                                     }
@@ -726,7 +755,7 @@ fun ScraperWebViewDialog(
                                     return true
                                 }
                             }
-                            loadUrl(url)
+                            loadUrl(fixKakaoUrl(url))
                             webView = this
                         }
                     },
