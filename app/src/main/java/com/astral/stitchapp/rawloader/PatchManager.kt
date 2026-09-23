@@ -152,9 +152,16 @@ object PatchManager {
 
             var changed = false
             assetPatches.forEach { defaultP ->
-                if (current.none { it.id.equals(defaultP.id, ignoreCase = true) }) {
+                val idx = current.indexOfFirst { it.id.equals(defaultP.id, ignoreCase = true) }
+                if (idx == -1) {
                     current.add(defaultP)
                     changed = true
+                } else {
+                    val existing = current[idx]
+                    if (existing.baseUrl != defaultP.baseUrl || existing.script != defaultP.script) {
+                        current[idx] = defaultP
+                        changed = true
+                    }
                 }
             }
 
