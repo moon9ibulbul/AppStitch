@@ -445,7 +445,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.4") },
+                    title = { Text("AstralStitch v1.5.5") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -1194,7 +1194,7 @@ fun StitchTab(
                 text = if (outputUri != null) {
                     DocumentFile.fromTreeUri(context, outputUri!!)?.name ?: "Selected"
                 } else {
-                    "Same as Input"
+                    if (chooseZip || choosePdf) "Downloads/AstralStitch" else "Same as Input"
                 },
                 modifier = Modifier.weight(1f),
                 overflow = TextOverflow.Ellipsis,
@@ -1343,42 +1343,48 @@ fun StitchTab(
                                     val rawFile = File(finalPathStr)
                                     val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
 
-                                    val targetTree = if (outputUri != null) {
-                                        DocumentFile.fromTreeUri(context, outputUri!!)
+                                    if (outputUri == null && (chooseZip || choosePdf)) {
+                                        val downloadsDir = File(
+                                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                            "AstralStitch"
+                                        )
+                                        downloadsDir.mkdirs()
+                                        val destFile = File(downloadsDir, finalFile.name)
+                                        if (finalFile.isDirectory) {
+                                            finalFile.copyRecursively(destFile, overwrite = true)
+                                            finalFile.deleteRecursively()
+                                        } else {
+                                            finalFile.copyTo(destFile, overwrite = true)
+                                            finalFile.delete()
+                                        }
                                     } else {
-                                        if (chooseZip || choosePdf) {
-                                            val parent = doc?.parentFile
-                                            if (parent != null && parent.canWrite()) {
-                                                parent
-                                            } else {
-                                                val defOut = prefs.getString("default_output_uri", null)
-                                                if (defOut != null) DocumentFile.fromTreeUri(context, Uri.parse(defOut)) else null
-                                            }
+                                        val targetTree = if (outputUri != null) {
+                                            DocumentFile.fromTreeUri(context, outputUri!!)
                                         } else {
                                             DocumentFile.fromTreeUri(context, uri)
                                         }
-                                    }
 
-                                    if (targetTree != null && targetTree.canWrite()) {
-                                        if (finalFile.isDirectory) {
-                                            copyToTree(context, finalFile, targetTree)
-                                        } else {
-                                            val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                            copyToTree(context, finalFile, targetTree, mime)
-                                        }
-                                    } else {
-                                        val destDir = context.getExternalFilesDir(null)
-                                        if (destDir != null && finalFile.exists()) {
-                                            val destFile = File(destDir, finalFile.name)
+                                        if (targetTree != null && targetTree.canWrite()) {
                                             if (finalFile.isDirectory) {
-                                                finalFile.copyRecursively(destFile, overwrite = true)
-                                                finalFile.deleteRecursively()
+                                                copyToTree(context, finalFile, targetTree)
                                             } else {
-                                                finalFile.copyTo(destFile, overwrite = true)
-                                                finalFile.delete()
+                                                val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                                copyToTree(context, finalFile, targetTree, mime)
                                             }
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            val destDir = context.getExternalFilesDir(null)
+                                            if (destDir != null && finalFile.exists()) {
+                                                val destFile = File(destDir, finalFile.name)
+                                                if (finalFile.isDirectory) {
+                                                    finalFile.copyRecursively(destFile, overwrite = true)
+                                                    finalFile.deleteRecursively()
+                                                } else {
+                                                    finalFile.copyTo(destFile, overwrite = true)
+                                                    finalFile.delete()
+                                                }
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                                }
                                             }
                                         }
                                     }
