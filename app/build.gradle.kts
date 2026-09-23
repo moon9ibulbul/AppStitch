@@ -65,4 +65,5 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("io.github.awxkee:jxl-coder:2.2.0")
 }

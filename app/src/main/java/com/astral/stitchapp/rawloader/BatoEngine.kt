@@ -503,7 +503,8 @@ object BatoEngine {
         val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
         val isFakeJpg = headerStr.contains("Fake jpg")
         val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
-        val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) || (headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypjxl ")
+        val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
 
         val ext = file.extension.lowercase(Locale.ROOT)
         val isJpgExt = ext in setOf("jpg", "jpeg", "jfif")

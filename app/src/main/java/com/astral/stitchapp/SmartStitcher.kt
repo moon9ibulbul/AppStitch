@@ -587,7 +587,13 @@ object SmartStitcher {
             val options = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            BitmapFactory.decodeFile(file.absolutePath, options)
+            val bmp = BitmapFactory.decodeFile(file.absolutePath, options)
+            if (bmp != null) return bmp
+
+            if (file.extension.equals("jxl", ignoreCase = true)) {
+                return io.github.awxkee.jxlcoder.JxlCoder.decode(file.readBytes())
+            }
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null

@@ -241,10 +241,11 @@ class MainActivity : ComponentActivity() {
                      val read = ins.read(header)
                      if (read < 2) return false
                      val headerStr = String(header, 0, read, Charsets.US_ASCII)
-                     val isWebp = (headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
+                     val isWebp = (read >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
                      val isFakeJpg = headerStr.contains("Fake jpg")
-                     val isAvif = read >= 12 && headerStr.substring(4, 12) == "ftypavif"
-                     val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) || (read >= 12 && headerStr.substring(4, 12) == "ftypjxl ")
+                     val isAvif = (read >= 12 && headerStr.substring(4, 12) == "ftypavif")
+                     val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                             (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
                      isFakeJpg || isWebp || isAvif || isJxl
                  } ?: false
              } catch (e: Exception) {
@@ -284,7 +285,8 @@ class MainActivity : ComponentActivity() {
                                     val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
                                     val isFakeJpg = headerStr.contains("Fake jpg")
                                     val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
-                                    val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) || (headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypjxl ")
+                                    val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                                            (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
 
                                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                                     BitmapFactory.decodeFile(tempFile.absolutePath, options)
@@ -2073,7 +2075,8 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
                 ctx.contentResolver.openInputStream(doc.uri)?.use { it.read(header) } ?: 0
             } catch (_: Exception) { 0 }
             val headerStr = if (read >= 12) String(header, 0, read, Charsets.US_ASCII) else ""
-            val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) || (headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypjxl ")
+            val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                    (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
             val extToUse = if (isJxl) "jxl" else "webp"
 
             val targetName = "$baseName.$extToUse"
