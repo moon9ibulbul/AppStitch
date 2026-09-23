@@ -353,6 +353,23 @@ object BatoEngine {
     }
 
     private fun downloadImage(urlStr: String, destDir: File, idx: Int, cookie: String?, referer: String?): File {
+        if (urlStr.startsWith("data:")) {
+            val ext = when {
+                urlStr.startsWith("data:image/png") -> ".png"
+                urlStr.startsWith("data:image/webp") -> ".webp"
+                else -> ".jpg"
+            }
+            val filename = String.format(Locale.ROOT, "img_%04d%s", idx, ext)
+            val target = File(destDir, filename)
+            if (target.exists() && target.length() > 0) {
+                return fixImageExtension(target)
+            }
+            val base64Data = urlStr.substringAfter("base64,")
+            val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+            target.writeBytes(bytes)
+            return fixImageExtension(target)
+        }
+
         val uri = Uri.parse(urlStr)
         val cleanUrlStr = uri.buildUpon().fragment(null).build().toString()
         val pathPart = uri.path ?: ""
@@ -596,6 +613,7 @@ object BatoEngine {
                     "ridi" -> "https://ridibooks.com/"
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
+                    "mrblue" -> "https://www.mrblue.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
