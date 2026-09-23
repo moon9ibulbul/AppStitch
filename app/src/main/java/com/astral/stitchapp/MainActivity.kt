@@ -483,6 +483,21 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     }
 }
 
+private fun fixKakaoUrl(u: String): String {
+    if (u.contains("accounts.kakao.com/login")) {
+        var clean = u.replace("#webTalkLogin", "")
+        if (!clean.contains("talk_login_error=true")) {
+            clean = if (clean.contains("?")) {
+                clean.replace("?", "?talk_login_error=true&")
+            } else {
+                "$clean?talk_login_error=true"
+            }
+        }
+        return clean
+    }
+    return u
+}
+
 @Composable
 fun CookieWebViewDialog(
     url: String,
@@ -518,9 +533,8 @@ fun CookieWebViewDialog(
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                     val reqUrl = request?.url?.toString() ?: return false
                                     if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
-                                        if (reqUrl.contains("#webTalkLogin")) {
-                                            val cleanUrl = reqUrl.replace("#webTalkLogin", "")
-                                            view?.loadUrl(cleanUrl)
+                                        if (reqUrl.contains("accounts.kakao.com/login") && (reqUrl.contains("#webTalkLogin") || !reqUrl.contains("talk_login_error=true"))) {
+                                            view?.loadUrl(fixKakaoUrl(reqUrl))
                                             return true
                                         }
                                         return false
@@ -531,13 +545,15 @@ fun CookieWebViewDialog(
                                         if (intent.resolveActivity(ctx.packageManager) != null) {
                                             ctx.startActivity(intent)
                                         } else {
-                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                            var fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                            if (fallbackUrl.isNullOrEmpty() && (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://") || reqUrl.startsWith("kakaotalk://"))) {
+                                                val match = Regex("S\\.browser_fallback_url=([^;]+)").find(reqUrl)
+                                                if (match != null) {
+                                                    fallbackUrl = java.net.URLDecoder.decode(match.groupValues[1], "UTF-8")
+                                                }
+                                            }
                                             if (!fallbackUrl.isNullOrEmpty()) {
-                                                val cleanFallback = fallbackUrl.replace("#webTalkLogin", "")
-                                                view?.loadUrl(cleanFallback)
-                                            } else if (reqUrl.contains("kakao") || reqUrl.startsWith("kakaokompassauth://")) {
-                                                val fallback = "https://accounts.kakao.com/login"
-                                                view?.loadUrl(fallback)
+                                                view?.loadUrl(fixKakaoUrl(fallbackUrl))
                                             }
                                         }
                                         true
@@ -564,8 +580,7 @@ fun CookieWebViewDialog(
                                         override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                             val popupUrl = request?.url?.toString() ?: return false
                                             if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                val cleanUrl = if (popupUrl.contains("#webTalkLogin")) popupUrl.replace("#webTalkLogin", "") else popupUrl
-                                                view.loadUrl(cleanUrl)
+                                                view.loadUrl(fixKakaoUrl(popupUrl))
                                                 return true
                                             }
                                             return try {
@@ -574,13 +589,15 @@ fun CookieWebViewDialog(
                                                 if (intent.resolveActivity(ctx.packageManager) != null) {
                                                     ctx.startActivity(intent)
                                                 } else {
-                                                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                    var fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                    if (fallbackUrl.isNullOrEmpty() && (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://") || popupUrl.startsWith("kakaotalk://"))) {
+                                                        val match = Regex("S\\.browser_fallback_url=([^;]+)").find(popupUrl)
+                                                        if (match != null) {
+                                                            fallbackUrl = java.net.URLDecoder.decode(match.groupValues[1], "UTF-8")
+                                                        }
+                                                    }
                                                     if (!fallbackUrl.isNullOrEmpty()) {
-                                                        val cleanFallback = fallbackUrl.replace("#webTalkLogin", "")
-                                                        view.loadUrl(cleanFallback)
-                                                    } else if (popupUrl.contains("kakao") || popupUrl.startsWith("kakaokompassauth://")) {
-                                                        val fallback = "https://accounts.kakao.com/login"
-                                                        view.loadUrl(fallback)
+                                                        view.loadUrl(fixKakaoUrl(fallbackUrl))
                                                     }
                                                 }
                                                 true
@@ -593,8 +610,7 @@ fun CookieWebViewDialog(
                                             super.onPageStarted(v, popupUrl, favicon)
                                             if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
                                                 v?.stopLoading()
-                                                val cleanUrl = if (popupUrl.contains("#webTalkLogin")) popupUrl.replace("#webTalkLogin", "") else popupUrl
-                                                view.loadUrl(cleanUrl)
+                                                view.loadUrl(fixKakaoUrl(popupUrl))
                                             }
                                         }
                                     }
@@ -607,8 +623,7 @@ fun CookieWebViewDialog(
                                     return true
                                 }
                             }
-                            val initialUrl = if (url.contains("#webTalkLogin")) url.replace("#webTalkLogin", "") else url
-                            loadUrl(initialUrl)
+                            loadUrl(fixKakaoUrl(url))
                         }
                     },
                     modifier = Modifier.weight(1f)
