@@ -118,7 +118,7 @@ object PatchManager {
 
     private fun initDefaultPatches(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val initialized = prefs.getBoolean("default_initialized_v2", false)
+        val initialized = prefs.getBoolean("default_initialized_v3", false)
         if (initialized) return
 
         try {
@@ -134,26 +134,26 @@ object PatchManager {
                     }
                 }
             }
-            if (list.isNotEmpty()) {
-                val current = mutableListOf<Patch>()
-                val existingStr = prefs.getString(KEY_PATCHES, null)
-                if (existingStr != null) {
-                    try {
-                        val arr = JSONArray(existingStr)
-                        for (i in 0 until arr.length()) {
-                            val p = Patch.fromJsonObject(arr.getJSONObject(i))
-                            if (p != null) current.add(p)
+            val current = mutableListOf<Patch>()
+            val existingStr = prefs.getString(KEY_PATCHES, null)
+            if (existingStr != null) {
+                try {
+                    val arr = JSONArray(existingStr)
+                    for (i in 0 until arr.length()) {
+                        val p = Patch.fromJsonObject(arr.getJSONObject(i))
+                        if (p != null && !p.id.equals("mangago", true) && !p.id.equals("comix", true) && !p.type.equals("mangago", true) && !p.type.equals("comix", true)) {
+                            current.add(p)
                         }
-                    } catch (_: Exception) {}
-                }
-                list.forEach { defaultP ->
-                    if (current.none { it.id.equals(defaultP.id, ignoreCase = true) }) {
-                        current.add(defaultP)
                     }
-                }
-                persist(context, current)
+                } catch (_: Exception) {}
             }
-            prefs.edit().putBoolean("default_initialized_v2", true).apply()
+            list.forEach { defaultP ->
+                if (current.none { it.id.equals(defaultP.id, ignoreCase = true) }) {
+                    current.add(defaultP)
+                }
+            }
+            persist(context, current)
+            prefs.edit().putBoolean("default_initialized_v3", true).apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
