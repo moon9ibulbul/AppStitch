@@ -68,7 +68,11 @@ object PatchManager {
     }
 
     fun getPatch(context: Context, typeOrId: String): Patch? {
-        return loadAll(context).find { it.id.equals(typeOrId, ignoreCase = true) || it.type.equals(typeOrId, ignoreCase = true) }
+        return loadAll(context).find {
+            it.id.equals(typeOrId, ignoreCase = true) ||
+            it.type.equals(typeOrId, ignoreCase = true) ||
+            it.name.equals(typeOrId, ignoreCase = true)
+        }
     }
 
     fun savePatch(context: Context, patch: Patch) {
@@ -118,27 +122,25 @@ object PatchManager {
 
     private fun initDefaultPatches(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val initialized = prefs.getBoolean("default_initialized_v3", false)
-        if (initialized) return
-
         try {
             val assetManager = context.assets
             val patchFiles = assetManager.list("patches") ?: emptyArray()
-            val list = mutableListOf<Patch>()
+            val assetPatches = mutableListOf<Patch>()
             for (fName in patchFiles) {
                 if (fName.endsWith(".asp")) {
                     assetManager.open("patches/$fName").use { ins ->
                         val content = ins.bufferedReader().readText()
                         val p = Patch.parseAsp(content)
-                        if (p != null) list.add(p)
+                        if (p != null) assetPatches.add(p)
                     }
                 }
             }
+
+            val currentStr = prefs.getString(KEY_PATCHES, null)
             val current = mutableListOf<Patch>()
-            val existingStr = prefs.getString(KEY_PATCHES, null)
-            if (existingStr != null) {
+            if (currentStr != null) {
                 try {
-                    val arr = JSONArray(existingStr)
+                    val arr = JSONArray(currentStr)
                     for (i in 0 until arr.length()) {
                         val p = Patch.fromJsonObject(arr.getJSONObject(i))
                         if (p != null && !p.id.equals("mangago", true) && !p.id.equals("comix", true) && !p.type.equals("mangago", true) && !p.type.equals("comix", true)) {
@@ -147,13 +149,18 @@ object PatchManager {
                     }
                 } catch (_: Exception) {}
             }
-            list.forEach { defaultP ->
+
+            var changed = false
+            assetPatches.forEach { defaultP ->
                 if (current.none { it.id.equals(defaultP.id, ignoreCase = true) }) {
                     current.add(defaultP)
+                    changed = true
                 }
             }
-            persist(context, current)
-            prefs.edit().putBoolean("default_initialized_v3", true).apply()
+
+            if (changed || currentStr == null) {
+                persist(context, current)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }

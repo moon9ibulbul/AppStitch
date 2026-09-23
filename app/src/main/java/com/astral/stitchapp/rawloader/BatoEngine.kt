@@ -595,10 +595,6 @@ object BatoEngine {
                     "ridi" -> "https://ridibooks.com/"
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
-                    "kagane" -> "https://kagane.to/"
-                    "xcomic" -> "https://xcomic.me/"
-                    "myreadingmanga" -> "https://myreadingmanga.info/"
-                    "yaoimangaonline" -> "https://yaoimangaonline.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }

@@ -1727,13 +1727,13 @@ fun BatoTab(
                         isAddingToQueue = true
                         scope.launch(Dispatchers.IO) {
                             try {
-                                val patchObj = installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
+                                val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                                 val type = when(selectedSource) {
                                     "Ridibooks" -> "ridi"
                                     "Bomtoon" -> "bomtoon"
                                     "Lezhin" -> "lezhin"
                                     "Naver Webtoon" -> "naver"
-                                    else -> patchObj?.type ?: "ridi"
+                                    else -> patchObj?.type ?: selectedSource.lowercase()
                                 }
 
                                 val scraperInfo = when {
@@ -1794,7 +1794,7 @@ fun BatoTab(
                             }
                         }
                     },
-                    enabled = urlInput.isNotBlank() || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin")
+                    enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin")
                 ) { Text("Add") }
             }
         }
@@ -1821,12 +1821,12 @@ fun BatoTab(
                 onDismiss = { showScraperDialog = false },
                 onScrapeSuccess = { title, images, cookie ->
                     showScraperDialog = false
-                    val patchObj = installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
+                    val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                     val type = when(selectedSource) {
                         "Ridibooks" -> "ridi"
                         "Bomtoon" -> "bomtoon"
                         "Lezhin" -> "lezhin"
-                        else -> patchObj?.type ?: ""
+                        else -> patchObj?.type ?: selectedSource.lowercase()
                     }
                     if (cookie.isNotBlank()) {
                         when(type) {

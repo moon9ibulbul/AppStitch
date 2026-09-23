@@ -452,13 +452,18 @@ fun ScraperWebViewDialog(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
 
-                        // Show "Fetch" button for Bomtoon and Lezhin
-                        val showFetch = url.contains("bomtoon") || url.contains("lezhin")
+                        // Show "Fetch" button for Bomtoon, Lezhin, or scripts defining fetch/grab functions
+                        val hasGrabApiData = script.contains("grabApiData")
+                        val hasFetchAll = script.contains("fetchAll")
+                        val showFetch = url.contains("bomtoon") || url.contains("lezhin") || hasGrabApiData || hasFetchAll
                         if (showFetch) {
                             Button(
                                 onClick = {
                                     status = "Fetching started..."
-                                    val fetchFunc = if (url.contains("bomtoon")) "window.grabApiData()" else "window.fetchAll()"
+                                    val fetchFunc = when {
+                                        hasGrabApiData || url.contains("bomtoon") -> "if (typeof window.grabApiData === 'function') { window.grabApiData(); } else if (typeof window.fetchAll === 'function') { window.fetchAll(); }"
+                                        else -> "if (typeof window.fetchAll === 'function') { window.fetchAll(); } else if (typeof window.grabApiData === 'function') { window.grabApiData(); }"
+                                    }
                                     webView?.evaluateJavascript(script) {
                                         webView?.evaluateJavascript(fetchFunc, null)
                                     }
