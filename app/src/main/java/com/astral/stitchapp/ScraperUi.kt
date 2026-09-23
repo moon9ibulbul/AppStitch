@@ -613,7 +613,12 @@ fun ScraperWebViewDialog(
                             settings.javaScriptCanOpenWindowsAutomatically = true
                             settings.useWideViewPort = true
                             settings.loadWithOverviewMode = true
+                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                             settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+
+                            val cookieManager = CookieManager.getInstance()
+                            cookieManager.setAcceptCookie(true)
+                            cookieManager.setAcceptThirdPartyCookies(this, true)
 
                             addJavascriptInterface(ScraperJsInterface(
                                 onResult = { t, i, _ ->
@@ -630,6 +635,28 @@ fun ScraperWebViewDialog(
                             ), "Android")
 
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                    val reqUrl = request?.url?.toString() ?: return false
+                                    if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
+                                        return false
+                                    }
+                                    return try {
+                                        val intent = android.content.Intent.parseUri(reqUrl, android.content.Intent.URI_INTENT_SCHEME)
+                                        val ctx = view?.context ?: return true
+                                        if (intent.resolveActivity(ctx.packageManager) != null) {
+                                            ctx.startActivity(intent)
+                                        } else {
+                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                            if (!fallbackUrl.isNullOrEmpty()) {
+                                                view?.loadUrl(fallbackUrl)
+                                            }
+                                        }
+                                        true
+                                    } catch (e: Exception) {
+                                        true
+                                    }
+                                }
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     // Anti-bot: hide webdriver
@@ -642,6 +669,60 @@ fun ScraperWebViewDialog(
                             webChromeClient = object : WebChromeClient() {
                                 override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                                     Log.d("ScraperJS", consoleMessage?.message() ?: "")
+                                    return true
+                                }
+
+                                override fun onCreateWindow(
+                                    view: WebView?,
+                                    isDialog: Boolean,
+                                    isUserGesture: Boolean,
+                                    resultMsg: android.os.Message?
+                                ): Boolean {
+                                    val newWebView = WebView(view!!.context)
+                                    newWebView.settings.javaScriptEnabled = true
+                                    newWebView.settings.domStorageEnabled = true
+                                    newWebView.settings.userAgentString = view.settings.userAgentString
+                                    CookieManager.getInstance().setAcceptCookie(true)
+                                    CookieManager.getInstance().setAcceptThirdPartyCookies(newWebView, true)
+
+                                    newWebView.webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                            val popupUrl = request?.url?.toString() ?: return false
+                                            if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
+                                                view.loadUrl(popupUrl)
+                                                return true
+                                            }
+                                            return try {
+                                                val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
+                                                val ctx = v?.context ?: return true
+                                                if (intent.resolveActivity(ctx.packageManager) != null) {
+                                                    ctx.startActivity(intent)
+                                                } else {
+                                                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                    if (!fallbackUrl.isNullOrEmpty()) {
+                                                        view.loadUrl(fallbackUrl)
+                                                    }
+                                                }
+                                                true
+                                            } catch (e: Exception) {
+                                                true
+                                            }
+                                        }
+
+                                        override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
+                                            super.onPageStarted(v, popupUrl, favicon)
+                                            if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
+                                                v?.stopLoading()
+                                                view.loadUrl(popupUrl)
+                                            }
+                                        }
+                                    }
+
+                                    val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                    if (transport != null) {
+                                        transport.webView = newWebView
+                                        resultMsg.sendToTarget()
+                                    }
                                     return true
                                 }
                             }
