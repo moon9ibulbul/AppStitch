@@ -768,7 +768,7 @@ fun SettingsScreen(
 
                 Button(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://parlor.astralscans.top/donasi.html"))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://parlor.astralscans.site/donasi.html"))
                         context.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -1450,6 +1450,7 @@ fun BatoTab(
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
 
     var autoRetry by remember { mutableStateOf(true) }
+    var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
     var showScraperDialog by remember { mutableStateOf(false) }
     var scraperUrl by remember { mutableStateOf("") }
     var scraperScript by remember { mutableStateOf("") }
@@ -1599,6 +1600,7 @@ fun BatoTab(
                             put("ignorable", ignorable)
                             put("scanStep", scanStep)
                             put("autoRetry", autoRetry)
+                            put("skipStitching", skipStitching)
                             put("splitMode", splitMode)
                             put("lowRam", lowRam)
                             put("quality", quality)
@@ -1877,9 +1879,18 @@ fun BatoTab(
             Text("Output folder is mandatory for Rawloader!", color = Color.Red, style = MaterialTheme.typography.labelSmall)
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = autoRetry, onCheckedChange = { autoRetry = it })
-            Text("Auto Retry")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = autoRetry, onCheckedChange = { autoRetry = it })
+                Text("Auto Retry")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = skipStitching, onCheckedChange = {
+                    skipStitching = it
+                    prefs.edit().putBoolean("skip_stitching", it).apply()
+                })
+                Text("Skip Stitching")
+            }
         }
         StitchSettingsUI(
             splitHeight, { splitHeight = it },

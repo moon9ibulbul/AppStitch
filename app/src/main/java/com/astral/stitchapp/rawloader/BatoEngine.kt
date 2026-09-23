@@ -568,6 +568,7 @@ object BatoEngine {
 
         val params = JSONObject(stitchParamsJson)
         val autoRetry = params.optBoolean("autoRetry", true)
+        val skipStitching = params.optBoolean("skipStitching", false)
         val itemId = item.id
         val url = item.url
         val sourceType = item.type
@@ -730,32 +731,45 @@ object BatoEngine {
                 throw Exception("Incomplete download: Expected $expectedCount, got ${finalFiles.size}")
             }
 
-            // 3. STITCHING PHASE
-            updateStatus(cacheDir, itemId, "stitching", 0.0)
-            if (outputParent.exists()) outputParent.deleteRecursively()
-            outputDir.mkdirs()
+            val finalPath: String
+            if (skipStitching) {
+                if (outputParent.exists()) outputParent.deleteRecursively()
+                outputDir.mkdirs()
 
-            val finalPath = SmartStitcher.runAsync(
-                inputFolder = dlDir.absolutePath,
-                splitHeight = params.optInt("splitHeight", 5000),
-                outputFilesType = params.optString("outputType", ".png"),
-                batchMode = false,
-                widthEnforceType = params.optInt("widthEnforce", 0),
-                customWidth = params.optInt("customWidth", 720),
-                sensitivity = params.optInt("sensitivity", 90),
-                ignorablePixels = params.optInt("ignorable", 0),
-                scanLineStep = params.optInt("scanStep", 5),
-                lowRam = params.optBoolean("lowRam", false),
-                unitImages = 20,
-                outputFolder = outputDir.absolutePath,
-                filenameTemplate = null,
-                zipOutput = params.optString("packaging") == "ZIP",
-                pdfOutput = params.optString("packaging") == "PDF",
-                pdfPassword = params.optString("pdfPassword", "").takeIf { it.isNotBlank() },
-                markDone = false,
-                splitMode = params.optInt("splitMode", 2),
-                quality = params.optInt("quality", 100)
-            )
+                dlDir.listFiles()?.filter { it.isFile }?.forEach { f ->
+                    val destFile = File(outputDir, f.name)
+                    f.copyTo(destFile, overwrite = true)
+                }
+
+                finalPath = outputDir.absolutePath
+            } else {
+                // 3. STITCHING PHASE
+                updateStatus(cacheDir, itemId, "stitching", 0.0)
+                if (outputParent.exists()) outputParent.deleteRecursively()
+                outputDir.mkdirs()
+
+                finalPath = SmartStitcher.runAsync(
+                    inputFolder = dlDir.absolutePath,
+                    splitHeight = params.optInt("splitHeight", 5000),
+                    outputFilesType = params.optString("outputType", ".png"),
+                    batchMode = false,
+                    widthEnforceType = params.optInt("widthEnforce", 0),
+                    customWidth = params.optInt("customWidth", 720),
+                    sensitivity = params.optInt("sensitivity", 90),
+                    ignorablePixels = params.optInt("ignorable", 0),
+                    scanLineStep = params.optInt("scanStep", 5),
+                    lowRam = params.optBoolean("lowRam", false),
+                    unitImages = 20,
+                    outputFolder = outputDir.absolutePath,
+                    filenameTemplate = null,
+                    zipOutput = params.optString("packaging") == "ZIP",
+                    pdfOutput = params.optString("packaging") == "PDF",
+                    pdfPassword = params.optString("pdfPassword", "").takeIf { it.isNotBlank() },
+                    markDone = false,
+                    splitMode = params.optInt("splitMode", 2),
+                    quality = params.optInt("quality", 100)
+                )
+            }
 
             dlDir.deleteRecursively()
             updateStatus(cacheDir, itemId, "done", 1.0)
