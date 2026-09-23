@@ -214,14 +214,14 @@ object ScraperScripts {
         function tryRecordUrl(url) {
             if (!url || typeof url !== 'string') return;
             if (url.includes('ccdn.lezhin.com') || url.includes('/banners/')) return;
-            const m = url.match(/[a-z0-9]+cdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png)(?:\?.*)?${"$"}/i);
+            const m = url.match(/[a-z0-9]+cdn\.lezhin\.com\/.*?\/(\d+)\.(webp|jpe?g|png|jxl)(?:\?.*)?${"$"}/i);
             if (!m) return;
 
             const idx = parseInt(m[1]);
             state.availableIndexes.add(idx);
 
             if (!state.baseTemplate) {
-                const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png))(.*)${"$"}/i);
+                const tm = url.match(/(.*\/)(\d+)(\.(?:webp|jpg|jpeg|png|jxl))(.*)${"$"}/i);
                 if (tm) {
                     state.baseTemplate = tm[1] + '__IDX__' + tm[3] + tm[4];
                     log("Base URL captured: " + state.baseTemplate);

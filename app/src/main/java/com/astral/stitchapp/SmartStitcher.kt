@@ -517,7 +517,7 @@ object SmartStitcher {
     private suspend fun loadImagesParallel(folder: File): List<Bitmap> = coroutineScope {
         val files = folder.listFiles()?.filter { file ->
             val ext = file.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         val deferreds = files.map { file ->
@@ -542,7 +542,7 @@ object SmartStitcher {
 
         val files = folder.listFiles()?.filter { file ->
             val ext = file.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         if (files.isEmpty()) {
@@ -1179,7 +1179,7 @@ object SmartStitcher {
 
         val files = sourceDir.listFiles()?.filter { f ->
             val ext = f.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         if (files.isEmpty()) return sourceDir
