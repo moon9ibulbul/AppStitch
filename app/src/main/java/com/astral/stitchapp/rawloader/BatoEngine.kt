@@ -849,7 +849,7 @@ object BatoEngine {
                 splitHeight = params.optInt("splitHeight", 5000),
                 outputFilesType = params.optString("outputType", ".png"),
                 batchMode = false,
-                widthEnforceType = params.optInt("widthEnforce", 0),
+                widthEnforceType = params.optInt("widthEnforce", 2),
                 customWidth = params.optInt("customWidth", 720),
                 sensitivity = params.optInt("sensitivity", 90),
                 ignorablePixels = params.optInt("ignorable", 0),
