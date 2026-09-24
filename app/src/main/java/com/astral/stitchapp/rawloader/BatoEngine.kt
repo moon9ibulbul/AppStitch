@@ -167,6 +167,31 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = title, type = "naver"))
                     added = 1
                 }
+            } else if (sourceType == "kakaopage" || sourceType == "kakao") {
+                val info = fetchKakaoPageInfo(url, cookie)
+                if (info.has("error")) {
+                    return JSONObject().apply { put("error", info.getString("error")) }
+                }
+                val title = info.optString("title", "KakaoPage Chapter")
+                val imagesArray = info.optJSONArray("images")
+                val imagesList = mutableListOf<String>()
+                if (imagesArray != null) {
+                    for (i in 0 until imagesArray.length()) {
+                        imagesList.add(imagesArray.getString(i))
+                    }
+                }
+                val existingKakao = queue.filter { it.url == url }
+                existingKakao.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = title, type = "kakaopage", cookie = cookie, preScrapedImages = imagesList))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -342,6 +367,116 @@ object BatoEngine {
             if (cookie.isNotBlank()) setRequestProperty("Cookie", cookie)
         }
         return conn.inputStream.bufferedReader().use { it.readText() }
+    }
+
+    fun fetchKakaoPageInfo(urlStr: String, cookie: String = ""): JSONObject {
+        var seriesId = ""
+        var singleId = ""
+
+        val seriesMatcher = Pattern.compile("/content/(\\d+)").matcher(urlStr)
+        if (seriesMatcher.find()) seriesId = seriesMatcher.group(1) ?: ""
+
+        val singleMatcher = Pattern.compile("/viewer/(\\d+)").matcher(urlStr)
+        if (singleMatcher.find()) singleId = singleMatcher.group(1) ?: ""
+
+        if (singleId.isEmpty()) {
+            val digitsMatcher = Pattern.compile("(\\d{6,})").matcher(urlStr)
+            if (digitsMatcher.find()) singleId = digitsMatcher.group(1) ?: ""
+        }
+
+        if (singleId.isEmpty()) {
+            return JSONObject().apply { put("error", "Invalid KakaoPage URL (No single/viewer ID found)") }
+        }
+
+        val apiUrl = "https://bff-page.kakao.com/api/gateway/api/v1/viewer/data"
+
+        fun tryRequest(method: String, bodyStr: String?, targetUrl: String): String? {
+            try {
+                val conn = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    connectTimeout = 30000
+                    readTimeout = 30000
+                    setRequestProperty("User-Agent", USER_AGENT)
+                    setRequestProperty("Accept", "application/json, text/plain, */*")
+                    setRequestProperty("Referer", "https://page.kakao.com/")
+                    setRequestProperty("Origin", "https://page.kakao.com")
+                    if (cookie.isNotBlank()) setRequestProperty("Cookie", cookie)
+                    if (bodyStr != null) {
+                        setRequestProperty("Content-Type", "application/json")
+                        doOutput = true
+                    }
+                }
+                if (bodyStr != null) {
+                    conn.outputStream.use { it.write(bodyStr.toByteArray(Charsets.UTF_8)) }
+                }
+                if (conn.responseCode in 200..299) {
+                    return conn.inputStream.bufferedReader().use { it.readText() }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return null
+        }
+
+        var responseText: String? = null
+
+        val body1 = JSONObject().apply {
+            if (seriesId.isNotBlank()) put("seriesId", seriesId)
+            put("singleId", singleId)
+        }.toString()
+        responseText = tryRequest("POST", body1, apiUrl)
+
+        if (responseText == null && singleId.toLongOrNull() != null) {
+            val body2 = JSONObject().apply {
+                if (seriesId.toLongOrNull() != null) put("seriesId", seriesId.toLong())
+                put("singleId", singleId.toLong())
+            }.toString()
+            responseText = tryRequest("POST", body2, apiUrl)
+        }
+
+        if (responseText == null) {
+            val queryUrl = if (seriesId.isNotBlank()) "$apiUrl?seriesId=$seriesId&singleId=$singleId" else "$apiUrl?singleId=$singleId"
+            responseText = tryRequest("GET", null, queryUrl)
+        }
+
+        if (responseText.isNullOrBlank()) {
+            return JSONObject().apply { put("error", "Failed to fetch KakaoPage viewer data") }
+        }
+
+        val json = JSONObject(responseText)
+        var title = ""
+        val itemObj = json.optJSONObject("item")
+        if (itemObj != null) {
+            title = itemObj.optString("title", "")
+        }
+        if (title.isBlank()) {
+            title = json.optString("title", "KakaoPage $singleId")
+        }
+
+        val viewerData = json.optJSONObject("viewer_data") ?: json.optJSONObject("viewerData")
+        val imageDownloadData = viewerData?.optJSONObject("imageDownloadData")
+        val filesArr = imageDownloadData?.optJSONArray("files")
+
+        val imageUrls = mutableListOf<String>()
+        if (filesArr != null) {
+            for (i in 0 until filesArr.length()) {
+                val fileObj = filesArr.getJSONObject(i)
+                val secureUrl = fileObj.optString("secureUrl", "").ifBlank { fileObj.optString("url", "") }
+                if (secureUrl.isNotBlank()) {
+                    imageUrls.add(secureUrl)
+                }
+            }
+        }
+
+        if (imageUrls.isEmpty()) {
+            return JSONObject().apply { put("error", "No images found in KakaoPage response") }
+        }
+
+        return JSONObject().apply {
+            put("title", sanitizeFilename(title))
+            put("images", JSONArray(imageUrls))
+            put("url", urlStr)
+        }
     }
 
     fun getNaverChapterInfo(urlStr: String): JSONObject {
@@ -692,6 +827,19 @@ object BatoEngine {
             if (sourceType == "naver") {
                 images.addAll(getNaverImages(url))
                 referer = "https://comic.naver.com/"
+            } else if (sourceType == "kakaopage" || sourceType == "kakao") {
+                if (item.preScrapedImages.isNotEmpty()) {
+                    images.addAll(item.preScrapedImages)
+                } else {
+                    val info = fetchKakaoPageInfo(url, item.cookie)
+                    val imagesArray = info.optJSONArray("images")
+                    if (imagesArray != null) {
+                        for (i in 0 until imagesArray.length()) {
+                            images.add(imagesArray.getString(i))
+                        }
+                    }
+                }
+                referer = "https://page.kakao.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
@@ -704,6 +852,7 @@ object BatoEngine {
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
+                    "kakaopage", "kakao" -> "https://page.kakao.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
