@@ -2075,7 +2075,7 @@ fun BatoTab(
                             }
                         }
                     },
-                    enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue")
+                    enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "Kakaopage")
                 ) { Text("Add") }
             }
         }
