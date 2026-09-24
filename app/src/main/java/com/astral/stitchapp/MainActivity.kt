@@ -239,12 +239,14 @@ class MainActivity : ComponentActivity() {
                  context.contentResolver.openInputStream(uri)?.use { ins ->
                      val header = ByteArray(32)
                      val read = ins.read(header)
-                     if (read < 12) return false
+                     if (read < 2) return false
                      val headerStr = String(header, 0, read, Charsets.US_ASCII)
-                     val isWebp = (headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
+                     val isWebp = (read >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP")
                      val isFakeJpg = headerStr.contains("Fake jpg")
-                     val isAvif = read >= 12 && headerStr.substring(4, 12) == "ftypavif"
-                     isFakeJpg || isWebp || isAvif
+                     val isAvif = (read >= 12 && headerStr.substring(4, 12) == "ftypavif")
+                     val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                             (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
+                     isFakeJpg || isWebp || isAvif || isJxl
                  } ?: false
              } catch (e: Exception) {
                  false
@@ -265,7 +267,7 @@ class MainActivity : ComponentActivity() {
                         if (!entry.isDirectory) {
                             val name = entry.name
                             val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-                            val isImage = ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+                            val isImage = ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
                             if (isImage) {
                                 val fileName = name.substringAfterLast('/')
                                 val baseName = fileName.substringBeforeLast('.')
@@ -283,13 +285,16 @@ class MainActivity : ComponentActivity() {
                                     val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
                                     val isFakeJpg = headerStr.contains("Fake jpg")
                                     val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
+                                    val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                                            (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
 
                                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                                     BitmapFactory.decodeFile(tempFile.absolutePath, options)
                                     val actualMime = options.outMimeType
 
-                                    if (isFakeJpg || isWebp || isAvif || actualMime == "image/webp" || actualMime == "image/avif") {
-                                        val targetFile = File(destDir, "$baseName.webp")
+                                    if (isFakeJpg || isWebp || isAvif || isJxl || actualMime == "image/webp" || actualMime == "image/avif" || actualMime == "image/jxl") {
+                                        val targetExt = if (isJxl || actualMime == "image/jxl") "jxl" else "webp"
+                                        val targetFile = File(destDir, "$baseName.$targetExt")
                                         tempFile.renameTo(targetFile)
                                     } else {
                                         val targetFile = File(destDir, fileName)
@@ -2057,7 +2062,7 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         val name = doc.name ?: return
         val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val isImage = ext in setOf(
-            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif"
+            "png", "jpg", "jpeg", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl"
         )
         if (!isImage) return
 
@@ -2065,11 +2070,20 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         val baseName = name.substringBeforeLast('.')
 
         if (isJpg && MainActivity.isFakeJpg(ctx, doc.uri)) {
-            val targetName = "$baseName.webp"
+            val header = ByteArray(32)
+            val read = try {
+                ctx.contentResolver.openInputStream(doc.uri)?.use { it.read(header) } ?: 0
+            } catch (_: Exception) { 0 }
+            val headerStr = if (read >= 12) String(header, 0, read, Charsets.US_ASCII) else ""
+            val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                    (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
+            val extToUse = if (isJxl) "jxl" else "webp"
+
+            val targetName = "$baseName.$extToUse"
             var targetFile = java.io.File(base, targetName)
             var index = 1
             while (targetFile.exists()) {
-                targetFile = java.io.File(base, "${baseName}_$index.webp")
+                targetFile = java.io.File(base, "${baseName}_$index.$extToUse")
                 index += 1
             }
             ctx.contentResolver.openInputStream(doc.uri)?.use { ins ->
@@ -2096,6 +2110,7 @@ fun copyToTree(
     fun inferredMime(file: java.io.File): String {
         return when (file.extension.lowercase(Locale.ROOT)) {
             "webp" -> "image/webp"
+            "jxl" -> "image/jxl"
             "png", "jpg", "jpeg", "bmp", "tiff", "tif", "tga" -> "image/*"
             "zip" -> "application/zip"
             "pdf" -> "application/pdf"

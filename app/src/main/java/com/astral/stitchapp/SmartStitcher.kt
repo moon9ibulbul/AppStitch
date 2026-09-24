@@ -517,7 +517,7 @@ object SmartStitcher {
     private suspend fun loadImagesParallel(folder: File): List<Bitmap> = coroutineScope {
         val files = folder.listFiles()?.filter { file ->
             val ext = file.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         val deferreds = files.map { file ->
@@ -542,7 +542,7 @@ object SmartStitcher {
 
         val files = folder.listFiles()?.filter { file ->
             val ext = file.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         if (files.isEmpty()) {
@@ -587,7 +587,13 @@ object SmartStitcher {
             val options = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            BitmapFactory.decodeFile(file.absolutePath, options)
+            val bmp = BitmapFactory.decodeFile(file.absolutePath, options)
+            if (bmp != null) return bmp
+
+            if (file.extension.equals("jxl", ignoreCase = true)) {
+                return com.awxkee.jxlcoder.JxlCoder.decode(file.readBytes())
+            }
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -1179,7 +1185,7 @@ object SmartStitcher {
 
         val files = sourceDir.listFiles()?.filter { f ->
             val ext = f.extension.lowercase(Locale.ROOT)
-            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif")
+            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
         }?.sortedWith(NaturalOrderComparator()) ?: listOf()
 
         if (files.isEmpty()) return sourceDir

@@ -208,6 +208,7 @@ object BatoEngine {
                 val ext = when {
                     img.startsWith("data:image/png") -> ".png"
                     img.startsWith("data:image/webp") -> ".webp"
+                    img.startsWith("data:image/jxl") -> ".jxl"
                     else -> ".jpg"
                 }
                 val filename = String.format(Locale.ROOT, "prescraped_%04d%s", idx + 1, ext)
@@ -442,6 +443,7 @@ object BatoEngine {
             val ext = when {
                 urlStr.startsWith("data:image/png") -> ".png"
                 urlStr.startsWith("data:image/webp") -> ".webp"
+                urlStr.startsWith("data:image/jxl") -> ".jxl"
                 else -> ".jpg"
             }
             val filename = String.format(Locale.ROOT, "img_%04d%s", idx, ext)
@@ -493,20 +495,23 @@ object BatoEngine {
     private fun fixImageExtension(file: File): File {
         if (!file.exists()) return file
         val header = ByteArray(32)
-        try {
+        val read = try {
             file.inputStream().use { ins -> ins.read(header) }
         } catch (_: Exception) { return file }
 
-        val headerStr = String(header, Charsets.US_ASCII)
+        val headerStr = if (read >= 0) String(header, 0, read, Charsets.US_ASCII) else ""
         val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
         val isFakeJpg = headerStr.contains("Fake jpg")
         val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
+        val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
+                (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
 
         val ext = file.extension.lowercase(Locale.ROOT)
         val isJpgExt = ext in setOf("jpg", "jpeg", "jfif")
 
-        if (isJpgExt && (isFakeJpg || isWebp || isAvif)) {
-            val newFile = File(file.parentFile, file.nameWithoutExtension + ".webp")
+        if (isJpgExt && (isFakeJpg || isWebp || isAvif || isJxl)) {
+            val targetExt = if (isJxl) "jxl" else "webp"
+            val newFile = File(file.parentFile, file.nameWithoutExtension + "." + targetExt)
             if (file.renameTo(newFile)) {
                 return newFile
             }
