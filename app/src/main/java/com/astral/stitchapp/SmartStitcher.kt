@@ -123,7 +123,8 @@ object SmartStitcher {
         progressOffset: Int = 0,
         markDone: Boolean = true,
         splitMode: Int = 2,
-        quality: Int = 100
+        quality: Int = 100,
+        skipStitching: Boolean = false
     ): String = runBlocking {
         runAsync(
             inputFolder = inputFolder,
@@ -146,7 +147,8 @@ object SmartStitcher {
             progressOffset = progressOffset,
             markDone = markDone,
             splitMode = splitMode,
-            quality = quality
+            quality = quality,
+            skipStitching = skipStitching
         )
     }
 
@@ -171,7 +173,8 @@ object SmartStitcher {
         progressOffset: Int = 0,
         markDone: Boolean = true,
         splitMode: Int = 2,
-        quality: Int = 100
+        quality: Int = 100,
+        skipStitching: Boolean = false
     ): String {
         var finalOutType = outputFilesType
         var finalZip = zipOutput
@@ -221,12 +224,13 @@ object SmartStitcher {
                         ignorablePixels = ignorablePixels,
                         scanLineStep = scanLineStep,
                         splitMode = splitMode,
+                        skipStitching = skipStitching,
                         progressWriter = writer
                     )
 
                     if (helperResult.isEmpty()) continue
 
-                    if (helperResult.size > 1 && nextOffset != null) {
+                    if (!skipStitching && helperResult.size > 1 && nextOffset != null) {
                         firstImage = helperResult.last()
                         val saveList = helperResult.subList(0, helperResult.size - 1)
                         writer.addTotal(saveList.size)
@@ -272,6 +276,7 @@ object SmartStitcher {
                         ignorablePixels = ignorablePixels,
                         scanLineStep = scanLineStep,
                         splitMode = splitMode,
+                        skipStitching = skipStitching,
                         progressWriter = writer
                     )
 
@@ -462,12 +467,19 @@ object SmartStitcher {
         ignorablePixels: Int,
         scanLineStep: Int,
         splitMode: Int,
+        skipStitching: Boolean,
         progressWriter: ProgressWriter
     ): List<Bitmap> {
         if (images.isEmpty()) return emptyList()
 
         val resized = resizeImages(images, widthEnforceType, customWidth)
         progressWriter.step()
+
+        if (skipStitching) {
+            progressWriter.step()
+            progressWriter.step()
+            return resized
+        }
 
         val canvas = VirtualCanvas(resized)
         progressWriter.step()
