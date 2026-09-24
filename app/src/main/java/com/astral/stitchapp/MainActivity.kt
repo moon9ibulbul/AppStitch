@@ -973,6 +973,8 @@ fun StitchSettingsUI(
     var newTemplateName by remember { mutableStateOf("") }
     var expandedTemplates by remember { mutableStateOf(false) }
     var expandedMode by remember { mutableStateOf(false) }
+    var expandedFileName by remember { mutableStateOf(false) }
+    var expandedDetectionSettings by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -1028,12 +1030,36 @@ fun StitchSettingsUI(
             }
         }
 
-        OutlinedTextField(
-            value = customFileName,
-            onValueChange = onFileN,
-            label = { Text("Custom Filename ({num}.{ext})") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expandedFileName = !expandedFileName }
+                    .padding(vertical = 4.dp)
+            ) {
+                Column {
+                    Text("Custom Filename", style = MaterialTheme.typography.bodyLarge)
+                    if (!expandedFileName && customFileName.isNotEmpty()) {
+                        Text(
+                            customFileName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Text(if (expandedFileName) "▲" else "▼")
+            }
+            if (expandedFileName) {
+                OutlinedTextField(
+                    value = customFileName,
+                    onValueChange = onFileN,
+                    label = { Text("Custom Filename ({num}.{ext})") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Width: ")
@@ -1051,25 +1077,52 @@ fun StitchSettingsUI(
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = sensitivity,
-                onValueChange = { onSens(it.filter { ch -> ch.isDigit() }) },
-                label = { Text("Sens.") },
-                modifier = Modifier.weight(1f)
-            )
-            OutlinedTextField(
-                value = ignorable,
-                onValueChange = { onIgn(it.filter { ch -> ch.isDigit() }) },
-                label = { Text("Ignore Px") },
-                modifier = Modifier.weight(1f)
-            )
-             OutlinedTextField(
-                value = scanStep,
-                onValueChange = { onScan(it.filter { ch -> ch.isDigit() }) },
-                label = { Text("Step") },
-                modifier = Modifier.weight(1f)
-            )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expandedDetectionSettings = !expandedDetectionSettings }
+                    .padding(vertical = 4.dp)
+            ) {
+                Column {
+                    Text("Detection Settings (Sens / Ignore Px / Step)", style = MaterialTheme.typography.bodyLarge)
+                    if (!expandedDetectionSettings) {
+                        Text(
+                            "Sens: $sensitivity | Ignore: $ignorable | Step: $scanStep",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Text(if (expandedDetectionSettings) "▲" else "▼")
+            }
+            if (expandedDetectionSettings) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    OutlinedTextField(
+                        value = sensitivity,
+                        onValueChange = { onSens(it.filter { ch -> ch.isDigit() }) },
+                        label = { Text("Sens.") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = ignorable,
+                        onValueChange = { onIgn(it.filter { ch -> ch.isDigit() }) },
+                        label = { Text("Ignore Px") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = scanStep,
+                        onValueChange = { onScan(it.filter { ch -> ch.isDigit() }) },
+                        label = { Text("Step") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1203,7 +1256,7 @@ fun StitchTab(
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
     var customFileName by remember { mutableStateOf("") }
-    var widthEnforce by remember { mutableIntStateOf(0) }
+    var widthEnforce by remember { mutableIntStateOf(2) }
     var customWidth by remember { mutableStateOf("720") }
     var sensitivity by remember { mutableStateOf("90") }
     var ignorable by remember { mutableStateOf("0") }
@@ -1310,7 +1363,7 @@ fun StitchTab(
             splitHeight = s.optString("splitHeight", "5000")
             outputType = s.optString("outputType", ".png")
             customFileName = s.optString("customFileName", "")
-            widthEnforce = s.optInt("widthEnforce", 0)
+            widthEnforce = s.optInt("widthEnforce", 2)
             customWidth = s.optString("customWidth", "720")
             sensitivity = s.optString("sensitivity", "90")
             ignorable = s.optString("ignorable", "0")
@@ -1326,7 +1379,7 @@ fun StitchTab(
             splitHeight = "5000"
             outputType = ".png"
             customFileName = ""
-            widthEnforce = 0
+            widthEnforce = 2
             customWidth = "720"
             sensitivity = "90"
             ignorable = "0"
@@ -1679,7 +1732,7 @@ fun BatoTab(
     var splitHeight by remember { mutableStateOf("5000") }
     var outputType by remember { mutableStateOf(".png") }
     var customFileName by remember { mutableStateOf("") }
-    var widthEnforce by remember { mutableIntStateOf(0) }
+    var widthEnforce by remember { mutableIntStateOf(2) }
     var customWidth by remember { mutableStateOf("720") }
     var sensitivity by remember { mutableStateOf("90") }
     var ignorable by remember { mutableStateOf("0") }
@@ -1729,7 +1782,7 @@ fun BatoTab(
             splitHeight = s.optString("splitHeight", "5000")
             outputType = s.optString("outputType", ".png")
             customFileName = s.optString("customFileName", "")
-            widthEnforce = s.optInt("widthEnforce", 0)
+            widthEnforce = s.optInt("widthEnforce", 2)
             customWidth = s.optString("customWidth", "720")
             sensitivity = s.optString("sensitivity", "90")
             ignorable = s.optString("ignorable", "0")
@@ -1745,7 +1798,7 @@ fun BatoTab(
             splitHeight = "5000"
             outputType = ".png"
             customFileName = ""
-            widthEnforce = 0
+            widthEnforce = 2
             customWidth = "720"
             sensitivity = "90"
             ignorable = "0"
