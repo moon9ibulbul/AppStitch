@@ -2004,12 +2004,13 @@ fun BatoTab(
                         scope.launch(Dispatchers.IO) {
                             try {
                                 val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
-                                val type = when(selectedSource) {
-                                    "Ridibooks" -> "ridi"
-                                    "Bomtoon" -> "bomtoon"
-                                    "Lezhin" -> "lezhin"
-                                    "MrBlue" -> "mrblue"
-                                    "Naver Webtoon" -> "naver"
+                                val type = when {
+                                    selectedSource.equals("Kakaopage", ignoreCase = true) || patchObj?.id?.equals("kakaopage", ignoreCase = true) == true -> "kakaopage"
+                                    selectedSource == "Ridibooks" -> "ridi"
+                                    selectedSource == "Bomtoon" -> "bomtoon"
+                                    selectedSource == "Lezhin" -> "lezhin"
+                                    selectedSource == "MrBlue" -> "mrblue"
+                                    selectedSource == "Naver Webtoon" -> "naver"
                                     else -> patchObj?.type ?: selectedSource.lowercase()
                                 }
 
