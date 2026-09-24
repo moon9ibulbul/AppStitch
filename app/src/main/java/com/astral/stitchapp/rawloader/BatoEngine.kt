@@ -861,6 +861,7 @@ object BatoEngine {
                 zipOutput = params.optString("packaging") == "ZIP",
                 pdfOutput = params.optString("packaging") == "PDF",
                 pdfPassword = params.optString("pdfPassword", "").takeIf { it.isNotBlank() },
+                zipPassword = params.optString("zipPassword", "").takeIf { it.isNotBlank() },
                 markDone = false,
                 splitMode = params.optInt("splitMode", 2),
                 quality = params.optInt("quality", 100),

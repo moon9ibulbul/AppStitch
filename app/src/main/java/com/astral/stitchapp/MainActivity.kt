@@ -363,7 +363,7 @@ class MainActivity : ComponentActivity() {
         }
 
         @JvmStatic
-        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100, pdfPassword: String? = null): File {
+        fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100, pdfPassword: String? = null, zipPassword: String? = null): File {
             var resultFile = finalFile
             if (outputType == ".webp" && resultFile.isDirectory) {
                 resultFile.listFiles()?.forEach { f ->
@@ -391,7 +391,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (resultFile.isDirectory && packaging != PackagingOption.FOLDER) {
-                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name, pdfPassword, quality)
+                val packedPath = SmartStitcher.packArchive(resultFile.absolutePath, packaging.name, pdfPassword, zipPassword, quality)
                 resultFile = File(packedPath)
             }
 
@@ -619,6 +619,67 @@ fun CookieWebViewDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun DonationDialog(
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Terbantu dengan aplikasi ini? 🚀",
+                    style = MaterialTheme.typography.titleLarge,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Kalau aplikasi ini bikin kerjaan atau hobi kamu jadi lebih mudah, yuk apresiasi pengembangannya.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://parlor.astralscans.site/donasi.html"))
+                        context.startActivity(intent)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("Donasi ❤️", color = Color.White)
+                }
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Tutup")
+                }
+            }
+        }
+    }
+}
+
+fun checkAndShowDonationPopup(context: Context, onShow: () -> Unit) {
+    val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+    val lastShowTime = prefs.getLong("last_donation_popup_time", 0L)
+    val currentTime = System.currentTimeMillis()
+    val sevenDaysMs = 7L * 24L * 60L * 60L * 1000L
+    if (currentTime - lastShowTime >= sevenDaysMs) {
+        prefs.edit().putLong("last_donation_popup_time", currentTime).apply()
+        onShow()
     }
 }
 
@@ -900,6 +961,7 @@ fun StitchSettingsUI(
     lowRam: Boolean, onLowRam: (Boolean)->Unit,
     quality: Int, onQuality: (Int)->Unit,
     pdfPassword: String = "", onPdfPass: (String)->Unit = {},
+    zipPassword: String = "", onZipPass: (String)->Unit = {},
     skipStitching: Boolean = false, onSkipStitching: (Boolean)->Unit = {},
     currentTemplate: Template?,
     availableTemplates: List<Template>,
@@ -1023,6 +1085,16 @@ fun StitchSettingsUI(
             }
         }
 
+        if (packaging == PackagingOption.ZIP) {
+            OutlinedTextField(
+                value = zipPassword,
+                onValueChange = onZipPass,
+                label = { Text("ZIP Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
         if (packaging == PackagingOption.PDF) {
             OutlinedTextField(
                 value = pdfPassword,
@@ -1121,6 +1193,11 @@ fun StitchTab(
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var statusText by remember { mutableStateOf("Ready") }
+    var showDonationPopup by remember { mutableStateOf(false) }
+
+    if (showDonationPopup) {
+        DonationDialog(onDismiss = { showDonationPopup = false })
+    }
 
     // Settings State
     var splitHeight by remember { mutableStateOf("5000") }
@@ -1136,6 +1213,7 @@ fun StitchTab(
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
     var pdfPassword by remember { mutableStateOf("") }
+    var zipPassword by remember { mutableStateOf("") }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
@@ -1211,6 +1289,7 @@ fun StitchTab(
             put("lowRam", lowRam)
             put("quality", quality)
             put("pdfPassword", pdfPassword)
+            put("zipPassword", zipPassword)
             put("skipStitching", skipStitching)
         }
         TemplateManager.save(context, name, settings)
@@ -1241,6 +1320,7 @@ fun StitchTab(
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
             pdfPassword = s.optString("pdfPassword", "")
+            zipPassword = s.optString("zipPassword", "")
             skipStitching = s.optBoolean("skipStitching", prefs.getBoolean("skip_stitching", false))
         } else {
             splitHeight = "5000"
@@ -1256,6 +1336,7 @@ fun StitchTab(
             lowRam = false
             quality = 100
             pdfPassword = ""
+            zipPassword = ""
             skipStitching = prefs.getBoolean("skip_stitching", false)
         }
     }
@@ -1331,6 +1412,7 @@ fun StitchTab(
             lowRam, { lowRam = it },
             quality, { quality = it },
             pdfPassword, { pdfPassword = it },
+            zipPassword, { zipPassword = it },
             skipStitching, {
                 skipStitching = it
                 prefs.edit().putBoolean("skip_stitching", it).apply()
@@ -1438,6 +1520,7 @@ fun StitchTab(
                                         zipOutput = packagingOption == PackagingOption.ZIP,
                                         pdfOutput = packagingOption == PackagingOption.PDF,
                                         pdfPassword = pdfPassword.takeIf { it.isNotBlank() },
+                                        zipPassword = zipPassword.takeIf { it.isNotBlank() },
                                         progressPath = progressFile.absolutePath,
                                         progressOffset = 0,
                                         markDone = true,
@@ -1449,7 +1532,7 @@ fun StitchTab(
                                     monitor.cancel()
 
                                     val rawFile = File(finalPathStr)
-                                    val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
+                                    val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() }, zipPassword.takeIf { it.isNotBlank() })
 
                                     if (outputUri == null && (chooseZip || choosePdf)) {
                                         val downloadsDir = File(
@@ -1522,6 +1605,9 @@ fun StitchTab(
                                 val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
                                 toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
                             }
+                            checkAndShowDonationPopup(context) {
+                                showDonationPopup = true
+                            }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -1572,6 +1658,11 @@ fun BatoTab(
 
     var queueItems by remember { mutableStateOf(listOf<QueueItem>()) }
     var isProcessorRunning by remember { mutableStateOf(false) }
+    var showDonationPopup by remember { mutableStateOf(false) }
+
+    if (showDonationPopup) {
+        DonationDialog(onDismiss = { showDonationPopup = false })
+    }
 
     var isAddingToQueue by remember { mutableStateOf(false) }
 
@@ -1598,6 +1689,7 @@ fun BatoTab(
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
     var pdfPassword by remember { mutableStateOf("") }
+    var zipPassword by remember { mutableStateOf("") }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -1616,6 +1708,7 @@ fun BatoTab(
             put("lowRam", lowRam)
             put("quality", quality)
             put("pdfPassword", pdfPassword)
+            put("zipPassword", zipPassword)
             put("skipStitching", skipStitching)
         }
         TemplateManager.save(context, name, settings)
@@ -1646,6 +1739,7 @@ fun BatoTab(
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
             pdfPassword = s.optString("pdfPassword", "")
+            zipPassword = s.optString("zipPassword", "")
             skipStitching = s.optBoolean("skipStitching", prefs.getBoolean("skip_stitching", false))
         } else {
             splitHeight = "5000"
@@ -1661,6 +1755,7 @@ fun BatoTab(
             lowRam = false
             quality = 100
             pdfPassword = ""
+            zipPassword = ""
             skipStitching = prefs.getBoolean("skip_stitching", false)
         }
     }
@@ -1707,6 +1802,9 @@ fun BatoTab(
                                 val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
                                 toneGen.startTone(ToneGenerator.TONE_PROP_BEEP)
                             }
+                            checkAndShowDonationPopup(context) {
+                                showDonationPopup = true
+                            }
                         }
                         break
                     }
@@ -1726,6 +1824,7 @@ fun BatoTab(
                             put("lowRam", lowRam)
                             put("quality", quality)
                             put("pdfPassword", pdfPassword)
+                            put("zipPassword", zipPassword)
                         }
                         val result = BatoEngine.processNextItem(context, params.toString())
                         if (result.has("status")) {
@@ -1735,7 +1834,7 @@ fun BatoTab(
                             } else if (status == "success") {
                                 val path = result.getString("path")
                                 val rawFile = File(path)
-                                val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() })
+                                val file = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() }, zipPassword.takeIf { it.isNotBlank() })
 
                                 if (outputUri != null) {
                                     val targetTree = DocumentFile.fromTreeUri(context, outputUri)
@@ -2033,6 +2132,7 @@ fun BatoTab(
             lowRam, { lowRam = it },
             quality, { quality = it },
             pdfPassword, { pdfPassword = it },
+            zipPassword, { zipPassword = it },
             skipStitching, {
                 skipStitching = it
                 prefs.edit().putBoolean("skip_stitching", it).apply()

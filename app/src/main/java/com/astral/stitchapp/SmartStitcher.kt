@@ -119,6 +119,7 @@ object SmartStitcher {
         zipOutput: Boolean = false,
         pdfOutput: Boolean = false,
         pdfPassword: String? = null,
+        zipPassword: String? = null,
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
@@ -143,6 +144,7 @@ object SmartStitcher {
             zipOutput = zipOutput,
             pdfOutput = pdfOutput,
             pdfPassword = pdfPassword,
+            zipPassword = zipPassword,
             progressPath = progressPath,
             progressOffset = progressOffset,
             markDone = markDone,
@@ -169,6 +171,7 @@ object SmartStitcher {
         zipOutput: Boolean = false,
         pdfOutput: Boolean = false,
         pdfPassword: String? = null,
+        zipPassword: String? = null,
         progressPath: String? = null,
         progressOffset: Int = 0,
         markDone: Boolean = true,
@@ -305,7 +308,7 @@ object SmartStitcher {
         }
 
         if (finalZip) {
-            return packZip(File(resolvedOutputFolder)).absolutePath
+            return packZip(File(resolvedOutputFolder), zipPassword).absolutePath
         }
         if (finalPdf) {
             return packPdf(File(resolvedOutputFolder), pdfPassword, quality).absolutePath
@@ -315,11 +318,11 @@ object SmartStitcher {
     }
 
     @JvmStatic
-    fun packArchive(sourcePath: String, fmtName: String, pdfPassword: String? = null, quality: Int = 100): String {
+    fun packArchive(sourcePath: String, fmtName: String, pdfPassword: String? = null, zipPassword: String? = null, quality: Int = 100): String {
         val file = File(sourcePath)
         if (!file.exists()) return sourcePath
         return when (fmtName.uppercase(Locale.ROOT)) {
-            "ZIP" -> packZip(file).absolutePath
+            "ZIP" -> packZip(file, zipPassword).absolutePath
             "PDF" -> packPdf(file, pdfPassword, quality).absolutePath
             else -> sourcePath
         }
@@ -1169,24 +1172,185 @@ object SmartStitcher {
         return if (result.isEmpty()) "a" else result.reverse().toString()
     }
 
-    private fun packZip(sourceDir: File): File {
+    private object ZipCrc32 {
+        private val table = LongArray(256) { i ->
+            var c = i.toLong()
+            for (k in 0..7) {
+                if ((c and 1L) != 0L) c = 0xEDB88320L xor (c ushr 1)
+                else c = c ushr 1
+            }
+            c
+        }
+
+        fun update(crc: Long, b: Int): Long {
+            val idx = ((crc xor b.toLong()) and 0xFFL).toInt()
+            return (table[idx] xor (crc ushr 8)) and 0xFFFFFFFFL
+        }
+    }
+
+    private class ZipCrypto(password: String) {
+        var key0 = 305419896L
+        var key1 = 591751049L
+        var key2 = 878082192L
+
+        init {
+            val pBytes = password.toByteArray(Charsets.UTF_8)
+            for (b in pBytes) {
+                updateKeys(b.toInt() and 0xFF)
+            }
+        }
+
+        private fun updateKeys(charVal: Int) {
+            key0 = ZipCrc32.update(key0, charVal)
+            key1 = ((key1 + (key0 and 0xFFL)) * 134775813L + 1L) and 0xFFFFFFFFL
+            key2 = ZipCrc32.update(key2, ((key1 ushr 24) and 0xFFL).toInt())
+        }
+
+        fun decryptByte(): Int {
+            val temp = (key2 or 2L) and 0xFFFFL
+            return (((temp * (temp xor 1L)) ushr 8) and 0xFFL).toInt()
+        }
+
+        fun encryptByte(plainByte: Int): Int {
+            val k = decryptByte()
+            val cipherByte = plainByte xor k
+            updateKeys(plainByte)
+            return cipherByte
+        }
+    }
+
+    private fun writeShort(out: java.io.OutputStream, v: Int) {
+        out.write(v and 0xFF)
+        out.write((v shr 8) and 0xFF)
+    }
+
+    private fun writeInt(out: java.io.OutputStream, v: Long) {
+        out.write((v and 0xFFL).toInt())
+        out.write(((v ushr 8) and 0xFFL).toInt())
+        out.write(((v ushr 16) and 0xFFL).toInt())
+        out.write(((v ushr 24) and 0xFFL).toInt())
+    }
+
+    private fun packZip(sourceDir: File, zipPassword: String? = null): File {
         val zipFile = File(sourceDir.parentFile, "${sourceDir.name}.zip")
         if (zipFile.exists()) zipFile.delete()
 
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
-            val files = sourceDir.listFiles() ?: arrayOf()
-            files.sortWith(NaturalOrderComparator())
-            for (file in files) {
-                if (file.isFile) {
-                    val entry = ZipEntry(file.name)
-                    zos.putNextEntry(entry)
-                    file.inputStream().buffered().use { ins ->
-                        ins.copyTo(zos)
+        if (zipPassword.isNullOrBlank()) {
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+                val files = sourceDir.listFiles() ?: arrayOf()
+                files.sortWith(NaturalOrderComparator())
+                for (file in files) {
+                    if (file.isFile) {
+                        val entry = ZipEntry(file.name)
+                        zos.putNextEntry(entry)
+                        file.inputStream().buffered().use { ins ->
+                            ins.copyTo(zos)
+                        }
+                        zos.closeEntry()
                     }
-                    zos.closeEntry()
+                }
+            }
+        } else {
+            val files = sourceDir.listFiles()?.filter { it.isFile }?.sortedWith(NaturalOrderComparator()) ?: listOf()
+            val cdhBuf = ByteArrayOutputStream()
+            var entryCount = 0
+            var currentOffset = 0L
+            val rnd = java.util.Random()
+
+            FileOutputStream(zipFile).use { fos ->
+                BufferedOutputStream(fos).use { bos ->
+                    for (file in files) {
+                        val uncompressedData = file.readBytes()
+                        val uncompressedSize = uncompressedData.size.toLong()
+
+                        val crc = java.util.zip.CRC32()
+                        crc.update(uncompressedData)
+                        val crc32Val = crc.value
+
+                        val baosComp = ByteArrayOutputStream()
+                        val deflater = java.util.zip.Deflater(java.util.zip.Deflater.DEFAULT_COMPRESSION, true)
+                        deflater.setInput(uncompressedData)
+                        deflater.finish()
+                        val buf = ByteArray(1024)
+                        while (!deflater.finished()) {
+                            val count = deflater.deflate(buf)
+                            baosComp.write(buf, 0, count)
+                        }
+                        deflater.end()
+                        val compressedBytes = baosComp.toByteArray()
+
+                        val encHeader = ByteArray(12)
+                        rnd.nextBytes(encHeader)
+                        encHeader[11] = ((crc32Val ushr 24) and 0xFFL).toByte()
+
+                        val crypto = ZipCrypto(zipPassword)
+                        val encryptedData = ByteArray(12 + compressedBytes.size)
+                        for (i in 0 until 12) {
+                            encryptedData[i] = crypto.encryptByte(encHeader[i].toInt() and 0xFF).toByte()
+                        }
+                        for (i in compressedBytes.indices) {
+                            encryptedData[12 + i] = crypto.encryptByte(compressedBytes[i].toInt() and 0xFF).toByte()
+                        }
+
+                        val compressedSize = encryptedData.size.toLong()
+                        val filenameBytes = file.name.toByteArray(Charsets.UTF_8)
+                        val dosTime = 0x4B210000L
+
+                        val lfhOffset = currentOffset
+                        writeInt(bos, 0x04034b50L) // Signature
+                        writeShort(bos, 20) // Version needed (2.0)
+                        writeShort(bos, 1) // GPBF (Bit 0 = encrypted)
+                        writeShort(bos, 8) // Method = Deflated
+                        writeInt(bos, dosTime) // DOS time/date
+                        writeInt(bos, crc32Val) // CRC32
+                        writeInt(bos, compressedSize) // Encrypted compressed size
+                        writeInt(bos, uncompressedSize) // Uncompressed size
+                        writeShort(bos, filenameBytes.size) // Filename length
+                        writeShort(bos, 0) // Extra field length
+                        bos.write(filenameBytes)
+
+                        bos.write(encryptedData)
+
+                        val lfhSize = 30L + filenameBytes.size + compressedSize
+                        currentOffset += lfhSize
+
+                        writeInt(cdhBuf, 0x02014b50L) // Signature
+                        writeShort(cdhBuf, 20) // Version made by
+                        writeShort(cdhBuf, 20) // Version needed
+                        writeShort(cdhBuf, 1) // GPBF (encrypted)
+                        writeShort(cdhBuf, 8) // Deflated
+                        writeInt(cdhBuf, dosTime)
+                        writeInt(cdhBuf, crc32Val)
+                        writeInt(cdhBuf, compressedSize)
+                        writeInt(cdhBuf, uncompressedSize)
+                        writeShort(cdhBuf, filenameBytes.size)
+                        writeShort(cdhBuf, 0) // Extra length
+                        writeShort(cdhBuf, 0) // Comment length
+                        writeShort(cdhBuf, 0) // Disk start
+                        writeShort(cdhBuf, 0) // Internal attr
+                        writeInt(cdhBuf, 0) // External attr
+                        writeInt(cdhBuf, lfhOffset) // Local Header Offset
+                        cdhBuf.write(filenameBytes)
+
+                        entryCount++
+                    }
+
+                    val cdhBytes = cdhBuf.toByteArray()
+                    val cdhOffset = currentOffset
+                    bos.write(cdhBytes)
+
+                    writeInt(bos, 0x06054b50L) // Signature
+                    writeShort(bos, 0) // Disk num
+                    writeShort(bos, 0) // CD disk
+                    writeShort(bos, entryCount) // Entries on disk
+                    writeShort(bos, entryCount) // Total entries
+                    writeInt(bos, cdhBytes.size.toLong()) // CD size
+                    writeInt(bos, cdhOffset) // CD offset
+                    writeShort(bos, 0) // Comment length
                 }
             }
         }
+
         sourceDir.deleteRecursively()
         return zipFile
     }
