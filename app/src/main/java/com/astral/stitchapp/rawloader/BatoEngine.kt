@@ -704,6 +704,7 @@ object BatoEngine {
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
+                    "kakaopage" -> "https://page.kakao.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
