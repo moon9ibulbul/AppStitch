@@ -2014,6 +2014,7 @@ fun BatoTab(
                                 }
 
                                 val scraperInfo = when {
+                                    type == "kakaopage" || selectedSource.equals("Kakaopage", ignoreCase = true) -> null
                                     type == "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
                                     type == "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                     type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
