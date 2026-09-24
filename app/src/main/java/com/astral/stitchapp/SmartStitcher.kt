@@ -123,7 +123,8 @@ object SmartStitcher {
         progressOffset: Int = 0,
         markDone: Boolean = true,
         splitMode: Int = 2,
-        quality: Int = 100
+        quality: Int = 100,
+        skipStitching: Boolean = false
     ): String = runBlocking {
         runAsync(
             inputFolder = inputFolder,
@@ -146,7 +147,8 @@ object SmartStitcher {
             progressOffset = progressOffset,
             markDone = markDone,
             splitMode = splitMode,
-            quality = quality
+            quality = quality,
+            skipStitching = skipStitching
         )
     }
 
@@ -171,7 +173,8 @@ object SmartStitcher {
         progressOffset: Int = 0,
         markDone: Boolean = true,
         splitMode: Int = 2,
-        quality: Int = 100
+        quality: Int = 100,
+        skipStitching: Boolean = false
     ): String {
         var finalOutType = outputFilesType
         var finalZip = zipOutput
@@ -199,7 +202,27 @@ object SmartStitcher {
 
             val parentFolderName = inDir.name.ifBlank { inDir.parentFile?.name ?: "Stitched" }
 
-            if (lowRam) {
+            if (skipStitching) {
+                writer.addTotal(4)
+                val images = loadImagesParallel(inDir)
+                writer.step()
+
+                if (images.isNotEmpty()) {
+                    val resizedImages = resizeImages(images, widthEnforceType, customWidth)
+                    writer.step()
+                    writer.addTotal(resizedImages.size)
+                    saveSlicesParallel(
+                        slices = resizedImages,
+                        outputFolder = outDir,
+                        outputType = finalOutType,
+                        filenameTemplate = filenameTemplate,
+                        parentName = parentFolderName,
+                        quality = quality,
+                        startOffset = 0,
+                        progressWriter = writer
+                    )
+                }
+            } else if (lowRam) {
                 var saveOffset = 0
                 var nextOffset: Int? = 0
                 var firstImage: Bitmap? = null

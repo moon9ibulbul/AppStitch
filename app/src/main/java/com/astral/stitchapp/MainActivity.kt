@@ -904,7 +904,9 @@ fun StitchSettingsUI(
     availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
     onSaveTemplate: (String) -> Unit,
-    onDeleteTemplate: (Template) -> Unit
+    onDeleteTemplate: (Template) -> Unit,
+    skipStitching: Boolean = false,
+    onSkipStitchingChange: ((Boolean) -> Unit)? = null
 ) {
     var showSaveDialog by remember { mutableStateOf(false) }
     var newTemplateName by remember { mutableStateOf("") }
@@ -1023,6 +1025,12 @@ fun StitchSettingsUI(
         }
 
         if (packaging == PackagingOption.PDF) {
+            if (onSkipStitchingChange != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = skipStitching, onCheckedChange = onSkipStitchingChange)
+                    Text("Skip Stitching")
+                }
+            }
             OutlinedTextField(
                 value = pdfPassword,
                 onValueChange = onPdfPass,
@@ -1131,6 +1139,7 @@ fun StitchTab(
     var lowRam by remember { mutableStateOf(false) }
     var quality by remember { mutableIntStateOf(100) }
     var pdfPassword by remember { mutableStateOf("") }
+    var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -1205,6 +1214,7 @@ fun StitchTab(
             put("lowRam", lowRam)
             put("quality", quality)
             put("pdfPassword", pdfPassword)
+            put("skipStitching", skipStitching)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -1234,6 +1244,7 @@ fun StitchTab(
             lowRam = s.optBoolean("lowRam", false)
             quality = s.optInt("quality", 100)
             pdfPassword = s.optString("pdfPassword", "")
+            skipStitching = s.optBoolean("skipStitching", false)
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -1248,6 +1259,7 @@ fun StitchTab(
             lowRam = false
             quality = 100
             pdfPassword = ""
+            skipStitching = false
         }
     }
 
@@ -1324,7 +1336,12 @@ fun StitchTab(
             pdfPassword, { pdfPassword = it },
             currentTemplate,
             availableTemplates,
-            ::applyTemplate, ::saveTemplate, ::deleteTemplate
+            ::applyTemplate, ::saveTemplate, ::deleteTemplate,
+            skipStitching = skipStitching,
+            onSkipStitchingChange = {
+                skipStitching = it
+                prefs.edit().putBoolean("skip_stitching", it).apply()
+            }
         )
 
         HorizontalDivider()
@@ -1429,7 +1446,8 @@ fun StitchTab(
                                         progressOffset = 0,
                                         markDone = true,
                                         splitMode = splitMode,
-                                        quality = quality
+                                        quality = quality,
+                                        skipStitching = skipStitching
                                     )
 
                                     monitor.cancel()
