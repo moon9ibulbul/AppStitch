@@ -167,6 +167,27 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = title, type = "naver"))
                     added = 1
                 }
+            } else if (sourceType.equals("kakaopage", ignoreCase = true)) {
+                val data = fetchKakaopageData(url, cookie)
+                val title = data.optString("title", "Kakaopage Chapter")
+                val imagesArray = data.optJSONArray("images")
+                val imageList = mutableListOf<String>()
+                if (imagesArray != null) {
+                    for (i in 0 until imagesArray.length()) {
+                        imageList.add(imagesArray.getString(i))
+                    }
+                }
+                if (imageList.isEmpty()) {
+                    return JSONObject().apply { put("error", "No images found for Kakaopage URL (Check cookie/URL)") }
+                }
+
+                // addDirectJob handles mutex and saving queue internally
+                queueMutex.unlock()
+                try {
+                    return addDirectJob(cacheDir, title, imageList, cookie, "kakaopage")
+                } finally {
+                    queueMutex.lock()
+                }
             }
 
             if (added > 0) {
@@ -342,6 +363,143 @@ object BatoEngine {
             if (cookie.isNotBlank()) setRequestProperty("Cookie", cookie)
         }
         return conn.inputStream.bufferedReader().use { it.readText() }
+    }
+
+    fun fetchKakaopageData(urlStr: String, cookie: String = ""): JSONObject {
+        var title = "Kakaopage"
+        val images = mutableListOf<String>()
+
+        try {
+            // Parse seriesId and productId from URL: https://page.kakao.com/content/{seriesId}/viewer/{productId}
+            val matcher = Pattern.compile("/content/(\\d+)(?:/viewer/(\\d+))?").matcher(urlStr)
+            var seriesId = ""
+            var productId = ""
+            if (matcher.find()) {
+                seriesId = matcher.group(1) ?: ""
+                productId = matcher.group(2) ?: ""
+            }
+
+            fun extractFromViewerData(viewerDataObj: JSONObject): Boolean {
+                if (viewerDataObj.optString("type") == "ImageViewerData") {
+                    val downloadData = viewerDataObj.optJSONObject("imageDownloadData")
+                    if (downloadData != null) {
+                        val filesArr = downloadData.optJSONArray("files")
+                        if (filesArr != null && filesArr.length() > 0) {
+                            val fileList = mutableListOf<Pair<Int, String>>()
+                            for (i in 0 until filesArr.length()) {
+                                val fObj = filesArr.getJSONObject(i)
+                                val no = fObj.optInt("no", i + 1)
+                                val secureUrl = fObj.optString("secureUrl", "")
+                                if (secureUrl.isNotBlank()) {
+                                    fileList.add(Pair(no, secureUrl))
+                                }
+                            }
+                            fileList.sortBy { it.first }
+                            if (fileList.isNotEmpty()) {
+                                images.clear()
+                                fileList.forEach { images.add(it.second) }
+                                return true
+                            }
+                        }
+                    }
+                }
+                return false
+            }
+
+            // Strategy 1: Direct POST / GET REST API call to bff-page.kakao.com
+            val apiUrl = "https://bff-page.kakao.com/api/gateway/api/v1/viewer/data"
+            val apiEndpoints = listOf(
+                Pair("POST", JSONObject().apply {
+                    if (seriesId.isNotBlank()) put("seriesId", seriesId.toLongOrNull() ?: seriesId)
+                    if (productId.isNotBlank()) put("productId", productId.toLongOrNull() ?: productId)
+                }.toString()),
+                Pair("GET", null)
+            )
+
+            for (endpoint in apiEndpoints) {
+                if (images.isNotEmpty()) break
+                try {
+                    val method = endpoint.first
+                    val body = endpoint.second
+                    val fullApiUrl = if (method == "GET" && productId.isNotBlank()) "$apiUrl?productId=$productId&seriesId=$seriesId" else apiUrl
+                    val conn = (URL(fullApiUrl).openConnection() as HttpURLConnection).apply {
+                        requestMethod = method
+                        connectTimeout = 30000
+                        readTimeout = 30000
+                        setRequestProperty("User-Agent", USER_AGENT)
+                        setRequestProperty("Referer", "https://page.kakao.com/")
+                        setRequestProperty("Origin", "https://page.kakao.com")
+                        if (cookie.isNotBlank()) setRequestProperty("Cookie", cookie)
+                        if (body != null) {
+                            setRequestProperty("Content-Type", "application/json")
+                            doOutput = true
+                        }
+                    }
+
+                    if (body != null) {
+                        conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    }
+
+                    if (conn.responseCode in 200..299) {
+                        val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                        val jsonResp = JSONObject(responseText)
+
+                        val itemObj = jsonResp.optJSONObject("item")
+                        if (itemObj != null && itemObj.has("title")) {
+                            val t = itemObj.optString("title")
+                            if (t.isNotBlank()) title = t
+                        }
+
+                        val viewerDataObj = jsonResp.optJSONObject("viewer_data") ?: jsonResp.optJSONObject("viewerData")
+                        if (viewerDataObj != null) {
+                            extractFromViewerData(viewerDataObj)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // Strategy 2: HTML Page Scraping Fallback
+            if (images.isEmpty()) {
+                val html = fetchHtml(urlStr, cookie)
+                if (html.isNotBlank()) {
+                    val ogTitleMatcher = Pattern.compile("<meta property=\"og:title\" content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (ogTitleMatcher.find()) {
+                        val extractedTitle = ogTitleMatcher.group(1) ?: ""
+                        if (extractedTitle.isNotBlank()) {
+                            title = extractedTitle.replace(" - 카카오페이지", "").replace("카카오페이지", "").trim()
+                        }
+                    }
+
+                    // Scan for __NEXT_DATA__
+                    val nextDataMatcher = Pattern.compile("<script id=\"__NEXT_DATA__\" type=\"application/json\">(.*?)</script>", Pattern.CASE_INSENSITIVE).matcher(html)
+                    if (nextDataMatcher.find()) {
+                        val jsonText = nextDataMatcher.group(1) ?: ""
+                        val nextDataJson = JSONObject(jsonText)
+                        val props = nextDataJson.optJSONObject("props")
+                        val pageProps = props?.optJSONObject("pageProps")
+                        val initialState = pageProps?.optJSONObject("initialState")
+                            ?: pageProps?.optJSONObject("initialData")
+
+                        if (initialState != null) {
+                            val viewerDataObj = initialState.optJSONObject("viewerData")
+                                ?: initialState.optJSONObject("viewer_data")
+                            if (viewerDataObj != null) {
+                                extractFromViewerData(viewerDataObj)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return JSONObject().apply {
+            put("title", sanitizeFilename(title))
+            put("images", JSONArray(images))
+        }
     }
 
     fun getNaverChapterInfo(urlStr: String): JSONObject {
@@ -704,6 +862,7 @@ object BatoEngine {
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
+                    "kakaopage" -> "https://page.kakao.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
