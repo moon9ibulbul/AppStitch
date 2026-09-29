@@ -63,6 +63,9 @@ class ManualStitchActivity : ComponentActivity() {
         val outputUriStr = intent.getStringExtra("outputUri")
         val outputType = intent.getStringExtra("outputType") ?: ".png"
         val quality = intent.getIntExtra("quality", 100)
+        val packaging = intent.getStringExtra("packaging") ?: "FOLDER"
+        val pdfPassword = intent.getStringExtra("pdfPassword")
+        val zipPassword = intent.getStringExtra("zipPassword")
 
         setContent {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
@@ -76,6 +79,9 @@ class ManualStitchActivity : ComponentActivity() {
                     outputUriStr = outputUriStr,
                     outputType = outputType,
                     quality = quality,
+                    packaging = packaging,
+                    pdfPassword = pdfPassword,
+                    zipPassword = zipPassword,
                     onBack = { finish() }
                 )
             }
@@ -161,6 +167,9 @@ fun ManualStitchScreen(
     outputUriStr: String?,
     outputType: String,
     quality: Int,
+    packaging: String = "FOLDER",
+    pdfPassword: String? = null,
+    zipPassword: String? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -233,6 +242,9 @@ fun ManualStitchScreen(
                                             outputUriStr = outputUriStr,
                                             outputType = outputType,
                                             quality = quality,
+                                            packaging = packaging,
+                                            pdfPassword = pdfPassword,
+                                            zipPassword = zipPassword,
                                             onProgress = { txt ->
                                                 scope.launch(Dispatchers.Main) { saveProgressText = txt }
                                             },
@@ -439,6 +451,9 @@ private fun saveManualSlices(
     outputUriStr: String?,
     outputType: String,
     quality: Int,
+    packaging: String = "FOLDER",
+    pdfPassword: String? = null,
+    zipPassword: String? = null,
     onProgress: (String) -> Unit,
     onSuccess: () -> Unit,
     onError: (String) -> Unit
@@ -531,11 +546,31 @@ private fun saveManualSlices(
 
         canvas.recycle()
 
+        onProgress("Memproses format kemasan ($packaging)...")
+        val rawFile = outputDir
+        val packagingOpt = try { PackagingOption.valueOf(packaging) } catch (e: Exception) { PackagingOption.FOLDER }
+        val finalFile = MainActivity.processOutput(
+            rawFile,
+            outputType,
+            packagingOpt,
+            quality,
+            pdfPassword.takeIf { !it.isNullOrBlank() },
+            zipPassword.takeIf { !it.isNullOrBlank() }
+        )
+
         if (!outputUriStr.isNullOrBlank()) {
             onProgress("Menyimpan ke folder tujuan SAF...")
             val targetTree = DocumentFile.fromTreeUri(context, Uri.parse(outputUriStr))
             if (targetTree != null) {
-                copyToTree(context, outputDir, targetTree)
+                if (finalFile.isDirectory) {
+                    copyToTree(context, finalFile, targetTree)
+                } else {
+                    val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                    copyToTree(context, finalFile, targetTree, mime)
+                }
+            }
+            if (finalFile.absolutePath.startsWith(context.cacheDir.absolutePath)) {
+                finalFile.deleteRecursively()
             }
         }
 

@@ -2350,8 +2350,8 @@ fun ManualTab() {
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
-    var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
-    var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
+    val chooseZip = prefs.getBoolean("choose_zip", false)
+    val choosePdf = prefs.getBoolean("choose_pdf", false)
 
     var inputUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var outputUri by remember { mutableStateOf<Uri?>(null) }
@@ -2369,6 +2369,11 @@ fun ManualTab() {
     // Output format
     var outputFormat by remember { mutableStateOf(".png") }
     var quality by remember { mutableIntStateOf(100) }
+
+    // PackAs options
+    var packagingOption by remember { mutableStateOf(PackagingOption.FOLDER) }
+    var pdfPassword by remember { mutableStateOf("") }
+    var zipPassword by remember { mutableStateOf("") }
 
     val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -2500,7 +2505,7 @@ fun ManualTab() {
                 text = if (outputUri != null) {
                     DocumentFile.fromTreeUri(context, outputUri!!)?.name ?: "Selected"
                 } else {
-                    "Downloads/AstralStitch"
+                    if (chooseZip || choosePdf) "Downloads/AstralStitch" else "Same as Input"
                 },
                 modifier = Modifier.weight(1f),
                 overflow = TextOverflow.Ellipsis,
@@ -2516,19 +2521,54 @@ fun ManualTab() {
 
         HorizontalDivider()
 
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Pack:")
+            Spacer(Modifier.width(4.dp))
+            PackagingOption.values().forEach { opt ->
+                FilterChip(
+                    selected = packagingOption == opt,
+                    onClick = { packagingOption = opt },
+                    label = { Text(opt.name) }
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+
+        if (packagingOption == PackagingOption.ZIP) {
+            OutlinedTextField(
+                value = zipPassword,
+                onValueChange = { zipPassword = it },
+                label = { Text("ZIP Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
+        if (packagingOption == PackagingOption.PDF) {
+            OutlinedTextField(
+                value = pdfPassword,
+                onValueChange = { pdfPassword = it },
+                label = { Text("PDF Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
+        HorizontalDivider()
+
         Text("Opsi Pemotongan", style = MaterialTheme.typography.titleMedium)
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             FilterChip(
                 selected = splitModeOption == "HEIGHT",
                 onClick = { splitModeOption = "HEIGHT" },
-                label = { Text("Berdasarkan Height") }
+                label = { Text("Height") }
             )
             Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = splitModeOption == "SPLIT_COUNT",
                 onClick = { splitModeOption = "SPLIT_COUNT" },
-                label = { Text("Berdasarkan Split Count") }
+                label = { Text("Split Count") }
             )
         }
 
@@ -2596,7 +2636,14 @@ fun ManualTab() {
             modifier = Modifier.fillMaxWidth(),
             onClick = {
                 if (inputUris.isEmpty()) {
-                    Toast.makeText(context, "Silakan pilih input terlebih dahulu", Toast.LENGTH_SHORT).show()
+                    val msg = if (chooseZip) {
+                        "Please select ZIP file(s)"
+                    } else if (choosePdf) {
+                        "Please select a PDF file"
+                    } else {
+                        "Please select an input folder"
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     return@Button
                 }
 
@@ -2674,12 +2721,19 @@ fun ManualTab() {
                         )
                         downloadsDir.mkdirs()
 
-                        val targetOutDir = if (outputUri != null) {
+                        val (targetOutDir, outUriStr) = if (outputUri != null) {
                             val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
                             tempOutDir.mkdirs()
-                            tempOutDir
+                            Pair(tempOutDir, outputUri.toString())
+                        } else if (!chooseZip && !choosePdf && inputUris.isNotEmpty()) {
+                            val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                            tempOutDir.mkdirs()
+                            Pair(tempOutDir, inputUris.first().toString())
                         } else {
-                            downloadsDir
+                            val folderName = "ManualStitch_${System.currentTimeMillis()}"
+                            val outDir = File(downloadsDir, folderName)
+                            outDir.mkdirs()
+                            Pair(outDir, null)
                         }
 
                         withContext(Dispatchers.Main) {
@@ -2688,9 +2742,12 @@ fun ManualTab() {
                                 putStringArrayListExtra("imagePaths", imagePaths)
                                 putExtra("initialCutPositions", initialCutPositions.toIntArray())
                                 putExtra("outputFolder", targetOutDir.absolutePath)
-                                putExtra("outputUri", outputUri?.toString())
+                                putExtra("outputUri", outUriStr)
                                 putExtra("outputType", outputFormat)
                                 putExtra("quality", quality)
+                                putExtra("packaging", packagingOption.name)
+                                putExtra("pdfPassword", pdfPassword)
+                                putExtra("zipPassword", zipPassword)
                             }
                             context.startActivity(intent)
                         }
