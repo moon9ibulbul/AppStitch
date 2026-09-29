@@ -408,11 +408,6 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        val appPrefs = getSharedPreferences("app_settings", MODE_PRIVATE)
-        if (!appPrefs.contains("last_donation_popup_time")) {
-            appPrefs.edit().putLong("last_donation_popup_time", System.currentTimeMillis()).apply()
-        }
-
         setContent {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
             val isDarkTheme = remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
@@ -740,6 +735,7 @@ fun checkAndShowDonationPopup(context: Context, onShow: () -> Unit) {
     val currentTime = System.currentTimeMillis()
     if (!prefs.contains("last_donation_popup_time")) {
         prefs.edit().putLong("last_donation_popup_time", currentTime).apply()
+        onShow()
         return
     }
     val lastShowTime = prefs.getLong("last_donation_popup_time", currentTime)
@@ -2547,41 +2543,6 @@ fun ManualTab() {
 
         HorizontalDivider()
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Pack:")
-            Spacer(Modifier.width(4.dp))
-            PackagingOption.values().forEach { opt ->
-                FilterChip(
-                    selected = packagingOption == opt,
-                    onClick = { packagingOption = opt },
-                    label = { Text(opt.name) }
-                )
-                Spacer(Modifier.width(4.dp))
-            }
-        }
-
-        if (packagingOption == PackagingOption.ZIP) {
-            OutlinedTextField(
-                value = zipPassword,
-                onValueChange = { zipPassword = it },
-                label = { Text("ZIP Password (Optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-        }
-
-        if (packagingOption == PackagingOption.PDF) {
-            OutlinedTextField(
-                value = pdfPassword,
-                onValueChange = { pdfPassword = it },
-                label = { Text("PDF Password (Optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-        }
-
-        HorizontalDivider()
-
         Text("Opsi Pemotongan", style = MaterialTheme.typography.titleMedium)
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2650,6 +2611,41 @@ fun ManualTab() {
                     steps = 49
                 )
             }
+        }
+
+        HorizontalDivider()
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Pack:")
+            Spacer(Modifier.width(4.dp))
+            PackagingOption.values().forEach { opt ->
+                FilterChip(
+                    selected = packagingOption == opt,
+                    onClick = { packagingOption = opt },
+                    label = { Text(opt.name) }
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+
+        if (packagingOption == PackagingOption.ZIP) {
+            OutlinedTextField(
+                value = zipPassword,
+                onValueChange = { zipPassword = it },
+                label = { Text("ZIP Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
+        if (packagingOption == PackagingOption.PDF) {
+            OutlinedTextField(
+                value = pdfPassword,
+                onValueChange = { pdfPassword = it },
+                label = { Text("PDF Password (Optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
         }
 
         HorizontalDivider()
