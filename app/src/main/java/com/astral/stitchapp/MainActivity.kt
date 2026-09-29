@@ -434,7 +434,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Local", "Rawloader")
+    val titles = listOf("Local", "Rawloader", "Manual")
     var showSettings by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -502,6 +502,9 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
                     onRefreshTemplates = { refreshTemplates() },
                     showSettings = showSettings
                 )
+            }
+            Box(Modifier.fillMaxSize().zIndex(if (selectedTab == 2) 1f else 0f).alpha(if (selectedTab == 2) 1f else 0f)) {
+                ManualTab()
             }
         }
     }
@@ -2338,6 +2341,374 @@ fun copyFromTree(ctx: android.content.Context, treeUri: Uri, dest: java.io.File)
         }
     }
     copy(root, dest, true)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManualTab() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+
+    var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
+    var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
+
+    var inputUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var outputUri by remember { mutableStateOf<Uri?>(null) }
+
+    var statusText by remember { mutableStateOf("Ready") }
+    var inputImageCount by remember { mutableIntStateOf(0) }
+    var isPreparing by remember { mutableStateOf(false) }
+
+    // Split options
+    var splitModeOption by remember { mutableStateOf("HEIGHT") } // "HEIGHT" or "SPLIT_COUNT"
+    var isAutoHeight by remember { mutableStateOf(true) }
+    var manualHeightInput by remember { mutableStateOf("5000") }
+    var splitCountInput by remember { mutableStateOf("") }
+
+    // Output format
+    var outputFormat by remember { mutableStateOf(".png") }
+    var quality by remember { mutableIntStateOf(100) }
+
+    val pickInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) { e.printStackTrace() }
+            inputUris = listOf(uri)
+            val doc = DocumentFile.fromTreeUri(context, uri)
+            statusText = "Selected: ${doc?.name ?: "Unknown"}"
+
+            scope.launch(Dispatchers.IO) {
+                val tempDir = File(context.cacheDir, "manual_count_temp_${System.currentTimeMillis()}")
+                tempDir.mkdirs()
+                copyFromTree(context, uri, tempDir)
+                val count = tempDir.listFiles()?.filter { f ->
+                    val ext = f.extension.lowercase(Locale.ROOT)
+                    ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
+                }?.size ?: 0
+                tempDir.deleteRecursively()
+                withContext(Dispatchers.Main) {
+                    inputImageCount = count
+                    splitCountInput = count.toString()
+                }
+            }
+        }
+    }
+
+    val pickZipInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+            inputUris = uris
+            if (uris.size == 1) {
+                val doc = DocumentFile.fromSingleUri(context, uris.first())
+                statusText = "Selected ZIP: ${doc?.name ?: "Unknown"}"
+            } else {
+                statusText = "Selected ${uris.size} ZIP files"
+            }
+
+            scope.launch(Dispatchers.IO) {
+                val tempDir = File(context.cacheDir, "manual_zip_count_temp_${System.currentTimeMillis()}")
+                tempDir.mkdirs()
+                uris.forEach { u -> MainActivity.extractFromZip(context, u, tempDir) }
+                val count = tempDir.listFiles()?.filter { f ->
+                    val ext = f.extension.lowercase(Locale.ROOT)
+                    ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
+                }?.size ?: 0
+                tempDir.deleteRecursively()
+                withContext(Dispatchers.Main) {
+                    inputImageCount = count
+                    splitCountInput = count.toString()
+                }
+            }
+        }
+    }
+
+    val pickPdfInput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) { e.printStackTrace() }
+            inputUris = listOf(uri)
+            val doc = DocumentFile.fromSingleUri(context, uri)
+            statusText = "Selected PDF: ${doc?.name ?: "Unknown"}"
+
+            scope.launch(Dispatchers.IO) {
+                val tempDir = File(context.cacheDir, "manual_pdf_count_temp_${System.currentTimeMillis()}")
+                tempDir.mkdirs()
+                MainActivity.extractFromPdf(context, uri, tempDir)
+                val count = tempDir.listFiles()?.filter { f ->
+                    val ext = f.extension.lowercase(Locale.ROOT)
+                    ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
+                }?.size ?: 0
+                tempDir.deleteRecursively()
+                withContext(Dispatchers.Main) {
+                    inputImageCount = count
+                    splitCountInput = count.toString()
+                }
+            }
+        }
+    }
+
+    val pickOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            } catch (e: Exception) { e.printStackTrace() }
+            outputUri = uri
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (chooseZip) {
+                Button(onClick = { pickZipInput.launch(arrayOf("application/zip", "application/x-zip-compressed")) }, enabled = !isPreparing) {
+                    Text("Select ZIP")
+                }
+            } else if (choosePdf) {
+                Button(onClick = { pickPdfInput.launch(arrayOf("application/pdf")) }, enabled = !isPreparing) {
+                    Text("Select PDF")
+                }
+            } else {
+                Button(onClick = { pickInput.launch(null) }, enabled = !isPreparing) {
+                    Text("Select Input Folder")
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = statusText,
+                modifier = Modifier.weight(1f),
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 2
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { pickOutput.launch(null) }, enabled = !isPreparing) { Text("Select Output Folder") }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (outputUri != null) {
+                    DocumentFile.fromTreeUri(context, outputUri!!)?.name ?: "Selected"
+                } else {
+                    "Downloads/AstralStitch"
+                },
+                modifier = Modifier.weight(1f),
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (outputUri != null) {
+                IconButton(onClick = { outputUri = null }, enabled = !isPreparing) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear Output Folder", tint = Color.Red)
+                }
+            }
+        }
+
+        HorizontalDivider()
+
+        Text("Opsi Pemotongan", style = MaterialTheme.typography.titleMedium)
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(
+                selected = splitModeOption == "HEIGHT",
+                onClick = { splitModeOption = "HEIGHT" },
+                label = { Text("Berdasarkan Height") }
+            )
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = splitModeOption == "SPLIT_COUNT",
+                onClick = { splitModeOption = "SPLIT_COUNT" },
+                label = { Text("Berdasarkan Split Count") }
+            )
+        }
+
+        if (splitModeOption == "HEIGHT") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = isAutoHeight,
+                    onCheckedChange = { isAutoHeight = it }
+                )
+                Text("Auto (Initial height sesuai masing-masing gambar input)")
+            }
+
+            if (!isAutoHeight) {
+                OutlinedTextField(
+                    value = manualHeightInput,
+                    onValueChange = { manualHeightInput = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Split Height (px)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            OutlinedTextField(
+                value = splitCountInput,
+                onValueChange = { splitCountInput = it.filter { ch -> ch.isDigit() } },
+                label = { Text("Split Count (Jumlah potongan)") },
+                modifier = Modifier.fillMaxWidth(),
+                supportingText = { Text("Jumlah gambar input: $inputImageCount") }
+            )
+        }
+
+        HorizontalDivider()
+
+        Text("Output Format", style = MaterialTheme.typography.titleMedium)
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            listOf(".png", ".jpg", ".webp").forEach { fmt ->
+                FilterChip(
+                    selected = outputFormat == fmt,
+                    onClick = { outputFormat = fmt },
+                    label = { Text(fmt) }
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+        }
+
+        if (outputFormat == ".jpg" || outputFormat == ".webp") {
+            Column {
+                Text("Quality: $quality%")
+                Slider(
+                    value = quality.toFloat(),
+                    onValueChange = { quality = it.toInt() },
+                    valueRange = 50f..100f,
+                    steps = 49
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        if (isPreparing) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                if (inputUris.isEmpty()) {
+                    Toast.makeText(context, "Silakan pilih input terlebih dahulu", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
+
+                isPreparing = true
+
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val tempInDir = File(context.cacheDir, "manual_input_${System.currentTimeMillis()}")
+                        tempInDir.mkdirs()
+
+                        if (chooseZip) {
+                            inputUris.forEach { u -> MainActivity.extractFromZip(context, u, tempInDir) }
+                        } else if (choosePdf) {
+                            inputUris.forEach { u -> MainActivity.extractFromPdf(context, u, tempInDir) }
+                        } else {
+                            inputUris.forEach { u -> copyFromTree(context, u, tempInDir) }
+                        }
+
+                        val files = tempInDir.listFiles()?.filter { f ->
+                            val ext = f.extension.lowercase(Locale.ROOT)
+                            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
+                        }?.sortedWith(NaturalOrderComparator()) ?: emptyList()
+
+                        if (files.isEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                isPreparing = false
+                                Toast.makeText(context, "Tidak ada gambar yang ditemukan dalam input!", Toast.LENGTH_LONG).show()
+                            }
+                            return@launch
+                        }
+
+                        val imagePaths = ArrayList(files.map { it.absolutePath })
+
+                        // Compute initial cut positions
+                        var currY = 0
+                        val heights = files.map { file ->
+                            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeFile(file.absolutePath, options)
+                            val h = maxOf(1, options.outHeight)
+                            currY += h
+                            h
+                        }
+
+                        val totalCanvasHeight = currY
+                        val initialCutPositions = ArrayList<Int>()
+
+                        if (splitModeOption == "HEIGHT") {
+                            if (isAutoHeight) {
+                                var runY = 0
+                                for (h in heights.dropLast(1)) {
+                                    runY += h
+                                    initialCutPositions.add(runY)
+                                }
+                            } else {
+                                val splitH = manualHeightInput.toIntOrNull() ?: 5000
+                                var runY = splitH
+                                while (runY < totalCanvasHeight) {
+                                    initialCutPositions.add(runY)
+                                    runY += splitH
+                                }
+                            }
+                        } else {
+                            val count = splitCountInput.toIntOrNull() ?: files.size
+                            if (count > 1) {
+                                val stepH = totalCanvasHeight / count
+                                for (i in 1 until count) {
+                                    initialCutPositions.add(i * stepH)
+                                }
+                            }
+                        }
+
+                        val downloadsDir = File(
+                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                            "AstralStitch"
+                        )
+                        downloadsDir.mkdirs()
+
+                        val targetOutDir = if (outputUri != null) {
+                            val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                            tempOutDir.mkdirs()
+                            tempOutDir
+                        } else {
+                            downloadsDir
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            isPreparing = false
+                            val intent = Intent(context, ManualStitchActivity::class.java).apply {
+                                putStringArrayListExtra("imagePaths", imagePaths)
+                                putExtra("initialCutPositions", initialCutPositions.toIntArray())
+                                putExtra("outputFolder", targetOutDir.absolutePath)
+                                putExtra("outputUri", outputUri?.toString())
+                                putExtra("outputType", outputFormat)
+                                putExtra("quality", quality)
+                            }
+                            context.startActivity(intent)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        withContext(Dispatchers.Main) {
+                            isPreparing = false
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = if (isPreparing) Color.Gray else Color(0xFF4CAF50)),
+            enabled = !isPreparing
+        ) {
+            Text(if (isPreparing) "MEMPERSIAPKAN..." else "START STITCHING")
+        }
+    }
 }
 
 fun copyToTree(
