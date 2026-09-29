@@ -1304,8 +1304,21 @@ fun StitchTab(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-    val chooseZip = prefs.getBoolean("choose_zip", false)
-    val choosePdf = prefs.getBoolean("choose_pdf", false)
+    var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
+    var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
+
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "choose_zip" || key == "choose_pdf") {
+                chooseZip = prefs.getBoolean("choose_zip", false)
+                choosePdf = prefs.getBoolean("choose_pdf", false)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
 
     // Input/Output state
     var inputUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -2350,8 +2363,21 @@ fun ManualTab() {
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
-    val chooseZip = prefs.getBoolean("choose_zip", false)
-    val choosePdf = prefs.getBoolean("choose_pdf", false)
+    var chooseZip by remember { mutableStateOf(prefs.getBoolean("choose_zip", false)) }
+    var choosePdf by remember { mutableStateOf(prefs.getBoolean("choose_pdf", false)) }
+
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "choose_zip" || key == "choose_pdf") {
+                chooseZip = prefs.getBoolean("choose_zip", false)
+                choosePdf = prefs.getBoolean("choose_pdf", false)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
 
     var inputUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var outputUri by remember { mutableStateOf<Uri?>(null) }
