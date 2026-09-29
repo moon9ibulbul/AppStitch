@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.CookieManager
@@ -407,6 +408,11 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
+        val appPrefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        if (!appPrefs.contains("last_donation_popup_time")) {
+            appPrefs.edit().putLong("last_donation_popup_time", System.currentTimeMillis()).apply()
+        }
+
         setContent {
             val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
             val isDarkTheme = remember { mutableStateOf(prefs.getBoolean("dark_mode", false)) }
@@ -433,6 +439,19 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
 
     val context = LocalContext.current
     var availableTemplates by remember { mutableStateOf(TemplateManager.load(context)) }
+
+    var availableStorageBytes by remember { mutableLongStateOf(context.filesDir.usableSpace) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            availableStorageBytes = context.filesDir.usableSpace
+            delay(2000)
+        }
+    }
+
+    val threeGBInBytes = 3L * 1024L * 1024L * 1024L
+    if (availableStorageBytes < threeGBInBytes) {
+        LowStorageDialog(availableStorageBytes = availableStorageBytes)
+    }
 
     fun refreshTemplates() {
         availableTemplates = TemplateManager.load(context)
@@ -623,6 +642,47 @@ fun CookieWebViewDialog(
 }
 
 @Composable
+fun LowStorageDialog(availableStorageBytes: Long) {
+    val availableGB = availableStorageBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+    val formattedGB = String.format(Locale.US, "%.2f", availableGB)
+
+    Dialog(
+        onDismissRequest = { /* Non-dismissible */ },
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Peringatan Penyimpanan! ⚠️",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Sisa ruang penyimpanan perangkat Anda kurang dari 3 GB (Tersedia: $formattedGB GB).\n\nSilakan bebaskan ruang penyimpanan hingga lebih dari 3 GB untuk melanjutkan penggunaan aplikasi AstralStitch.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun DonationDialog(
     onDismiss: () -> Unit
 ) {
@@ -674,8 +734,12 @@ fun DonationDialog(
 
 fun checkAndShowDonationPopup(context: Context, onShow: () -> Unit) {
     val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-    val lastShowTime = prefs.getLong("last_donation_popup_time", 0L)
     val currentTime = System.currentTimeMillis()
+    if (!prefs.contains("last_donation_popup_time")) {
+        prefs.edit().putLong("last_donation_popup_time", currentTime).apply()
+        return
+    }
+    val lastShowTime = prefs.getLong("last_donation_popup_time", currentTime)
     val sevenDaysMs = 7L * 24L * 60L * 60L * 1000L
     if (currentTime - lastShowTime >= sevenDaysMs) {
         prefs.edit().putLong("last_donation_popup_time", currentTime).apply()
