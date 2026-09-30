@@ -1026,6 +1026,8 @@ fun StitchSettingsUI(
     pdfPassword: String = "", onPdfPass: (String)->Unit = {},
     zipPassword: String = "", onZipPass: (String)->Unit = {},
     skipStitching: Boolean = false, onSkipStitching: (Boolean)->Unit = {},
+    preCheckManual: Boolean = false, onPreCheckManual: (Boolean)->Unit = {},
+    showPreCheckManual: Boolean = false, preCheckManualEnabled: Boolean = true,
     currentTemplate: Template?,
     availableTemplates: List<Template>,
     onLoadTemplate: (Template?) -> Unit,
@@ -1225,6 +1227,25 @@ fun StitchSettingsUI(
             }
         }
 
+        if (showPreCheckManual) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (preCheckManualEnabled) 1f else 0.5f)
+            ) {
+                Checkbox(
+                    checked = preCheckManual,
+                    onCheckedChange = onPreCheckManual,
+                    enabled = preCheckManualEnabled
+                )
+                Text(
+                    text = "Pre-check Manual",
+                    color = if (preCheckManualEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
+
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.weight(1f)) {
@@ -1344,6 +1365,10 @@ fun StitchTab(
     var pdfPassword by remember { mutableStateOf("") }
     var zipPassword by remember { mutableStateOf("") }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
+    var preCheckManual by remember { mutableStateOf(prefs.getBoolean("pre_check_manual", false)) }
+
+    val isMultipleZip = chooseZip && inputUris.size > 1
+    val effectivePreCheckManual = preCheckManual && !isMultipleZip
 
     var currentTemplate by remember { mutableStateOf<Template?>(null) }
 
@@ -1420,6 +1445,7 @@ fun StitchTab(
             put("pdfPassword", pdfPassword)
             put("zipPassword", zipPassword)
             put("skipStitching", skipStitching)
+            put("preCheckManual", preCheckManual)
         }
         TemplateManager.save(context, name, settings)
         onRefreshTemplates()
@@ -1451,6 +1477,7 @@ fun StitchTab(
             pdfPassword = s.optString("pdfPassword", "")
             zipPassword = s.optString("zipPassword", "")
             skipStitching = s.optBoolean("skipStitching", prefs.getBoolean("skip_stitching", false))
+            preCheckManual = s.optBoolean("preCheckManual", prefs.getBoolean("pre_check_manual", false))
         } else {
             splitHeight = "5000"
             outputType = ".png"
@@ -1467,6 +1494,7 @@ fun StitchTab(
             pdfPassword = ""
             zipPassword = ""
             skipStitching = prefs.getBoolean("skip_stitching", false)
+            preCheckManual = prefs.getBoolean("pre_check_manual", false)
         }
     }
 
@@ -1546,6 +1574,12 @@ fun StitchTab(
                 skipStitching = it
                 prefs.edit().putBoolean("skip_stitching", it).apply()
             },
+            preCheckManual, {
+                preCheckManual = it
+                prefs.edit().putBoolean("pre_check_manual", it).apply()
+            },
+            showPreCheckManual = true,
+            preCheckManualEnabled = !isMultipleZip,
             currentTemplate,
             availableTemplates,
             ::applyTemplate, ::saveTemplate, ::deleteTemplate
@@ -1646,8 +1680,8 @@ fun StitchTab(
                                         unitImages = 20,
                                         outputFolder = dir.absolutePath,
                                         filenameTemplate = customFileName.takeIf { it.isNotBlank() },
-                                        zipOutput = packagingOption == PackagingOption.ZIP,
-                                        pdfOutput = packagingOption == PackagingOption.PDF,
+                                        zipOutput = if (effectivePreCheckManual) false else packagingOption == PackagingOption.ZIP,
+                                        pdfOutput = if (effectivePreCheckManual) false else packagingOption == PackagingOption.PDF,
                                         pdfPassword = pdfPassword.takeIf { it.isNotBlank() },
                                         zipPassword = zipPassword.takeIf { it.isNotBlank() },
                                         progressPath = progressFile.absolutePath,
@@ -1660,50 +1694,118 @@ fun StitchTab(
 
                                     monitor.cancel()
 
-                                    val rawFile = File(finalPathStr)
-                                    val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() }, zipPassword.takeIf { it.isNotBlank() })
+                                    if (effectivePreCheckManual) {
+                                        val convertedDir = MainActivity.processOutput(dir, outputType, PackagingOption.FOLDER, quality)
 
-                                    if (outputUri == null && (chooseZip || choosePdf)) {
-                                        val downloadsDir = File(
-                                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                                            "AstralStitch"
-                                        )
-                                        downloadsDir.mkdirs()
-                                        val destFile = File(downloadsDir, finalFile.name)
-                                        if (finalFile.isDirectory) {
-                                            finalFile.copyRecursively(destFile, overwrite = true)
-                                            finalFile.deleteRecursively()
-                                        } else {
-                                            finalFile.copyTo(destFile, overwrite = true)
-                                            finalFile.delete()
+                                        val precheckInDir = File(context.cacheDir, "manual_precheck_in_${System.currentTimeMillis()}")
+                                        precheckInDir.mkdirs()
+                                        convertedDir.copyRecursively(precheckInDir, overwrite = true)
+
+                                        val files = precheckInDir.listFiles()?.filter { f ->
+                                            val ext = f.extension.lowercase(Locale.ROOT)
+                                            ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
+                                        }?.sortedWith(NaturalOrderComparator()) ?: emptyList()
+
+                                        if (files.isNotEmpty()) {
+                                            val imagePaths = ArrayList(files.map { it.absolutePath })
+                                            var currY = 0
+                                            val heights = files.map { file ->
+                                                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                                BitmapFactory.decodeFile(file.absolutePath, options)
+                                                val h = maxOf(1, options.outHeight)
+                                                currY += h
+                                                h
+                                            }
+
+                                            val initialCutPositions = ArrayList<Int>()
+                                            var runY = 0
+                                            for (h in heights.dropLast(1)) {
+                                                runY += h
+                                                initialCutPositions.add(runY)
+                                            }
+
+                                            val downloadsDir = File(
+                                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                                "AstralStitch"
+                                            )
+                                            downloadsDir.mkdirs()
+
+                                            val (targetOutDir, outUriStr) = if (outputUri != null) {
+                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                tempOutDir.mkdirs()
+                                                Pair(tempOutDir, outputUri.toString())
+                                            } else if (!chooseZip && !choosePdf && inputUris.isNotEmpty()) {
+                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                tempOutDir.mkdirs()
+                                                Pair(tempOutDir, inputUris.first().toString())
+                                            } else {
+                                                val folderName = "${name}_[Stitched]_${System.currentTimeMillis()}"
+                                                val outDir = File(downloadsDir, folderName)
+                                                outDir.mkdirs()
+                                                Pair(outDir, null)
+                                            }
+
+                                            withContext(Dispatchers.Main) {
+                                                val intent = Intent(context, ManualStitchActivity::class.java).apply {
+                                                    putStringArrayListExtra("imagePaths", imagePaths)
+                                                    putExtra("initialCutPositions", initialCutPositions.toIntArray())
+                                                    putExtra("outputFolder", targetOutDir.absolutePath)
+                                                    putExtra("outputUri", outUriStr)
+                                                    putExtra("outputType", outputType)
+                                                    putExtra("quality", quality)
+                                                    putExtra("packaging", packagingOption.name)
+                                                    putExtra("pdfPassword", pdfPassword)
+                                                    putExtra("zipPassword", zipPassword)
+                                                }
+                                                context.startActivity(intent)
+                                            }
                                         }
                                     } else {
-                                        val targetTree = if (outputUri != null) {
-                                            DocumentFile.fromTreeUri(context, outputUri!!)
-                                        } else {
-                                            DocumentFile.fromTreeUri(context, uri)
-                                        }
+                                        val rawFile = File(finalPathStr)
+                                        val finalFile = MainActivity.processOutput(rawFile, outputType, packagingOption, quality, pdfPassword.takeIf { it.isNotBlank() }, zipPassword.takeIf { it.isNotBlank() })
 
-                                        if (targetTree != null && targetTree.canWrite()) {
+                                        if (outputUri == null && (chooseZip || choosePdf)) {
+                                            val downloadsDir = File(
+                                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                                "AstralStitch"
+                                            )
+                                            downloadsDir.mkdirs()
+                                            val destFile = File(downloadsDir, finalFile.name)
                                             if (finalFile.isDirectory) {
-                                                copyToTree(context, finalFile, targetTree)
+                                                finalFile.copyRecursively(destFile, overwrite = true)
+                                                finalFile.deleteRecursively()
                                             } else {
-                                                val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
-                                                copyToTree(context, finalFile, targetTree, mime)
+                                                finalFile.copyTo(destFile, overwrite = true)
+                                                finalFile.delete()
                                             }
                                         } else {
-                                            val destDir = context.getExternalFilesDir(null)
-                                            if (destDir != null && finalFile.exists()) {
-                                                val destFile = File(destDir, finalFile.name)
+                                            val targetTree = if (outputUri != null) {
+                                                DocumentFile.fromTreeUri(context, outputUri!!)
+                                            } else {
+                                                DocumentFile.fromTreeUri(context, uri)
+                                            }
+
+                                            if (targetTree != null && targetTree.canWrite()) {
                                                 if (finalFile.isDirectory) {
-                                                    finalFile.copyRecursively(destFile, overwrite = true)
-                                                    finalFile.deleteRecursively()
+                                                    copyToTree(context, finalFile, targetTree)
                                                 } else {
-                                                    finalFile.copyTo(destFile, overwrite = true)
-                                                    finalFile.delete()
+                                                    val mime = if (finalFile.extension == "pdf") "application/pdf" else "application/zip"
+                                                    copyToTree(context, finalFile, targetTree, mime)
                                                 }
-                                                withContext(Dispatchers.Main) {
-                                                    Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                val destDir = context.getExternalFilesDir(null)
+                                                if (destDir != null && finalFile.exists()) {
+                                                    val destFile = File(destDir, finalFile.name)
+                                                    if (finalFile.isDirectory) {
+                                                        finalFile.copyRecursively(destFile, overwrite = true)
+                                                        finalFile.deleteRecursively()
+                                                    } else {
+                                                        finalFile.copyTo(destFile, overwrite = true)
+                                                        finalFile.delete()
+                                                    }
+                                                    withContext(Dispatchers.Main) {
+                                                        Toast.makeText(context, "Saved to App Storage: ${destFile.name}", Toast.LENGTH_LONG).show()
+                                                    }
                                                 }
                                             }
                                         }
@@ -2248,27 +2350,30 @@ fun BatoTab(
             }
         }
         StitchSettingsUI(
-            splitHeight, { splitHeight = it },
-            outputType, { outputType = it },
-            customFileName, { customFileName = it },
-            widthEnforce, { widthEnforce = it },
-            customWidth, { customWidth = it },
-            sensitivity, { sensitivity = it },
-            ignorable, { ignorable = it },
-            scanStep, { scanStep = it },
-            packagingOption, { packagingOption = it },
-            splitMode, { splitMode = it },
-            lowRam, { lowRam = it },
-            quality, { quality = it },
-            pdfPassword, { pdfPassword = it },
-            zipPassword, { zipPassword = it },
-            skipStitching, {
+            splitHeight = splitHeight, onSplitH = { splitHeight = it },
+            outputType = outputType, onOutT = { outputType = it },
+            customFileName = customFileName, onFileN = { customFileName = it },
+            widthEnforce = widthEnforce, onWidthEn = { widthEnforce = it },
+            customWidth = customWidth, onCustW = { customWidth = it },
+            sensitivity = sensitivity, onSens = { sensitivity = it },
+            ignorable = ignorable, onIgn = { ignorable = it },
+            scanStep = scanStep, onScan = { scanStep = it },
+            packaging = packagingOption, onPack = { packagingOption = it },
+            splitMode = splitMode, onSplitMode = { splitMode = it },
+            lowRam = lowRam, onLowRam = { lowRam = it },
+            quality = quality, onQuality = { quality = it },
+            pdfPassword = pdfPassword, onPdfPass = { pdfPassword = it },
+            zipPassword = zipPassword, onZipPass = { zipPassword = it },
+            skipStitching = skipStitching, onSkipStitching = {
                 skipStitching = it
                 prefs.edit().putBoolean("skip_stitching", it).apply()
             },
-            currentTemplate,
-            availableTemplates,
-            ::applyTemplate, ::saveTemplate, ::deleteTemplate
+            showPreCheckManual = false,
+            currentTemplate = currentTemplate,
+            availableTemplates = availableTemplates,
+            onLoadTemplate = ::applyTemplate,
+            onSaveTemplate = ::saveTemplate,
+            onDeleteTemplate = ::deleteTemplate
         )
         HorizontalDivider()
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
