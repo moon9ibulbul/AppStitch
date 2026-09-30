@@ -367,7 +367,7 @@ class MainActivity : ComponentActivity() {
         @JvmStatic
         fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100, pdfPassword: String? = null, zipPassword: String? = null): File {
             var resultFile = finalFile
-            if ((outputType == ".webp" || outputType == ".avif" || outputType == ".jxl") && resultFile.isDirectory) {
+            if ((outputType == ".webp" || outputType == ".avif") && resultFile.isDirectory) {
                 resultFile.listFiles()?.forEach { f ->
                     if (f.isFile && f.extension.equals("bmp", ignoreCase = true)) {
                         val bitmap = BitmapFactory.decodeFile(f.absolutePath)
@@ -401,10 +401,6 @@ class MainActivity : ComponentActivity() {
                                             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                                         }
                                     }
-                                }
-                                ".jxl" -> {
-                                    val bytes = com.awxkee.jxlcoder.JxlCoder.encode(bitmap = bitmap, quality = quality.coerceIn(1, 100))
-                                    outFile.writeBytes(bytes)
                                 }
                             }
                             bitmap.recycle()
@@ -1103,13 +1099,13 @@ fun StitchSettingsUI(
         ) {
             Text("Output")
             Spacer(Modifier.width(8.dp))
-            listOf(".png", ".jpg", ".webp", ".avif", ".jxl").forEach { t ->
+            listOf(".png", ".jpg", ".webp", ".avif").forEach { t ->
                 FilterChip(selected = outputType == t, onClick = { onOutT(t) }, label = { Text(t) })
                 Spacer(Modifier.width(8.dp))
             }
         }
 
-        if (outputType == ".jpg" || outputType == ".webp" || outputType == ".avif" || outputType == ".jxl") {
+        if (outputType == ".jpg" || outputType == ".webp" || outputType == ".avif") {
             Column {
                 Text("Quality: $quality%")
                 Slider(
@@ -1757,11 +1753,13 @@ fun StitchTab(
                                             downloadsDir.mkdirs()
 
                                             val (targetOutDir, outUriStr) = if (outputUri != null) {
-                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                val tempParent = File(context.cacheDir, "manual_out_parent_${System.currentTimeMillis()}")
+                                                val tempOutDir = File(tempParent, dir.name)
                                                 tempOutDir.mkdirs()
                                                 Pair(tempOutDir, outputUri.toString())
                                             } else if (!chooseZip && !choosePdf && inputUris.isNotEmpty()) {
-                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                val tempParent = File(context.cacheDir, "manual_out_parent_${System.currentTimeMillis()}")
+                                                val tempOutDir = File(tempParent, dir.name)
                                                 tempOutDir.mkdirs()
                                                 Pair(tempOutDir, inputUris.first().toString())
                                             } else {
@@ -2725,7 +2723,7 @@ fun ManualTab() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
-            listOf(".png", ".jpg", ".webp", ".avif", ".jxl").forEach { fmt ->
+            listOf(".png", ".jpg", ".webp", ".avif").forEach { fmt ->
                 FilterChip(
                     selected = outputFormat == fmt,
                     onClick = { outputFormat = fmt },
@@ -2735,7 +2733,7 @@ fun ManualTab() {
             }
         }
 
-        if (outputFormat == ".jpg" || outputFormat == ".webp" || outputFormat == ".avif" || outputFormat == ".jxl") {
+        if (outputFormat == ".jpg" || outputFormat == ".webp" || outputFormat == ".avif") {
             Column {
                 Text("Quality: $quality%")
                 Slider(
@@ -2877,17 +2875,30 @@ fun ManualTab() {
                         )
                         downloadsDir.mkdirs()
 
+                        val firstUri = inputUris.firstOrNull()
+                        val doc = if (firstUri != null) {
+                            if (chooseZip || choosePdf) DocumentFile.fromSingleUri(context, firstUri) else DocumentFile.fromTreeUri(context, firstUri)
+                        } else null
+                        val rawName = doc?.name ?: "ManualStitch_${System.currentTimeMillis()}"
+                        val cleanName = if (rawName.endsWith(".zip", ignoreCase = true) || rawName.endsWith(".pdf", ignoreCase = true)) {
+                            rawName.substringBeforeLast(".")
+                        } else {
+                            rawName
+                        }
+                        val outputName = if (cleanName.endsWith(" [Stitched]", ignoreCase = true)) cleanName else "$cleanName [Stitched]"
+
                         val (targetOutDir, outUriStr) = if (outputUri != null) {
-                            val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                            val tempParent = File(context.cacheDir, "manual_out_parent_${System.currentTimeMillis()}")
+                            val tempOutDir = File(tempParent, outputName)
                             tempOutDir.mkdirs()
                             Pair(tempOutDir, outputUri.toString())
                         } else if (!chooseZip && !choosePdf && inputUris.isNotEmpty()) {
-                            val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                            val tempParent = File(context.cacheDir, "manual_out_parent_${System.currentTimeMillis()}")
+                            val tempOutDir = File(tempParent, outputName)
                             tempOutDir.mkdirs()
                             Pair(tempOutDir, inputUris.first().toString())
                         } else {
-                            val folderName = "ManualStitch_${System.currentTimeMillis()}"
-                            val outDir = File(downloadsDir, folderName)
+                            val outDir = File(downloadsDir, outputName)
                             outDir.mkdirs()
                             Pair(outDir, null)
                         }
