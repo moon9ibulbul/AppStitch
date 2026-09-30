@@ -1635,11 +1635,8 @@ fun StitchTab(
                                     }
 
                                     val cacheOutParent = File(context.cacheDir, "stitch_out_$uniqueTime")
-                                    val outputName = if (chooseZip || choosePdf) {
-                                        name.substringBeforeLast(".") + " [Stitched]"
-                                    } else {
-                                        "$name [Stitched]"
-                                    }
+                                    val cleanName = if (chooseZip || choosePdf) name.substringBeforeLast(".") else name
+                                    val outputName = "$cleanName [Stitched]"
                                     cacheOutParent.deleteRecursively(); cacheOutParent.mkdirs()
                                     val dir = File(cacheOutParent, outputName)
                                     dir.mkdirs()
@@ -1731,16 +1728,15 @@ fun StitchTab(
                                             downloadsDir.mkdirs()
 
                                             val (targetOutDir, outUriStr) = if (outputUri != null) {
-                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}/$outputName")
                                                 tempOutDir.mkdirs()
                                                 Pair(tempOutDir, outputUri.toString())
                                             } else if (!chooseZip && !choosePdf && inputUris.isNotEmpty()) {
-                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}")
+                                                val tempOutDir = File(context.cacheDir, "manual_output_${System.currentTimeMillis()}/$outputName")
                                                 tempOutDir.mkdirs()
-                                                Pair(tempOutDir, inputUris.first().toString())
+                                                Pair(tempOutDir, uri.toString())
                                             } else {
-                                                val folderName = "${name}_[Stitched]_${System.currentTimeMillis()}"
-                                                val outDir = File(downloadsDir, folderName)
+                                                val outDir = File(downloadsDir, outputName)
                                                 outDir.mkdirs()
                                                 Pair(outDir, null)
                                             }
