@@ -174,7 +174,6 @@ object ScraperScripts {
                 }
                 window._scrapedImages = scrapedImages;
                 log("Bomtoon: " + window._scrapedImages.length + " images grabbed!");
-                window.runScraper();
             } catch(e) { log("Error grabbing API data: " + e.message); }
         };
 
@@ -185,7 +184,7 @@ object ScraperScripts {
             }
             try {
                 if (!window._scrapedImages || window._scrapedImages.length === 0) {
-                    throw new Error("No images found. Try clicking 'Fetch' first.");
+                    throw new Error("No images found.");
                 }
 
                 const result = {
@@ -308,7 +307,6 @@ object ScraperScripts {
             }
             window._scrapedImages = images;
             log("Synthesized " + images.length + " images up to index " + maxIdx);
-            window.runScraper();
         };
 
         window.runScraper = async function() {
@@ -316,7 +314,7 @@ object ScraperScripts {
             if (!window._scrapedImages) await window.fetchAll();
             try {
                 if (!window._scrapedImages || window._scrapedImages.length === 0) {
-                    throw new Error("No images found. Scroll page then click Fetch.");
+                    throw new Error("No images found.");
                 }
                 const result = {
                     title: document.title.replace(/\s*-\s*Lezhin.*${"$"}/i, '').trim(),
@@ -596,6 +594,7 @@ fun ScraperWebViewDialog(
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
     var isScrapeReady by remember { mutableStateOf(!isMrBlue) }
+    var hasScraped by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -622,9 +621,12 @@ fun ScraperWebViewDialog(
 
                             addJavascriptInterface(ScraperJsInterface(
                                 onResult = { t, i, _ ->
-                                    val cm = CookieManager.getInstance()
-                                    val currentCookie = cm.getCookie(url) ?: ""
-                                    onScrapeSuccess(t, i, currentCookie)
+                                    if (!hasScraped) {
+                                        hasScraped = true
+                                        val cm = CookieManager.getInstance()
+                                        val currentCookie = cm.getCookie(url) ?: ""
+                                        onScrapeSuccess(t, i, currentCookie)
+                                    }
                                 },
                                 onLog = { msg -> status = msg },
                                 onProgress = { loaded, total, ready ->
@@ -774,26 +776,6 @@ fun ScraperWebViewDialog(
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
-
-                        // Show "Fetch" button for Bomtoon, Lezhin, or scripts defining fetch/grab functions
-                        val hasGrabApiData = script.contains("grabApiData")
-                        val hasFetchAll = script.contains("fetchAll")
-                        val showFetch = url.contains("bomtoon") || url.contains("lezhin") || hasGrabApiData || hasFetchAll
-                        if (showFetch) {
-                            Button(
-                                onClick = {
-                                    status = "Fetching started..."
-                                    val fetchFunc = when {
-                                        hasGrabApiData || url.contains("bomtoon") -> "if (typeof window.grabApiData === 'function') { window.grabApiData(); } else if (typeof window.fetchAll === 'function') { window.fetchAll(); }"
-                                        else -> "if (typeof window.fetchAll === 'function') { window.fetchAll(); } else if (typeof window.grabApiData === 'function') { window.grabApiData(); }"
-                                    }
-                                    webView?.evaluateJavascript(script) {
-                                        webView?.evaluateJavascript(fetchFunc, null)
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Fetch") }
-                        }
 
                         Button(
                             onClick = {
