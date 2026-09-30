@@ -1067,25 +1067,6 @@ fun StitchSettingsUI(
             Switch(checked = lowRam, onCheckedChange = onLowRam)
         }
 
-        if (showPreCheckManual) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .alpha(if (preCheckManualEnabled) 1f else 0.5f)
-            ) {
-                Checkbox(
-                    checked = preCheckManual,
-                    onCheckedChange = onPreCheckManual,
-                    enabled = preCheckManualEnabled
-                )
-                Text(
-                    text = "Pre-check Manual",
-                    color = if (preCheckManualEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-            }
-        }
-
         OutlinedTextField(
             value = splitHeight,
             onValueChange = { onSplitH(it.filter { ch -> ch.isDigit() }) },
@@ -1243,6 +1224,25 @@ fun StitchSettingsUI(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = skipStitching, onCheckedChange = onSkipStitching)
                 Text("Skip Stitching")
+            }
+        }
+
+        if (showPreCheckManual) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (preCheckManualEnabled) 1f else 0.5f)
+            ) {
+                Checkbox(
+                    checked = preCheckManual,
+                    onCheckedChange = onPreCheckManual,
+                    enabled = preCheckManualEnabled
+                )
+                Text(
+                    text = "Pre-check Manual",
+                    color = if (preCheckManualEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
             }
         }
 
@@ -1695,7 +1695,13 @@ fun StitchTab(
                                     monitor.cancel()
 
                                     if (effectivePreCheckManual) {
-                                        val files = dir.listFiles()?.filter { f ->
+                                        val convertedDir = MainActivity.processOutput(dir, outputType, PackagingOption.FOLDER, quality)
+
+                                        val precheckInDir = File(context.cacheDir, "manual_precheck_in_${System.currentTimeMillis()}")
+                                        precheckInDir.mkdirs()
+                                        convertedDir.copyRecursively(precheckInDir, overwrite = true)
+
+                                        val files = precheckInDir.listFiles()?.filter { f ->
                                             val ext = f.extension.lowercase(Locale.ROOT)
                                             ext in setOf("png", "jpg", "jpeg", "jfif", "webp", "bmp", "tiff", "tif", "tga", "avif", "jxl")
                                         }?.sortedWith(NaturalOrderComparator()) ?: emptyList()
