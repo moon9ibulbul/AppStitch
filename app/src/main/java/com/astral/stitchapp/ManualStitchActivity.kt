@@ -548,10 +548,6 @@ private fun saveManualSlices(
                         }
                     }
                 }
-                ".jxl" -> {
-                    val bytes = com.awxkee.jxlcoder.JxlCoder.encode(bitmap = sliceBmp, quality = quality.coerceIn(1, 100))
-                    outFile.writeBytes(bytes)
-                }
                 else -> { // .png
                     outFile.outputStream().buffered().use { out ->
                         sliceBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -588,7 +584,11 @@ private fun saveManualSlices(
                 }
             }
             if (finalFile.absolutePath.startsWith(context.cacheDir.absolutePath)) {
+                val parent = finalFile.parentFile
                 finalFile.deleteRecursively()
+                if (parent != null && parent.absolutePath.startsWith(context.cacheDir.absolutePath) && parent.name.startsWith("manual_out_parent_")) {
+                    parent.deleteRecursively()
+                }
             }
         }
 
