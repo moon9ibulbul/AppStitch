@@ -182,7 +182,7 @@ object SmartStitcher {
         var finalOutType = outputFilesType
         var finalZip = zipOutput
         var finalPdf = pdfOutput
-        if (finalOutType == ".webp") {
+        if (finalOutType == ".webp" || finalOutType == ".avif" || finalOutType == ".jxl") {
             finalOutType = ".bmp"
             finalZip = false
             finalPdf = false
@@ -1132,6 +1132,24 @@ object SmartStitcher {
                         bitmap.compress(Bitmap.CompressFormat.WEBP, quality.coerceIn(1, 100), out)
                     }
                 }
+            }
+            ".avif" -> {
+                file.outputStream().buffered().use { out ->
+                    val avifFormat = try {
+                        Bitmap.CompressFormat.valueOf("AVIF")
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (avifFormat != null) {
+                        bitmap.compress(avifFormat, quality.coerceIn(1, 100), out)
+                    } else {
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                }
+            }
+            ".jxl" -> {
+                val bytes = com.awxkee.jxlcoder.JxlCoder.encode(bitmap = bitmap, quality = quality.coerceIn(1, 100))
+                file.writeBytes(bytes)
             }
             else -> { // .png
                 file.outputStream().buffered().use { out ->

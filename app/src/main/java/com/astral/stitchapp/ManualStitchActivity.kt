@@ -534,6 +534,24 @@ private fun saveManualSlices(
                         }
                     }
                 }
+                ".avif" -> {
+                    outFile.outputStream().buffered().use { out ->
+                        val avifFormat = try {
+                            Bitmap.CompressFormat.valueOf("AVIF")
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (avifFormat != null) {
+                            sliceBmp.compress(avifFormat, quality.coerceIn(1, 100), out)
+                        } else {
+                            sliceBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                        }
+                    }
+                }
+                ".jxl" -> {
+                    val bytes = com.awxkee.jxlcoder.JxlCoder.encode(bitmap = sliceBmp, quality = quality.coerceIn(1, 100))
+                    outFile.writeBytes(bytes)
+                }
                 else -> { // .png
                     outFile.outputStream().buffered().use { out ->
                         sliceBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
