@@ -1739,7 +1739,7 @@ fun StitchTab(
                                                 tempOutDir.mkdirs()
                                                 Pair(tempOutDir, inputUris.first().toString())
                                             } else {
-                                                val folderName = "${name}_[Stitched]_${System.currentTimeMillis()}"
+                                                val folderName = dir.name
                                                 val outDir = File(downloadsDir, folderName)
                                                 outDir.mkdirs()
                                                 Pair(outDir, null)
