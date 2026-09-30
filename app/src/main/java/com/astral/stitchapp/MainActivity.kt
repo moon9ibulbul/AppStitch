@@ -366,22 +366,44 @@ class MainActivity : ComponentActivity() {
         @JvmStatic
         fun processOutput(finalFile: File, outputType: String, packaging: PackagingOption, quality: Int = 100, pdfPassword: String? = null, zipPassword: String? = null): File {
             var resultFile = finalFile
-            if (outputType == ".webp" && resultFile.isDirectory) {
+            if ((outputType == ".webp" || outputType == ".avif" || outputType == ".jxl") && resultFile.isDirectory) {
                 resultFile.listFiles()?.forEach { f ->
                     if (f.isFile && f.extension.equals("bmp", ignoreCase = true)) {
                         val bitmap = BitmapFactory.decodeFile(f.absolutePath)
                         if (bitmap != null) {
-                            val webpFile = File(f.parent, f.nameWithoutExtension + ".webp")
-                            webpFile.outputStream().use { out ->
-                                if (Build.VERSION.SDK_INT >= 30) {
-                                    if (quality == 100) {
-                                        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
-                                    } else {
-                                        bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality, out)
+                            val outFile = File(f.parent, f.nameWithoutExtension + outputType)
+                            when (outputType.lowercase(Locale.ROOT)) {
+                                ".webp" -> {
+                                    outFile.outputStream().use { out ->
+                                        if (Build.VERSION.SDK_INT >= 30) {
+                                            if (quality == 100) {
+                                                bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                            } else {
+                                                bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, quality, out)
+                                            }
+                                        } else {
+                                            @Suppress("DEPRECATION")
+                                            bitmap.compress(Bitmap.CompressFormat.WEBP, quality, out)
+                                        }
                                     }
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    bitmap.compress(Bitmap.CompressFormat.WEBP, quality, out)
+                                }
+                                ".avif" -> {
+                                    outFile.outputStream().buffered().use { out ->
+                                        val avifFormat = try {
+                                            Bitmap.CompressFormat.valueOf("AVIF")
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                        if (avifFormat != null) {
+                                            bitmap.compress(avifFormat, quality.coerceIn(1, 100), out)
+                                        } else {
+                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                        }
+                                    }
+                                }
+                                ".jxl" -> {
+                                    val bytes = com.awxkee.jxlcoder.JxlCoder.encode(bitmap = bitmap, quality = quality.coerceIn(1, 100))
+                                    outFile.writeBytes(bytes)
                                 }
                             }
                             bitmap.recycle()
@@ -1077,13 +1099,13 @@ fun StitchSettingsUI(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Output")
             Spacer(Modifier.width(8.dp))
-            listOf(".png", ".jpg", ".webp").forEach { t ->
+            listOf(".png", ".jpg", ".webp", ".avif", ".jxl").forEach { t ->
                 FilterChip(selected = outputType == t, onClick = { onOutT(t) }, label = { Text(t) })
                 Spacer(Modifier.width(8.dp))
             }
         }
 
-        if (outputType == ".jpg" || outputType == ".webp") {
+        if (outputType == ".jpg" || outputType == ".webp" || outputType == ".avif" || outputType == ".jxl") {
             Column {
                 Text("Quality: $quality%")
                 Slider(
@@ -2696,7 +2718,7 @@ fun ManualTab() {
         Text("Output Format", style = MaterialTheme.typography.titleMedium)
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            listOf(".png", ".jpg", ".webp").forEach { fmt ->
+            listOf(".png", ".jpg", ".webp", ".avif", ".jxl").forEach { fmt ->
                 FilterChip(
                     selected = outputFormat == fmt,
                     onClick = { outputFormat = fmt },
@@ -2706,7 +2728,7 @@ fun ManualTab() {
             }
         }
 
-        if (outputFormat == ".jpg" || outputFormat == ".webp") {
+        if (outputFormat == ".jpg" || outputFormat == ".webp" || outputFormat == ".avif" || outputFormat == ".jxl") {
             Column {
                 Text("Quality: $quality%")
                 Slider(
@@ -2906,6 +2928,7 @@ fun copyToTree(
     fun inferredMime(file: java.io.File): String {
         return when (file.extension.lowercase(Locale.ROOT)) {
             "webp" -> "image/webp"
+            "avif" -> "image/avif"
             "jxl" -> "image/jxl"
             "png", "jpg", "jpeg", "bmp", "tiff", "tif", "tga" -> "image/*"
             "zip" -> "application/zip"
