@@ -420,13 +420,9 @@ object ScraperScripts {
                 let isReady = (loaded >= total && total > 0);
 
                 if (!isReady && loaded > 0) {
-                    const scrollContainer = document.documentElement || document.body;
-                    const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
-                    const currentScroll = window.scrollY || window.pageYOffset || scrollContainer.scrollTop || 0;
-                    const atBottom = maxScroll > 0 && currentScroll >= maxScroll - 100;
-
-                    if (sameCountTicks > 10 || (atBottom && sameCountTicks > 3)) {
-                        log("MrBlue: Auto-load completed with " + loaded + "/" + total + " loaded blobs.");
+                    // Fallback safety timeout if progress completely halts for 30s (60 ticks)
+                    if (sameCountTicks > 60) {
+                        log("MrBlue: Auto-load timed out with " + loaded + "/" + total + " loaded blobs.");
                         isReady = true;
                     }
                 }
@@ -451,6 +447,9 @@ object ScraperScripts {
                 const nextUnloaded = imgs.find(img => !isBlobLoaded(img));
                 if (nextUnloaded) {
                     nextUnloaded.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    if (sameCountTicks > 5) {
+                        window.scrollBy(0, (sameCountTicks % 2 === 0 ? 50 : -50));
+                    }
                 } else {
                     scrollPos += 800;
                     if (scrollPos > maxScroll + 1000) scrollPos = 0;
@@ -459,7 +458,7 @@ object ScraperScripts {
 
                 if (loaded === lastLoadedCount) {
                     sameCountTicks++;
-                    if (sameCountTicks > 15) {
+                    if (sameCountTicks > 15 && sameCountTicks % 10 === 0) {
                         window.scrollTo(0, scrollContainer.scrollHeight);
                     }
                 } else {
