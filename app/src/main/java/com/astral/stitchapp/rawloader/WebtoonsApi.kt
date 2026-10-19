@@ -30,7 +30,7 @@ data class WebtoonsSeriesInfo(
 
 object WebtoonsApi {
     private const val PREFS_NAME = "webtoons_session"
-    private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+    private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
 
     fun loadSession(context: Context): WebtoonsSession {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -76,7 +76,6 @@ object WebtoonsApi {
 
         delay(800) // Simulate network call
 
-        // Generate username from email prefix
         val rawUser = email.substringBefore("@")
         val username = if (rawUser.isNotEmpty()) {
             rawUser.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
@@ -97,32 +96,60 @@ object WebtoonsApi {
         return Result.success(session)
     }
 
+    private fun decodeHtmlEntities(input: String): String {
+        return input.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&#x27;", "'")
+            .replace("&#x2F;", "/")
+            .replace("&#8217;", "’")
+            .replace("&#8216;", "‘")
+            .replace("&#8220;", "“")
+            .replace("&#8221;", "”")
+            .trim()
+    }
+
     fun buildSeriesUrl(input: String, lang: String = "en"): String {
-        val trimmed = input.trim()
+        var trimmed = input.trim()
+        if (trimmed.contains("m.webtoons.com")) {
+            trimmed = trimmed.replace("m.webtoons.com", "www.webtoons.com")
+        }
+
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             return trimmed
         }
+
         val titleNo = trimmed.filter { it.isDigit() }
         if (titleNo.isNotEmpty()) {
-            return "https://www.webtoons.com/$lang/series/detail/list?title_no=$titleNo"
+            return "https://www.webtoons.com/$lang/a/b/list?title_no=$titleNo"
         }
         return "https://www.webtoons.com/$lang/search?keyword=" + java.net.URLEncoder.encode(trimmed, "UTF-8")
     }
 
-    fun fetchSeriesInfo(inputUrlOrTitleNo: String, lang: String = "en"): WebtoonsSeriesInfo {
-        val fullUrl = buildSeriesUrl(inputUrlOrTitleNo, lang)
+    fun fetchSeriesInfo(inputUrlOrTitleNo: String, lang: String = "id"): WebtoonsSeriesInfo {
+        var info = fetchSeriesInfoForUrl(buildSeriesUrl(inputUrlOrTitleNo, lang))
+        if (info.chapters.isEmpty() && lang != "en" && inputUrlOrTitleNo.startsWith("http").not()) {
+            info = fetchSeriesInfoForUrl(buildSeriesUrl(inputUrlOrTitleNo, "en"))
+        }
+        return info
+    }
+
+    private fun fetchSeriesInfoForUrl(targetUrl: String): WebtoonsSeriesInfo {
+        var currentBaseUrl = targetUrl
         val episodes = mutableListOf<WebtoonsChapter>()
         val scrapedNumbers = mutableSetOf<Int>()
         var page = 1
         var seriesTitle = "Webtoons Series"
 
-        val currentBaseUrl = fullUrl.split("&page=")[0]
-
-        while (page <= 10) {
-            val pageUrl = if (currentBaseUrl.contains("?")) {
-                "$currentBaseUrl&page=$page"
+        while (page <= 15) {
+            val cleanBase = currentBaseUrl.split("&page=")[0]
+            val pageUrl = if (cleanBase.contains("?")) {
+                "$cleanBase&page=$page"
             } else {
-                "$currentBaseUrl?page=$page"
+                "$cleanBase?page=$page"
             }
 
             try {
@@ -130,31 +157,37 @@ object WebtoonsApi {
                     requestMethod = "GET"
                     connectTimeout = 15000
                     readTimeout = 15000
+                    instanceFollowRedirects = true
                     setRequestProperty("User-Agent", USER_AGENT)
-                    setRequestProperty("Accept-Language", lang)
+                    setRequestProperty("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
                 }
 
-                if (conn.responseCode != 200) break
+                if (conn.responseCode != 200 && conn.responseCode != 301 && conn.responseCode != 302) break
                 val html = conn.inputStream.bufferedReader().use { it.readText() }
                 if (html.isBlank()) break
+
+                val redirectedUrl = conn.url.toString()
+                if (redirectedUrl.isNotBlank() && redirectedUrl != pageUrl) {
+                    currentBaseUrl = redirectedUrl
+                }
 
                 // Extract title
                 if (seriesTitle == "Webtoons Series") {
                     val titleMatcher = Pattern.compile("<h1[^>]*class=\"[^\"]*subj[^\"]*\"[^>]*>(.*?)</h1>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(html)
                     if (titleMatcher.find()) {
-                        seriesTitle = titleMatcher.group(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: seriesTitle
+                        seriesTitle = decodeHtmlEntities(titleMatcher.group(1)?.replace(Regex("<[^>]*>"), "") ?: seriesTitle)
                     } else {
                         val ogMatcher = Pattern.compile("<meta property=\"og:title\" content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html)
                         if (ogMatcher.find()) {
-                            seriesTitle = ogMatcher.group(1)?.trim() ?: seriesTitle
+                            seriesTitle = decodeHtmlEntities(ogMatcher.group(1) ?: seriesTitle)
                         }
                     }
                 }
 
-                // Parse episodes
+                var newCount = 0
+
                 val episodeItemPattern = Pattern.compile("<li[^>]*data-episode-no=\"(\\d+)\"[^>]*>(.*?)</li>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
                 val matcher = episodeItemPattern.matcher(html)
-                var newCount = 0
 
                 while (matcher.find()) {
                     val epNumStr = matcher.group(1) ?: continue
@@ -169,7 +202,8 @@ object WebtoonsApi {
                     val epUrl = if (linkMatcher.find()) linkMatcher.group(1) ?: "" else ""
 
                     val subjMatcher = Pattern.compile("<span[^>]*class=\"[^\"]*subj[^\"]*\"[^>]*>(.*?)</span>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(itemHtml)
-                    val epSubj = if (subjMatcher.find()) subjMatcher.group(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "Episode $epNum" else "Episode $epNum"
+                    var epSubj = if (subjMatcher.find()) subjMatcher.group(1)?.replace(Regex("<[^>]*>"), "")?.trim() ?: "Episode $epNum" else "Episode $epNum"
+                    epSubj = decodeHtmlEntities(epSubj)
 
                     val isAd = itemHtml.contains("ico_fast") ||
                             itemHtml.contains("ico_lock") ||
@@ -182,10 +216,38 @@ object WebtoonsApi {
                         WebtoonsChapter(
                             number = epNum,
                             title = epSubj,
-                            url = if (epUrl.startsWith("http")) epUrl else "https://www.webtoons.com$epUrl",
+                            url = if (epUrl.startsWith("http")) epUrl else "https://www.webtoons.com" + decodeHtmlEntities(epUrl),
                             isAdRequired = isAd
                         )
                     )
+                }
+
+                // Fallback parsing if data-episode-no LI tags were not present
+                if (newCount == 0) {
+                    val fallbackLinkPattern = Pattern.compile("<a[^>]*href=\"([^\"]*episode_no=(\\d+)[^\"]*)\"[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
+                    val fbMatcher = fallbackLinkPattern.matcher(html)
+                    while (fbMatcher.find()) {
+                        val epUrlRaw = fbMatcher.group(1) ?: continue
+                        val epNum = fbMatcher.group(2)?.toIntOrNull() ?: continue
+                        val innerHtml = fbMatcher.group(3) ?: ""
+
+                        if (epNum in scrapedNumbers) continue
+                        scrapedNumbers.add(epNum)
+                        newCount++
+
+                        val epUrl = decodeHtmlEntities(epUrlRaw)
+                        val epSubj = decodeHtmlEntities(innerHtml.replace(Regex("<[^>]*>"), "").trim().ifBlank { "Episode $epNum" })
+                        val isAd = innerHtml.contains("ico_fast") || innerHtml.contains("ico_lock") || innerHtml.contains("ico_ad")
+
+                        episodes.add(
+                            WebtoonsChapter(
+                                number = epNum,
+                                title = epSubj,
+                                url = if (epUrl.startsWith("http")) epUrl else "https://www.webtoons.com$epUrl",
+                                isAdRequired = isAd
+                            )
+                        )
+                    }
                 }
 
                 if (newCount == 0) break
