@@ -167,6 +167,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = title, type = "naver"))
                     added = 1
                 }
+            } else if (sourceType == "webtoons") {
+                val existingWebtoons = queue.filter { it.url == url }
+                existingWebtoons.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "Webtoons Chapter", type = "webtoons", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -177,6 +190,36 @@ object BatoEngine {
         }
 
         return JSONObject().apply { put("added", added) }
+    }
+
+    suspend fun addWebtoonsChapters(cacheDir: File, chapters: List<WebtoonsChapter>, seriesTitle: String, cookie: String = ""): Int = queueMutex.withLock {
+        val queue = loadQueue(cacheDir)
+        var addedCount = 0
+        val sanitizedSeries = sanitizeFilename(seriesTitle)
+
+        chapters.forEach { ch ->
+            val chTitle = "$sanitizedSeries - Episode ${ch.number}"
+            val urlWithFlag = if (ch.isAdRequired) "${ch.url}#ad_required=true" else ch.url
+
+            val existing = queue.filter { it.url == urlWithFlag || (it.title == chTitle && it.type == "webtoons") }
+            existing.forEach { oldItem ->
+                if (oldItem.status == "done" || oldItem.status == "failed") {
+                    val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                    if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                    queue.remove(oldItem)
+                }
+            }
+
+            if (queue.none { it.url == urlWithFlag }) {
+                queue.add(QueueItem(url = urlWithFlag, title = chTitle, type = "webtoons", cookie = cookie))
+                addedCount++
+            }
+        }
+
+        if (addedCount > 0) {
+            saveQueue(cacheDir, queue)
+        }
+        return@withLock addedCount
     }
 
     suspend fun addDirectJob(cacheDir: File, title: String, images: List<String>, cookie: String = "", sourceType: String = "ridi"): JSONObject = queueMutex.withLock {
@@ -692,6 +735,10 @@ object BatoEngine {
             if (sourceType == "naver") {
                 images.addAll(getNaverImages(url))
                 referer = "https://comic.naver.com/"
+            } else if (sourceType == "webtoons") {
+                val cleanUrl = url.substringBefore("#")
+                images.addAll(WebtoonsApi.scrapeChapterImages(cleanUrl))
+                referer = "https://www.webtoons.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
@@ -719,6 +766,15 @@ object BatoEngine {
             if (dlDir.exists()) dlDir.deleteRecursively()
             dlDir.mkdirs()
             val total = images.size
+
+            // 0. AD VIEW SIMULATION PHASE
+            val requiresAd = sourceType == "webtoons" && (url.contains("ad_required=true") || item.title.contains("[Ad Watch]", ignoreCase = true))
+            if (requiresAd) {
+                updateStatus(cacheDir, itemId, "Simulating Ad View", 0.0)
+                WebtoonsApi.simulateAdView { prog ->
+                    runBlocking { updateStatus(cacheDir, itemId, "Simulating Ad View", prog) }
+                }
+            }
 
             // 1. DOWNLOADING PHASE
             updateStatus(cacheDir, itemId, "downloading", 0.0)
