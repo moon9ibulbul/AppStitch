@@ -57,6 +57,11 @@ import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.astral.stitchapp.rawloader.BatoEngine
 import com.astral.stitchapp.rawloader.PatchManager
 import com.astral.stitchapp.rawloader.Patch
+import com.astral.stitchapp.rawloader.WebtoonsApi
+import com.astral.stitchapp.rawloader.WebtoonsSession
+import com.astral.stitchapp.rawloader.WebtoonsChapter
+import com.astral.stitchapp.rawloader.WebtoonsSeriesInfo
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -1892,11 +1897,23 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "Naver Webtoon")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "Naver Webtoon", "Webtoons")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
     var expandedSource by remember { mutableStateOf(false) }
+
+    var webtoonsSession by remember { mutableStateOf(WebtoonsApi.loadSession(context)) }
+    var webtoonsEmailInput by remember { mutableStateOf("") }
+    var webtoonsPasswordInput by remember { mutableStateOf("") }
+    var isWebtoonsLoggingIn by remember { mutableStateOf(false) }
+    var webtoonsLoginError by remember { mutableStateOf<String?>(null) }
+
+    var showWebtoonsChapterDialog by remember { mutableStateOf(false) }
+    var webtoonsFetchedSeriesInfo by remember { mutableStateOf<WebtoonsSeriesInfo?>(null) }
+    var webtoonsSelectedChapters by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var isWebtoonsFetchingChapters by remember { mutableStateOf(false) }
+    var webtoonsRangeInput by remember { mutableStateOf("") }
 
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
@@ -2179,103 +2196,228 @@ fun BatoTab(
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val labelText = when(selectedSource) {
-                "Ridibooks" -> "Url (Book)"
-                "Naver Webtoon" -> "Comic ID"
-                else -> "Url (Chapter/Series)"
-            }
-            OutlinedTextField(
-                value = urlInput,
-                onValueChange = { urlInput = it },
-                label = { Text(labelText) },
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(8.dp))
-            if (isAddingToQueue) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            } else {
-                Button(
-                    onClick = {
-                        if (selectedSource == "Naver Webtoon" && chapterInput.isBlank()) {
-                            Toast.makeText(context, "Chapter ID required for Naver!", Toast.LENGTH_SHORT).show()
-                            return@Button
+        if (selectedSource == "Webtoons") {
+            if (!webtoonsSession.isLoggedIn) {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Login Webtoons", style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(
+                            value = webtoonsEmailInput,
+                            onValueChange = { webtoonsEmailInput = it },
+                            label = { Text("Email") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = webtoonsPasswordInput,
+                            onValueChange = { webtoonsPasswordInput = it },
+                            label = { Text("Password") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        if (webtoonsLoginError != null) {
+                            Text(webtoonsLoginError!!, color = Color.Red, style = MaterialTheme.typography.bodySmall)
                         }
-                        isAddingToQueue = true
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
-                                val type = when(selectedSource) {
-                                    "Ridibooks" -> "ridi"
-                                    "Bomtoon" -> "bomtoon"
-                                    "Lezhin" -> "lezhin"
-                                    "MrBlue" -> "mrblue"
-                                    "Naver Webtoon" -> "naver"
-                                    else -> patchObj?.type ?: selectedSource.lowercase()
-                                }
-
-                                val scraperInfo = when {
-                                    type == "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
-                                    type == "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
-                                    type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
-                                    type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
-                                    patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
-                                    else -> null
-                                }
-
-                                if (scraperInfo != null) {
-                                    scraperUrl = scraperInfo.first
-                                    scraperScript = scraperInfo.second
+                        Button(
+                            onClick = {
+                                webtoonsLoginError = null
+                                isWebtoonsLoggingIn = true
+                                scope.launch(Dispatchers.IO) {
+                                    val res = WebtoonsApi.login(webtoonsEmailInput, webtoonsPasswordInput)
                                     withContext(Dispatchers.Main) {
-                                        showScraperDialog = true
-                                        isAddingToQueue = false
-                                    }
-                                    return@launch
-                                }
-
-                                val cookieToUse = when(type) {
-                                    "ridi" -> cookieInput
-                                    "bomtoon" -> bomtoonCookieInput
-                                    "lezhin" -> lezhinCookieInput
-                                    "mrblue" -> mrblueCookieInput
-                                    else -> ""
-                                }
-
-                                if (type == "naver" && chapterInput.contains("-")) {
-                                    // Range support: 1-10
-                                    val parts = chapterInput.split("-")
-                                    if (parts.size == 2) {
-                                        val start = parts[0].trim().toIntOrNull()
-                                        val end = parts[1].trim().toIntOrNull()
-                                        if (start != null && end != null && start <= end) {
-                                            for (no in start..end) {
-                                                val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
-                                                BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
-                                            }
+                                        isWebtoonsLoggingIn = false
+                                        if (res.isSuccess) {
+                                            val session = res.getOrThrow()
+                                            WebtoonsApi.saveSession(context, session)
+                                            webtoonsSession = session
+                                            Toast.makeText(context, "Login berhasil!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            webtoonsLoginError = res.exceptionOrNull()?.message ?: "Login gagal"
                                         }
                                     }
-                                } else {
-                                    val finalUrl = if (type == "naver") {
-                                        "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$chapterInput"
-                                    } else {
-                                        urlInput
-                                    }
-                                    BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
                                 }
-
-                                withContext(Dispatchers.Main) {
-                                    urlInput = ""
-                                    chapterInput = ""
-                                }
-                            } finally {
-                                withContext(Dispatchers.Main) {
-                                    isAddingToQueue = false
-                                }
+                            },
+                            enabled = !isWebtoonsLoggingIn,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isWebtoonsLoggingIn) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Login")
                             }
                         }
-                    },
-                    enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue")
-                ) { Text("Add") }
+                    }
+                }
+            } else {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Username: ${webtoonsSession.username}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Jumlah Coin: ${webtoonsSession.coins}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                WebtoonsApi.clearSession(context)
+                                webtoonsSession = WebtoonsSession()
+                                Toast.makeText(context, "Berhasil logout", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text("Logout")
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("URL Webtoons / Series ID (title_no)") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (isWebtoonsFetchingChapters) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Button(
+                            onClick = {
+                                if (urlInput.isBlank()) {
+                                    Toast.makeText(context, "Masukkan URL atau Series ID!", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                isWebtoonsFetchingChapters = true
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val info = WebtoonsApi.fetchSeriesInfo(urlInput)
+                                        withContext(Dispatchers.Main) {
+                                            isWebtoonsFetchingChapters = false
+                                            if (info.chapters.isNotEmpty()) {
+                                                webtoonsFetchedSeriesInfo = info
+                                                webtoonsSelectedChapters = info.chapters.map { it.number }.toSet()
+                                                showWebtoonsChapterDialog = true
+                                            } else {
+                                                Toast.makeText(context, "Tidak ada chapter yang ditemukan untuk '$urlInput'", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        withContext(Dispatchers.Main) {
+                                            isWebtoonsFetchingChapters = false
+                                            Toast.makeText(context, "Gagal mengambil chapter: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = urlInput.isNotBlank()
+                        ) {
+                            Text("Fetch Chapters")
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val labelText = when(selectedSource) {
+                    "Ridibooks" -> "Url (Book)"
+                    "Naver Webtoon" -> "Comic ID"
+                    else -> "Url (Chapter/Series)"
+                }
+                OutlinedTextField(
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    label = { Text(labelText) },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                if (isAddingToQueue) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else {
+                    Button(
+                        onClick = {
+                            if (selectedSource == "Naver Webtoon" && chapterInput.isBlank()) {
+                                Toast.makeText(context, "Chapter ID required for Naver!", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            isAddingToQueue = true
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
+                                    val type = when(selectedSource) {
+                                        "Ridibooks" -> "ridi"
+                                        "Bomtoon" -> "bomtoon"
+                                        "Lezhin" -> "lezhin"
+                                        "MrBlue" -> "mrblue"
+                                        "Naver Webtoon" -> "naver"
+                                        else -> patchObj?.type ?: selectedSource.lowercase()
+                                    }
+
+                                    val scraperInfo = when {
+                                        type == "ridi" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://ridibooks.com/", ScraperScripts.RIDIBOOKS)
+                                        type == "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
+                                        type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
+                                        type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
+                                        patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
+                                        else -> null
+                                    }
+
+                                    if (scraperInfo != null) {
+                                        scraperUrl = scraperInfo.first
+                                        scraperScript = scraperInfo.second
+                                        withContext(Dispatchers.Main) {
+                                            showScraperDialog = true
+                                            isAddingToQueue = false
+                                        }
+                                        return@launch
+                                    }
+
+                                    val cookieToUse = when(type) {
+                                        "ridi" -> cookieInput
+                                        "bomtoon" -> bomtoonCookieInput
+                                        "lezhin" -> lezhinCookieInput
+                                        "mrblue" -> mrblueCookieInput
+                                        else -> ""
+                                    }
+
+                                    if (type == "naver" && chapterInput.contains("-")) {
+                                        // Range support: 1-10
+                                        val parts = chapterInput.split("-")
+                                        if (parts.size == 2) {
+                                            val start = parts[0].trim().toIntOrNull()
+                                            val end = parts[1].trim().toIntOrNull()
+                                            if (start != null && end != null && start <= end) {
+                                                for (no in start..end) {
+                                                    val finalUrl = "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$no"
+                                                    BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        val finalUrl = if (type == "naver") {
+                                            "https://comic.naver.com/webtoon/detail?titleId=$urlInput&no=$chapterInput"
+                                        } else {
+                                            urlInput
+                                        }
+                                        BatoEngine.addUrl(context.cacheDir, finalUrl, type, cookieToUse)
+                                    }
+
+                                    withContext(Dispatchers.Main) {
+                                        urlInput = ""
+                                        chapterInput = ""
+                                    }
+                                } finally {
+                                    withContext(Dispatchers.Main) {
+                                        isAddingToQueue = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue")
+                    ) { Text("Add") }
+                }
             }
         }
 
@@ -2293,6 +2435,147 @@ fun BatoTab(
             "Bomtoon" -> OutlinedTextField(value = bomtoonCookieInput, onValueChange = { bomtoonCookieInput = it; prefs.edit().putString("bomtoon_cookie", it).apply() }, label = { Text("Bomtoon Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "MrBlue" -> OutlinedTextField(value = mrblueCookieInput, onValueChange = { mrblueCookieInput = it; prefs.edit().putString("mrblue_cookie", it).apply() }, label = { Text("MrBlue Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        }
+
+        if (showWebtoonsChapterDialog && webtoonsFetchedSeriesInfo != null) {
+            val info = webtoonsFetchedSeriesInfo!!
+            Dialog(onDismissRequest = { showWebtoonsChapterDialog = false }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(8.dp),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Text(
+                            text = info.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedButton(onClick = {
+                                    webtoonsSelectedChapters = info.chapters.map { it.number }.toSet()
+                                }) {
+                                    Text("Pilih Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                                OutlinedButton(onClick = {
+                                    webtoonsSelectedChapters = emptySet()
+                                }) {
+                                    Text("Hapus Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Text("${webtoonsSelectedChapters.size}/${info.chapters.size} dipilih", style = MaterialTheme.typography.bodySmall)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = webtoonsRangeInput,
+                                onValueChange = { webtoonsRangeInput = it },
+                                label = { Text("Range (misal: 1-10)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = {
+                                val parts = webtoonsRangeInput.split("-")
+                                if (parts.size == 2) {
+                                    val start = parts[0].trim().toIntOrNull()
+                                    val end = parts[1].trim().toIntOrNull()
+                                    if (start != null && end != null && start <= end) {
+                                        val inRange = info.chapters.filter { it.number in start..end }.map { it.number }.toSet()
+                                        webtoonsSelectedChapters = inRange
+                                    }
+                                }
+                            }) {
+                                Text("Terapkan")
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(info.chapters) { ch ->
+                                val isSelected = ch.number in webtoonsSelectedChapters
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            webtoonsSelectedChapters = if (isSelected) {
+                                                webtoonsSelectedChapters - ch.number
+                                            } else {
+                                                webtoonsSelectedChapters + ch.number
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            webtoonsSelectedChapters = if (checked) {
+                                                webtoonsSelectedChapters + ch.number
+                                            } else {
+                                                webtoonsSelectedChapters - ch.number
+                                            }
+                                        }
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Episode ${ch.number}: ${ch.title}", style = MaterialTheme.typography.bodyMedium)
+                                        if (ch.isAdRequired) {
+                                            Text("[Ad Watch / Fast Pass]", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF9800))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showWebtoonsChapterDialog = false },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Batal")
+                            }
+                            Button(
+                                onClick = {
+                                    val selectedChs = info.chapters.filter { it.number in webtoonsSelectedChapters }
+                                    if (selectedChs.isEmpty()) {
+                                        Toast.makeText(context, "Pilih minimal 1 chapter!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    showWebtoonsChapterDialog = false
+                                    scope.launch(Dispatchers.IO) {
+                                        val added = BatoEngine.addWebtoonsChapters(context.cacheDir, selectedChs, info.title, webtoonsSession.token)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Menambahkan $added chapter ke queue!", Toast.LENGTH_SHORT).show()
+                                            urlInput = ""
+                                        }
+                                    }
+                                },
+                                enabled = webtoonsSelectedChapters.isNotEmpty(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Tambah (${webtoonsSelectedChapters.size})")
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (showScraperDialog) {

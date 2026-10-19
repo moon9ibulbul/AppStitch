@@ -1,0 +1,736 @@
+2026-02-01 16:59:51,721 - INFO - Starting download process for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-02-01 16:59:52,852 - INFO - Scraped page 1 of episodes.
+2026-02-01 16:59:53,852 - INFO - Scraped page 2 of episodes.
+2026-02-01 16:59:54,831 - INFO - Scraped page 3 of episodes.
+2026-02-01 16:59:55,856 - INFO - Scraped page 4 of episodes.
+2026-02-01 16:59:56,960 - INFO - Scraped page 5 of episodes.
+2026-02-01 16:59:57,846 - INFO - No new episodes found on page 6. Concluding scrape.
+2026-02-01 16:59:57,846 - INFO - Found 44 total episodes.
+2026-02-01 16:59:57,850 - INFO - Processing Episode 3: EPISODE 3
+2026-02-01 16:59:58,521 - INFO - Found 218 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-3/viewer?title_no=7740&episode_no=3
+2026-02-01 16:59:58,527 - INFO - Created directory: output/The Secretarys Secret/Episode 3
+2026-02-01 16:59:58,528 - INFO - Downloading 218 images for The Secretarys Secret - Episode 3 using 10 threads
+2026-02-01 17:00:09,096 - INFO - Successfully downloaded 218 / 218 images for Episode 3
+2026-02-01 17:00:09,097 - INFO - Successfully processed Episode 3
+2026-03-26 16:00:09,724 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:00:10,946 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:00:11,822 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:00:12,852 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:00:13,746 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:00:14,696 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:00:15,631 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:00:16,572 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:00:16,572 - INFO - Found 52 total episodes.
+2026-03-26 16:02:29,915 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:29,917 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:29,940 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:30,182 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:30,195 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:30,196 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:02:30,880 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:30,927 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:30,932 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:30,952 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:30,999 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:31,111 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:02:31,856 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:31,897 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:31,899 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:31,912 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:31,921 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:31,972 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:02:32,692 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:32,743 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:32,753 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:32,885 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:32,889 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:32,890 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:02:33,508 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:33,541 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:33,574 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:33,699 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:33,703 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:33,846 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:02:34,423 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:34,424 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:34,466 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:34,467 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:34,478 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:34,504 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:02:35,260 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:35,260 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:35,261 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:35,429 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:35,433 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:35,433 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:02:36,243 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,243 - INFO - Found 52 total episodes.
+2026-03-26 16:02:36,255 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,255 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,255 - INFO - Found 52 total episodes.
+2026-03-26 16:02:36,256 - INFO - Found 52 total episodes.
+2026-03-26 16:02:36,274 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,274 - INFO - Found 52 total episodes.
+2026-03-26 16:02:36,285 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,286 - INFO - Found 52 total episodes.
+2026-03-26 16:02:36,419 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:02:36,419 - INFO - Found 52 total episodes.
+2026-03-26 16:03:55,453 - ERROR - Error scraping episodes from python main.py --url https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740&webtoon-platform-redirect=true --lang id --download --single 36&page=1: No connection adapters were found for 'python main.py --url https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740&webtoon-platform-redirect=true --lang id --download --single 36&page=1'
+2026-03-26 16:03:55,453 - INFO - Found 0 total episodes.
+2026-03-26 16:03:56,130 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:03:56,186 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:03:56,190 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:03:56,268 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:03:56,277 - INFO - Scraping episodes for: https://m.webtoons.com/id/romance/the-secretarys-secret/list?title_no=7740
+2026-03-26 16:03:57,116 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:03:57,124 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:03:57,138 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:03:57,150 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:03:57,160 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:03:57,963 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:03:57,998 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:03:57,999 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:03:58,041 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:03:58,077 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:03:58,801 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:03:58,802 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:03:58,864 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:03:58,886 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:03:58,887 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:03:59,544 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:03:59,862 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:03:59,886 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:03:59,887 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:03:59,888 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:04:00,436 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:00,456 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:00,511 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:00,533 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:00,901 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:01,326 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:01,479 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:01,495 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:01,594 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:01,905 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:02,328 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:02,328 - INFO - Found 52 total episodes.
+2026-03-26 16:04:02,427 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:02,428 - INFO - Found 52 total episodes.
+2026-03-26 16:04:02,429 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:02,429 - INFO - Found 52 total episodes.
+2026-03-26 16:04:02,469 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:02,469 - INFO - Found 52 total episodes.
+2026-03-26 16:04:02,523 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:02,523 - INFO - Found 52 total episodes.
+2026-03-26 16:04:22,276 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:04:23,493 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:04:24,431 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:04:25,428 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:04:26,262 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:04:27,227 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:04:28,172 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:04:28,172 - INFO - Found 52 total episodes.
+2026-03-26 16:04:47,789 - INFO - Created directory: output/The_Secretarys_Secret
+2026-03-26 16:04:48,543 - INFO - Found 112 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-36/viewer?title_no=7740&episode_no=36
+2026-03-26 16:04:48,545 - INFO - Created directory: output/The_Secretarys_Secret/Episode 36
+2026-03-26 16:04:48,545 - INFO - Downloading 112 images for The_Secretarys_Secret - Episode 36 using 10 threads
+2026-03-26 16:04:53,346 - INFO - Successfully downloaded 112 / 112 images for Episode 36
+2026-03-26 16:04:53,693 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E36.cbz
+2026-03-26 16:05:14,792 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:05:15,701 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:05:16,563 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:05:17,513 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:05:18,427 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:05:19,314 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:05:20,240 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:05:20,240 - INFO - Found 52 total episodes.
+2026-03-26 16:05:32,279 - INFO - Found 101 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-44/viewer?title_no=7740&episode_no=44
+2026-03-26 16:05:32,282 - INFO - Created directory: output/The_Secretarys_Secret/Episode 44
+2026-03-26 16:05:32,282 - INFO - Downloading 101 images for The_Secretarys_Secret - Episode 44 using 10 threads
+2026-03-26 16:05:36,305 - INFO - Successfully downloaded 101 / 101 images for Episode 44
+2026-03-26 16:05:36,599 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E44.cbz
+2026-03-26 16:05:50,269 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:05:51,151 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:05:52,123 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:05:52,969 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:05:53,891 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:05:54,781 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:05:55,674 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:05:55,674 - INFO - Found 52 total episodes.
+2026-03-26 16:06:06,373 - INFO - Found 99 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-46/viewer?title_no=7740&episode_no=46
+2026-03-26 16:06:06,376 - INFO - Created directory: output/The_Secretarys_Secret/Episode 46
+2026-03-26 16:06:06,376 - INFO - Downloading 99 images for The_Secretarys_Secret - Episode 46 using 10 threads
+2026-03-26 16:06:08,472 - INFO - Successfully downloaded 99 / 99 images for Episode 46
+2026-03-26 16:06:08,646 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E46.cbz
+2026-03-26 16:06:19,675 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:06:20,555 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:06:21,533 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:06:22,471 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:06:23,384 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:06:24,355 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:06:25,239 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:06:25,240 - INFO - Found 52 total episodes.
+2026-03-26 16:06:33,732 - INFO - Found 113 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-48/viewer?title_no=7740&episode_no=48
+2026-03-26 16:06:33,735 - INFO - Created directory: output/The_Secretarys_Secret/Episode 48
+2026-03-26 16:06:33,735 - INFO - Downloading 113 images for The_Secretarys_Secret - Episode 48 using 10 threads
+2026-03-26 16:06:36,260 - INFO - Successfully downloaded 113 / 113 images for Episode 48
+2026-03-26 16:06:36,453 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E48.cbz
+2026-03-26 16:06:52,380 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:06:53,296 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:06:54,175 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:06:55,123 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:06:56,018 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:06:57,012 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:06:58,004 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:06:58,005 - INFO - Found 52 total episodes.
+2026-03-26 16:07:07,920 - INFO - Found 125 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-50/viewer?title_no=7740&episode_no=50
+2026-03-26 16:07:07,924 - INFO - Created directory: output/The_Secretarys_Secret/Episode 50
+2026-03-26 16:07:07,924 - INFO - Downloading 125 images for The_Secretarys_Secret - Episode 50 using 10 threads
+2026-03-26 16:07:12,791 - INFO - Successfully downloaded 125 / 125 images for Episode 50
+2026-03-26 16:07:13,078 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E50.cbz
+2026-03-26 16:07:24,151 - INFO - Scraped page 1 of episodes.
+2026-03-26 16:07:25,138 - INFO - Scraped page 2 of episodes.
+2026-03-26 16:07:25,933 - INFO - Scraped page 3 of episodes.
+2026-03-26 16:07:26,921 - INFO - Scraped page 4 of episodes.
+2026-03-26 16:07:27,888 - INFO - Scraped page 5 of episodes.
+2026-03-26 16:07:28,806 - INFO - Scraped page 6 of episodes.
+2026-03-26 16:07:29,609 - INFO - No new episodes found on page 7. Concluding scrape.
+2026-03-26 16:07:29,609 - INFO - Found 52 total episodes.
+2026-03-26 16:07:37,418 - INFO - Found 101 images in https://www.webtoons.com/id/romance/the-secretarys-secret/episode-terakhir-tamat/viewer?title_no=7740&episode_no=52
+2026-03-26 16:07:37,421 - INFO - Created directory: output/The_Secretarys_Secret/Episode 52
+2026-03-26 16:07:37,421 - INFO - Downloading 101 images for The_Secretarys_Secret - Episode 52 using 10 threads
+2026-03-26 16:07:40,426 - INFO - Successfully downloaded 101 / 101 images for Episode 52
+2026-03-26 16:07:40,623 - INFO - Successfully created CBZ: output/The_Secretarys_Secret/The_Secretarys_Secret_E52.cbz
+2026-06-01 06:10:39,106 - INFO - Scraped page 1 of episodes.
+2026-06-01 06:10:39,947 - INFO - Scraped page 2 of episodes.
+2026-06-01 06:10:40,689 - INFO - Scraped page 3 of episodes.
+2026-06-01 06:10:41,457 - INFO - Scraped page 4 of episodes.
+2026-06-01 06:10:42,302 - INFO - Scraped page 5 of episodes.
+2026-06-01 06:10:43,098 - INFO - Scraped page 6 of episodes.
+2026-06-01 06:10:43,848 - INFO - Scraped page 7 of episodes.
+2026-06-01 06:10:44,690 - INFO - Scraped page 8 of episodes.
+2026-06-01 06:10:45,489 - INFO - Scraped page 9 of episodes.
+2026-06-01 06:10:46,385 - INFO - Scraped page 10 of episodes.
+2026-06-01 06:10:47,130 - INFO - Scraped page 11 of episodes.
+2026-06-01 06:10:47,934 - INFO - Scraped page 12 of episodes.
+2026-06-01 06:10:48,712 - INFO - Scraped page 13 of episodes.
+2026-06-01 06:10:49,483 - INFO - Scraped page 14 of episodes.
+2026-06-01 06:10:50,352 - INFO - Scraped page 15 of episodes.
+2026-06-01 06:10:51,072 - INFO - Scraped page 16 of episodes.
+2026-06-01 06:10:51,829 - INFO - Scraped page 17 of episodes.
+2026-06-01 06:10:52,634 - INFO - Scraped page 18 of episodes.
+2026-06-01 06:10:53,426 - INFO - Scraped page 19 of episodes.
+2026-06-01 06:10:54,238 - INFO - No new episodes found on page 20. Concluding scrape.
+2026-06-01 06:10:54,239 - INFO - Found 188 total episodes.
+2026-06-01 06:11:34,020 - INFO - Created directory: output/Im_The_Queen_In_This_Life
+2026-06-01 06:11:46,060 - INFO - Found 175 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-180/viewer?title_no=4905&episode_no=180
+2026-06-01 06:11:46,224 - INFO - Found 152 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-184/viewer?title_no=4905&episode_no=184
+2026-06-01 06:11:46,491 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 180
+2026-06-01 06:11:46,543 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 184
+2026-06-01 06:11:46,544 - INFO - Downloading 175 images for Im_The_Queen_In_This_Life - Episode 180 using 20 threads
+2026-06-01 06:11:46,701 - INFO - Downloading 152 images for Im_The_Queen_In_This_Life - Episode 184 using 20 threads
+2026-06-01 06:11:48,600 - INFO - Found 169 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-182/viewer?title_no=4905&episode_no=182
+2026-06-01 06:11:48,767 - INFO - Found 162 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-181/viewer?title_no=4905&episode_no=181
+2026-06-01 06:11:48,922 - INFO - Found 158 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-175/viewer?title_no=4905&episode_no=175
+2026-06-01 06:11:48,989 - INFO - Found 165 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-177/viewer?title_no=4905&episode_no=177
+2026-06-01 06:11:49,065 - INFO - Found 141 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-174/viewer?title_no=4905&episode_no=174
+2026-06-01 06:11:49,079 - INFO - Found 165 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-187/viewer?title_no=4905&episode_no=187
+2026-06-01 06:11:49,243 - INFO - Found 161 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-188/viewer?title_no=4905&episode_no=188
+2026-06-01 06:11:49,343 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 181
+2026-06-01 06:11:49,395 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 177
+2026-06-01 06:11:49,420 - INFO - Found 182 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-176/viewer?title_no=4905&episode_no=176
+2026-06-01 06:11:49,426 - INFO - Found 183 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-185/viewer?title_no=4905&episode_no=185
+2026-06-01 06:11:49,515 - INFO - Found 198 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-186/viewer?title_no=4905&episode_no=186
+2026-06-01 06:11:49,526 - INFO - Found 162 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-178/viewer?title_no=4905&episode_no=178
+2026-06-01 06:11:49,446 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 174
+2026-06-01 06:11:49,440 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 175
+2026-06-01 06:11:49,421 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 182
+2026-06-01 06:11:49,617 - INFO - Downloading 141 images for Im_The_Queen_In_This_Life - Episode 174 using 20 threads
+2026-06-01 06:11:49,538 - INFO - Downloading 165 images for Im_The_Queen_In_This_Life - Episode 177 using 20 threads
+2026-06-01 06:11:49,629 - INFO - Downloading 169 images for Im_The_Queen_In_This_Life - Episode 182 using 20 threads
+2026-06-01 06:11:49,522 - INFO - Found 142 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-179/viewer?title_no=4905&episode_no=179
+2026-06-01 06:11:49,581 - INFO - Found 151 images in https://www.webtoons.com/id/romantic-fantasy/im-the-queen-in-this-life/episode-183/viewer?title_no=4905&episode_no=183
+2026-06-01 06:11:49,597 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 176
+2026-06-01 06:11:49,528 - INFO - Downloading 162 images for Im_The_Queen_In_This_Life - Episode 181 using 20 threads
+2026-06-01 06:11:49,563 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 187
+2026-06-01 06:11:49,575 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 188
+2026-06-01 06:11:49,621 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 185
+2026-06-01 06:11:49,620 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 186
+2026-06-01 06:11:49,625 - INFO - Downloading 158 images for Im_The_Queen_In_This_Life - Episode 175 using 20 threads
+2026-06-01 06:11:49,635 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 178
+2026-06-01 06:11:49,680 - INFO - Downloading 165 images for Im_The_Queen_In_This_Life - Episode 187 using 20 threads
+2026-06-01 06:11:49,677 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 183
+2026-06-01 06:11:49,690 - INFO - Downloading 182 images for Im_The_Queen_In_This_Life - Episode 176 using 20 threads
+2026-06-01 06:11:49,673 - INFO - Downloading 161 images for Im_The_Queen_In_This_Life - Episode 188 using 20 threads
+2026-06-01 06:11:49,700 - INFO - Downloading 198 images for Im_The_Queen_In_This_Life - Episode 186 using 20 threads
+2026-06-01 06:11:49,707 - INFO - Downloading 151 images for Im_The_Queen_In_This_Life - Episode 183 using 20 threads
+2026-06-01 06:11:49,694 - INFO - Downloading 183 images for Im_The_Queen_In_This_Life - Episode 185 using 20 threads
+2026-06-01 06:11:49,706 - INFO - Created directory: output/Im_The_Queen_In_This_Life/Episode 179
+2026-06-01 06:11:49,690 - INFO - Downloading 162 images for Im_The_Queen_In_This_Life - Episode 178 using 20 threads
+2026-06-01 06:11:49,736 - INFO - Downloading 142 images for Im_The_Queen_In_This_Life - Episode 179 using 20 threads
+2026-06-01 06:11:51,228 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:51,236 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:51,241 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 6
+2026-06-01 06:11:51,722 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:51,727 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:51,732 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:51,742 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:51,732 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,235 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,236 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,239 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,248 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,242 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,249 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,237 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,237 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:53,238 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:54,369 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:11:54,375 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:54,511 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:54,512 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:54,513 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:55,043 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,032 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,038 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,038 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,037 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,053 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,051 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,081 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,069 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,053 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,104 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:11:56,057 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,047 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,074 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,033 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,064 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,073 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,584 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,845 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,847 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,848 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,851 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:56,854 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:56,882 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,063 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,073 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:57,080 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:11:57,181 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,182 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,194 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,199 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,206 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,209 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,215 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,221 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:11:57,243 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:57,247 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:58,201 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,209 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,204 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,204 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,224 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:58,540 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,545 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,546 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,551 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,551 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,566 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,567 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,569 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,572 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,575 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,577 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:58,578 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,660 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,670 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:11:58,671 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,674 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:58,693 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 6
+2026-06-01 06:11:59,226 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:11:59,228 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,034 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,037 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,041 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,037 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,080 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:00,076 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:00,099 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 4
+2026-06-01 06:12:00,083 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:00,088 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,085 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:00,263 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,279 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,286 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,290 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:00,293 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:00,397 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 6
+2026-06-01 06:12:00,983 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:00,994 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,037 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 7
+2026-06-01 06:12:01,049 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,050 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,055 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,060 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,062 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,094 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,066 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,078 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,086 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,079 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,097 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:01,089 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:01,068 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,103 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 5
+2026-06-01 06:12:01,097 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:01,249 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,251 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,256 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,257 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,517 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,524 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,539 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,557 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,801 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,804 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,808 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,812 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,813 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,815 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,830 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:01,840 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,858 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 7
+2026-06-01 06:12:01,980 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:01,981 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:02,064 - WARNING - Retrying (Retry(total=4, connect=5, read=4, redirect=None, status=None)) after connection broken by 'ReadTimeoutError("HTTPSConnectionPool(host='webtoon-phinf.pstatic.net', port=443): Read timed out. (read timeout=10)")': /20251128_25/17643168390644Ovcp_JPEG/17643168390446302_I_m_the_Queen_in_This_Life_Episode_175__final__0020.jpg?type=q90
+2026-06-01 06:12:03,091 - INFO - Successfully downloaded 152 / 152 images for Episode 184
+2026-06-01 06:12:03,387 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E184.cbz
+2026-06-01 06:12:04,014 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,033 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,033 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,038 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:04,040 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:04,214 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,217 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,219 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,222 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:04,227 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,230 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,235 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,243 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:04,237 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,242 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:04,800 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,803 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,807 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,815 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,809 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,814 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,847 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,849 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:04,849 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,064 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,068 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,069 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,070 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,078 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,079 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,081 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,083 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,086 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,478 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,479 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,490 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,495 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:05,514 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,518 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,518 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,519 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,527 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 7
+2026-06-01 06:12:05,521 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:05,571 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,574 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,579 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 7
+2026-06-01 06:12:05,746 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,748 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,752 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,755 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,753 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,759 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,759 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,772 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,769 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,787 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,775 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,779 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:05,798 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,808 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 8
+2026-06-01 06:12:05,760 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,755 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,799 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,816 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,777 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,803 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,771 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,804 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,776 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,771 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:05,753 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,075 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,084 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,087 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,087 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,088 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,087 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,091 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:06,137 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,202 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,495 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,497 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,499 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,523 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,525 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,568 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,600 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,606 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,629 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,674 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,679 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,679 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,721 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,723 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,724 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,728 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,729 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,729 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,729 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,749 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,754 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,756 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,756 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,762 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,765 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,769 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,768 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,767 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,770 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,772 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,781 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,772 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,795 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,767 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,791 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,792 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:06,771 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,782 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,801 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:06,773 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,909 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:06,966 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,971 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,972 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,993 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,994 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,995 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:06,999 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,000 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,013 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,014 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,157 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,162 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,162 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,166 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,177 - INFO - Successfully downloaded 165 / 165 images for Episode 187
+2026-06-01 06:12:07,185 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,195 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,196 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,197 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,197 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,200 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,203 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,203 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,204 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,208 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,205 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,210 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,216 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,216 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,233 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:07,243 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,225 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,217 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,241 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,214 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,261 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,262 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,265 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:07,279 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 9
+2026-06-01 06:12:07,291 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,256 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,225 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,221 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,274 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,239 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,330 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,333 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,333 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,334 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,334 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,338 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,361 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,362 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,362 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,362 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,374 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,376 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,376 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,380 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,381 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,415 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,417 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,418 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,423 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,424 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,424 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,425 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,427 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,440 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,444 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,448 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,451 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,456 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,459 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,465 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,475 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,486 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,493 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,504 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,505 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,510 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,529 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,536 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,539 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,556 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,557 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,557 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,563 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,568 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,570 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,573 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,584 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,585 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,585 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,588 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,600 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,607 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,607 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,608 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,609 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,611 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,618 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,625 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,629 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,631 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,635 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,640 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,641 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,647 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,650 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,653 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,654 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,667 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,673 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,674 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,679 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,684 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E187.cbz
+2026-06-01 06:12:07,709 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,779 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,783 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,785 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,791 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,792 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,793 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,830 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,841 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,844 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,846 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,852 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,853 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,874 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,884 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,886 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,897 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,897 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,908 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,908 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,911 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,919 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,920 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,936 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,941 - INFO - Successfully downloaded 198 / 198 images for Episode 186
+2026-06-01 06:12:07,958 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:07,982 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,000 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,017 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,056 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,120 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,199 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,202 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,228 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E186.cbz
+2026-06-01 06:12:08,245 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,247 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,257 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,261 - INFO - Successfully downloaded 169 / 169 images for Episode 182
+2026-06-01 06:12:08,268 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,290 - INFO - Successfully downloaded 142 / 142 images for Episode 179
+2026-06-01 06:12:08,296 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,316 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,489 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,504 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,526 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E179.cbz
+2026-06-01 06:12:08,542 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E182.cbz
+2026-06-01 06:12:08,600 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,605 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,619 - INFO - Successfully downloaded 183 / 183 images for Episode 185
+2026-06-01 06:12:08,632 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,649 - INFO - Successfully downloaded 161 / 161 images for Episode 188
+2026-06-01 06:12:08,767 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,840 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:08,855 - INFO - Successfully downloaded 162 / 162 images for Episode 178
+2026-06-01 06:12:08,936 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E185.cbz
+2026-06-01 06:12:08,938 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E188.cbz
+2026-06-01 06:12:09,059 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:09,074 - INFO - Successfully downloaded 151 / 151 images for Episode 183
+2026-06-01 06:12:09,137 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E178.cbz
+2026-06-01 06:12:09,349 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E183.cbz
+2026-06-01 06:12:09,353 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:09,389 - INFO - Successfully downloaded 175 / 175 images for Episode 180
+2026-06-01 06:12:09,539 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:09,560 - INFO - Successfully downloaded 182 / 182 images for Episode 176
+2026-06-01 06:12:09,639 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:09,655 - INFO - Successfully downloaded 162 / 162 images for Episode 181
+2026-06-01 06:12:09,744 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:09,764 - INFO - Successfully downloaded 158 / 158 images for Episode 175
+2026-06-01 06:12:09,788 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E180.cbz
+2026-06-01 06:12:09,948 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E176.cbz
+2026-06-01 06:12:10,002 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E181.cbz
+2026-06-01 06:12:10,087 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E175.cbz
+2026-06-01 06:12:11,563 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:11,599 - INFO - Successfully downloaded 165 / 165 images for Episode 177
+2026-06-01 06:12:12,038 - WARNING - Connection pool is full, discarding connection: webtoon-phinf.pstatic.net. Connection pool size: 10
+2026-06-01 06:12:12,050 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E177.cbz
+2026-06-01 06:12:12,068 - INFO - Successfully downloaded 141 / 141 images for Episode 174
+2026-06-01 06:12:12,497 - INFO - Successfully created CBZ: output/Im_The_Queen_In_This_Life/Im_The_Queen_In_This_Life_E174.cbz
+2026-06-01 11:35:58,319 - INFO - Could not find episode list. Assuming end of pages.
+2026-06-01 11:35:58,322 - INFO - Found 0 total episodes.
+2026-06-21 12:54:56,145 - INFO - Scraped page 1 of episodes.
+2026-06-21 12:54:56,547 - INFO - No new episodes found on page 2. Concluding scrape.
+2026-06-21 12:54:56,547 - INFO - Found 1 total episodes.
+2026-06-21 12:55:20,707 - INFO - Created directory: output/Unknown_Manga
+2026-06-21 12:55:21,404 - INFO - Found 102 images in https://www.webtoons.com/zh-hant/romance-m/captive-art/%E7%AC%AC1%E8%A9%B1-%E7%94%9F%E6%AE%BA%E5%A4%A7%E6%AC%8A/viewer?title_no=6562&episode_no=1
+2026-06-21 12:55:21,407 - INFO - Created directory: output/Unknown_Manga/Episode 1
+2026-06-21 12:55:21,407 - INFO - Downloading 102 images for Unknown_Manga - Episode 1 using 10 threads
+2026-06-21 12:55:30,384 - INFO - Successfully downloaded 102 / 102 images for Episode 1
+2026-06-21 12:55:30,629 - INFO - Successfully created CBZ: output/Unknown_Manga/Unknown_Manga_E1.cbz
