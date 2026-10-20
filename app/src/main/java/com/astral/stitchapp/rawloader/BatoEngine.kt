@@ -737,6 +737,13 @@ object BatoEngine {
                 referer = "https://comic.naver.com/"
             } else if (sourceType == "webtoons") {
                 val cleanUrl = url.substringBefore("#")
+                val requiresAd = url.contains("ad_required=true") || item.title.contains("[Ad Watch]", ignoreCase = true)
+                if (requiresAd) {
+                    updateStatus(cacheDir, itemId, "Simulating Ad View", 0.0)
+                    WebtoonsApi.simulateAdView(cleanUrl) { prog ->
+                        runBlocking { updateStatus(cacheDir, itemId, "Simulating Ad View", prog) }
+                    }
+                }
                 images.addAll(WebtoonsApi.scrapeChapterImages(cleanUrl))
                 referer = "https://www.webtoons.com/"
             } else {
@@ -766,15 +773,6 @@ object BatoEngine {
             if (dlDir.exists()) dlDir.deleteRecursively()
             dlDir.mkdirs()
             val total = images.size
-
-            // 0. AD VIEW SIMULATION PHASE
-            val requiresAd = sourceType == "webtoons" && (url.contains("ad_required=true") || item.title.contains("[Ad Watch]", ignoreCase = true))
-            if (requiresAd) {
-                updateStatus(cacheDir, itemId, "Simulating Ad View", 0.0)
-                WebtoonsApi.simulateAdView { prog ->
-                    runBlocking { updateStatus(cacheDir, itemId, "Simulating Ad View", prog) }
-                }
-            }
 
             // 1. DOWNLOADING PHASE
             updateStatus(cacheDir, itemId, "downloading", 0.0)

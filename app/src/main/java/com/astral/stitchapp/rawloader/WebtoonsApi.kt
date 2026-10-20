@@ -162,22 +162,51 @@ object WebtoonsApi {
         return "$unsignedUrl${separator}msgpad=$currentTime&md=$encodedSig"
     }
 
-    private fun sendApiRequest(unsignedUrl: String): String? {
+    private fun sendApiRequest(unsignedUrl: String, method: String = "GET", jsonBody: String? = null): String? {
         val currTime = getCurrentTime()
         val signedUrl = buildSignedUrl(unsignedUrl, currTime)
         return try {
             val conn = (URL(signedUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
+                requestMethod = method
                 connectTimeout = 15000
                 readTimeout = 15000
                 setRequestProperty("User-Agent", USER_AGENT_APP)
                 setRequestProperty("wtu", DEVICE_KEY)
+                if (jsonBody != null || method.equals("POST", ignoreCase = true)) {
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    doOutput = true
+                    outputStream.use { it.write((jsonBody ?: "").toByteArray(Charsets.UTF_8)) }
+                }
             }
             if (conn.responseCode != 200) null
             else conn.inputStream.bufferedReader().use { it.readText() }
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    private fun getImageSecureToken() {
+        val url = "https://global.apis.naver.com/lineWebtoon/webtoon/getImageSecureToken?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+        sendApiRequest(url, "GET")
+    }
+
+    private fun buyProduct(productId: String, saleUnitId: String, price: Int): Boolean {
+        return try {
+            val encodedProductId = URLEncoder.encode(productId, "UTF-8")
+            val encodedSaleUnitId = URLEncoder.encode(saleUnitId, "UTF-8")
+            val url = "https://global.apis.naver.com/lineWebtoon/webtoon/buyProduct?method=POST&productId=$encodedProductId&productSaleUnitId=$encodedSaleUnitId&price=$price&v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+            val body = JSONObject().apply {
+                put("method", "POST")
+                put("productId", productId)
+                put("productSaleUnitId", saleUnitId)
+                put("price", price)
+            }.toString()
+            val res = sendApiRequest(url, "POST", body)
+            res != null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
@@ -515,11 +544,31 @@ object WebtoonsApi {
         return images
     }
 
-    suspend fun simulateAdView(onProgressUpdate: (Double) -> Unit = {}) {
+    suspend fun simulateAdView(episodeUrl: String = "", onProgressUpdate: (Double) -> Unit = {}) {
         val totalSteps = 5
         for (step in 1..totalSteps) {
             delay(600)
             onProgressUpdate(step.toDouble() / totalSteps)
+        }
+
+        val titleNoPattern = Pattern.compile("title_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val epNoPattern = Pattern.compile("episode_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val tMatcher = titleNoPattern.matcher(episodeUrl)
+        val eMatcher = epNoPattern.matcher(episodeUrl)
+
+        if (tMatcher.find() && eMatcher.find()) {
+            val titleNo = tMatcher.group(1)
+            val epNo = eMatcher.group(1)
+            if (titleNo != null && epNo != null) {
+                try {
+                    getImageSecureToken()
+                    val productId = "linewebtoon-WEBTOON-$titleNo-$epNo"
+                    val saleUnitId = "$productId-reward_ad-1"
+                    buyProduct(productId, saleUnitId, 0)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 }
