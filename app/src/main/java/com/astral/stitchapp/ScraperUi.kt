@@ -397,7 +397,7 @@ object ScraperScripts {
         const API_RE = /\/contents\/access\/([^/?#]+)\/(\d+)/;
 
         window._mrblueState = window._mrblueState || {
-            token: '',
+            token: (function(){ try { return localStorage.getItem('mrblue_token') || ''; } catch(e){ return ''; } })(),
             channel: 'AW',
             contentId: '',
             episode: '',
@@ -407,24 +407,103 @@ object ScraperScripts {
         };
         const state = window._mrblueState;
 
+        function extractData(json) {
+            if (!json) return null;
+            if (json.sd || json.hd) return json;
+            if (json.data && (json.data.sd || json.data.hd)) return json.data;
+            if (json.result && (json.result.sd || json.result.hd)) return json.result;
+            if (json.response && (json.response.sd || json.response.hd)) return json.response;
+            if (json.data) {
+                const sub = extractData(json.data);
+                if (sub) return sub;
+            }
+            if (json.result) {
+                const sub = extractData(json.result);
+                if (sub) return sub;
+            }
+            return null;
+        }
+
+        function getStoredToken() {
+            if (state.token) return state.token;
+            try {
+                const cookies = document.cookie.split(';');
+                for (const c of cookies) {
+                    const parts = c.trim().split('=');
+                    if (parts.length >= 2 && /token|auth/i.test(parts[0])) {
+                        const v = parts.slice(1).join('=');
+                        if (v && v.length > 10) return v;
+                    }
+                }
+            } catch(e) {}
+            try {
+                const saved = localStorage.getItem('mrblue_token');
+                if (saved) return saved;
+            } catch(e) {}
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (/token|auth/i.test(k)) {
+                        const v = localStorage.getItem(k);
+                        if (v && v.length > 10) return v;
+                    }
+                }
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (/token|auth/i.test(k)) {
+                        const v = sessionStorage.getItem(k);
+                        if (v && v.length > 10) return v;
+                    }
+                }
+            } catch(e) {}
+            return '';
+        }
+
+        function parseHeadersObj(headers) {
+            const h = {};
+            if (!headers) return h;
+            try {
+                if (typeof headers.entries === 'function') {
+                    for (const [k, v] of headers.entries()) {
+                        if (k && v) h[String(k).toLowerCase()] = String(v);
+                    }
+                } else if (typeof headers.forEach === 'function') {
+                    headers.forEach((v, k) => {
+                        if (k && v) h[String(k).toLowerCase()] = String(v);
+                    });
+                } else if (typeof headers === 'object') {
+                    for (const k in headers) {
+                        if (Object.prototype.hasOwnProperty.call(headers, k)) {
+                            const v = headers[k];
+                            if (k && v) h[String(k).toLowerCase()] = String(v);
+                        }
+                    }
+                }
+            } catch(e) {}
+            return h;
+        }
+
         function onApiSeen(url, headers, json) {
             const m = String(url).match(API_RE);
             if (!m) return;
             state.contentId = m[1];
             state.episode = m[2];
-            const h = {};
-            if (headers) {
-                for (const k in headers) h[k.toLowerCase()] = headers[k];
-            }
+            const h = parseHeadersObj(headers);
             const tok = h['mrblue-auth-token'] || h['x-auth-token'];
-            if (tok) state.token = tok;
+            if (tok) {
+                state.token = tok;
+                try { localStorage.setItem('mrblue_token', tok); } catch(e) {}
+            }
             if (h['mrblue-channel']) state.channel = h['mrblue-channel'];
             if (h['x-client-agent']) state.agent = h['x-client-agent'];
-            if (json && (json.sd || json.hd)) state.data = json;
+            const extData = extractData(json);
+            if (extData && (extData.sd || extData.hd)) state.data = extData;
             log("MrBlue API seen: cid=" + state.contentId + ", ep=" + state.episode + ", tok=" + (state.token ? "yes" : "no"));
             if (window.Android && window.Android.updateProgress) {
                 const count = (state.data && (state.data.hd || state.data.sd)) ? (state.data.hd || state.data.sd).length : 0;
-                Android.updateProgress(count, count, true);
+                if (count > 0) {
+                    Android.updateProgress(count, count, true);
+                }
             }
         }
 
@@ -473,23 +552,88 @@ object ScraperScripts {
         }
 
         function authHeaders() {
-            return {
-                'mrblue-auth-token': state.token,
-                'x-auth-token': state.token,
-                'mrblue-channel': state.channel,
-                'x-client-agent': state.agent,
+            const tok = getStoredToken();
+            const h = {
+                'mrblue-channel': state.channel || 'AW',
+                'x-client-agent': state.agent || 'daddy-mobile/2.44.0',
                 'x-wasm-support': 'Y',
                 'cache-control': 'no-cache',
                 'pragma': 'no-cache',
                 'Referer': location.href
             };
+            if (tok) {
+                h['mrblue-auth-token'] = tok;
+                h['x-auth-token'] = tok;
+            }
+            return h;
         }
 
         async function fetchAccess(contentId, episode) {
             const url = `${"$"}{API_BASE}/home/api/gateway/api/v4/contents/access/${"$"}{contentId}/${"$"}{episode}?channel=${"$"}{state.channel}`;
-            const resp = await fetch(url, { headers: authHeaders() });
+            const resp = await fetch(url, { headers: authHeaders(), credentials: 'include' });
             if (!resp.ok) throw new Error("HTTP " + resp.status + " " + url);
             return await resp.json();
+        }
+
+        function parseUrlParams() {
+            const href = location.href;
+            const pathname = location.pathname;
+
+            let m = href.match(/\/contents\/access\/([^/?#]+)\/(\d+)/);
+            if (m) return { cid: m[1], ep: m[2] };
+
+            m = pathname.match(/\/(wt_[a-zA-Z0-9_-]+)\/(\d+)/);
+            if (m) return { cid: m[1], ep: m[2] };
+
+            m = pathname.match(/\/([^\/]+)\/(\d+)/);
+            if (m && m[1] !== 'viewer' && m[1] !== 'contents') return { cid: m[1], ep: m[2] };
+
+            try {
+                const urlParams = new URLSearchParams(location.search);
+                const qCid = urlParams.get('contentId') || urlParams.get('cid') || urlParams.get('content_id');
+                const qEp = urlParams.get('episode') || urlParams.get('ep') || urlParams.get('episode_no') || '1';
+                if (qCid) return { cid: qCid, ep: qEp };
+            } catch(e) {}
+
+            m = href.match(/(wt_[a-zA-Z0-9_-]+)/);
+            if (m) {
+                const epMatch = href.match(/[\/=&](\d+)(?:[?#&]|$)/);
+                return { cid: m[1], ep: epMatch ? epMatch[1] : '1' };
+            }
+
+            return { cid: state.contentId || '', ep: state.episode || '1' };
+        }
+
+        function findDataInDOM() {
+            try {
+                for (const key of Object.keys(window)) {
+                    if (/data|state|content|viewer/i.test(key) && key !== '_mrblueState') {
+                        const val = window[key];
+                        const ext = extractData(val);
+                        if (ext && (ext.sd || ext.hd)) return ext;
+                    }
+                }
+                const scripts = document.querySelectorAll('script');
+                for (const s of scripts) {
+                    if (s.textContent && (s.textContent.includes('"hd"') || s.textContent.includes('"sd"'))) {
+                        try {
+                            const json = JSON.parse(s.textContent);
+                            const ext = extractData(json);
+                            if (ext && (ext.sd || ext.hd)) return ext;
+                        } catch(e) {
+                            const m = s.textContent.match(/(\{.*"(?:hd|sd)"\s*:\s*\[.*\})/);
+                            if (m) {
+                                try {
+                                    const json = JSON.parse(m[1]);
+                                    const ext = extractData(json);
+                                    if (ext && (ext.sd || ext.hd)) return ext;
+                                } catch(e2) {}
+                            }
+                        }
+                    }
+                }
+            } catch(e) {}
+            return null;
         }
 
         function extractTitle() {
@@ -511,27 +655,32 @@ object ScraperScripts {
         window.runScraper = async function() {
             log("Starting MrBlue API Scraper...");
             try {
-                let cid = state.contentId;
-                let ep = state.episode;
+                const parsed = parseUrlParams();
+                let cid = state.contentId || parsed.cid;
+                let ep = state.episode || parsed.ep;
 
-                if (!cid || !ep) {
-                    const m = location.pathname.match(API_RE) || location.href.match(/contentId=([^&]+)/);
-                    if (m) cid = m[1];
-                }
+                log("MrBlue target: cid=" + cid + ", ep=" + ep);
 
-                if (!cid) throw new Error("Could not detect Content ID from page");
+                if (!cid) throw new Error("Could not detect Content ID from page URL");
 
-                let data = state.data;
+                let data = extractData(state.data);
                 if (!data) {
-                    log("Fetching access data from API...");
-                    data = await fetchAccess(cid, ep || '1');
+                    data = findDataInDOM();
                 }
+
+                if (!data || (!data.hd && !data.sd)) {
+                    log("Fetching access data from API (" + cid + " / " + ep + ")...");
+                    const rawData = await fetchAccess(cid, ep || '1');
+                    data = extractData(rawData);
+                }
+
+                if (!data) throw new Error("No image list in API response");
 
                 let list = data.hd || data.sd;
                 let q = (data.hd && data.hd.length > 0) ? 'hd' : 'sd';
 
                 if (!list || list.length === 0) {
-                    throw new Error("No image list in API response");
+                    throw new Error("Image list is empty in API response");
                 }
 
                 list = [...list].sort((a, b) => a.pn - b.pn);
@@ -722,6 +871,11 @@ fun ScraperWebViewDialog(
                                     } catch (e: Exception) {
                                         true
                                     }
+                                }
+
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    view?.evaluateJavascript(script, null)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
