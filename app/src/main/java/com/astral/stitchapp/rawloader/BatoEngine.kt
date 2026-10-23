@@ -740,11 +740,11 @@ object BatoEngine {
                 val requiresAd = url.contains("ad_required=true") || item.title.contains("[Ad Watch]", ignoreCase = true)
                 if (requiresAd) {
                     updateStatus(cacheDir, itemId, "Simulating Ad View", 0.0)
-                    WebtoonsApi.simulateAdView(cleanUrl) { prog ->
-                        runBlocking { updateStatus(cacheDir, itemId, "Simulating Ad View", prog) }
+                    WebtoonsApi.simulateAdView(context, cleanUrl) { prog ->
+                        updateStatus(cacheDir, itemId, "Simulating Ad View", prog)
                     }
                 }
-                images.addAll(WebtoonsApi.scrapeChapterImages(cleanUrl))
+                images.addAll(WebtoonsApi.scrapeChapterImages(context, cleanUrl))
                 referer = "https://www.webtoons.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {

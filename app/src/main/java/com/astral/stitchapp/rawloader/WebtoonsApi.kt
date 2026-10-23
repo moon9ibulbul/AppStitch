@@ -3,12 +3,16 @@ package com.astral.stitchapp.rawloader
 import android.content.Context
 import kotlinx.coroutines.delay
 import org.json.JSONObject
+import java.math.BigInteger
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.KeyFactory
+import java.security.spec.RSAPublicKeySpec
 import java.util.Base64
 import java.util.Locale
 import java.util.regex.Pattern
+import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -17,7 +21,10 @@ data class WebtoonsSession(
     val email: String = "",
     val username: String = "",
     val coins: Int = 0,
-    val token: String = ""
+    val token: String = "",
+    val neoSes: String = "",
+    val neoChk: String = "",
+    val deviceKey: String = ""
 )
 
 data class WebtoonsChapter(
@@ -48,7 +55,10 @@ object WebtoonsApi {
             email = prefs.getString("email", "") ?: "",
             username = prefs.getString("username", "") ?: "",
             coins = prefs.getInt("coins", 0),
-            token = prefs.getString("token", "") ?: ""
+            token = prefs.getString("token", "") ?: "",
+            neoSes = prefs.getString("neo_ses", "") ?: "",
+            neoChk = prefs.getString("neo_chk", "") ?: "",
+            deviceKey = prefs.getString("device_key", "") ?: ""
         )
     }
 
@@ -60,6 +70,9 @@ object WebtoonsApi {
             putString("username", session.username)
             putInt("coins", session.coins)
             putString("token", session.token)
+            putString("neo_ses", session.neoSes)
+            putString("neo_chk", session.neoChk)
+            putString("device_key", session.deviceKey)
             apply()
         }
     }
@@ -69,7 +82,49 @@ object WebtoonsApi {
         prefs.edit().clear().apply()
     }
 
-    suspend fun login(emailInput: String, passwordInput: String): Result<WebtoonsSession> {
+    private fun generateRandomDeviceKey(): String {
+        val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        return (1..32).map { chars.random() }.joinToString("")
+    }
+
+    private fun getOrCreateDeviceKey(context: Context?): String {
+        if (context == null) return generateRandomDeviceKey()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        var key = prefs.getString("device_key", "") ?: ""
+        if (key.isBlank()) {
+            key = generateRandomDeviceKey()
+            prefs.edit().putString("device_key", key).apply()
+        }
+        return key
+    }
+
+    private fun encryptCredentials(
+        sessionKey: String,
+        email: String,
+        password: String,
+        nHex: String,
+        eHex: String
+    ): String {
+        val message = "${sessionKey.length.toChar()}$sessionKey${email.length.toChar()}$email${password.length.toChar()}$password"
+        val modulus = BigInteger(eHex, 16)
+        val exponent = BigInteger(nHex, 16)
+
+        val keySpec = RSAPublicKeySpec(modulus, exponent)
+        val keyFactory = KeyFactory.getInstance("RSA")
+        val publicKey = keyFactory.generatePublic(keySpec)
+
+        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey)
+
+        val encryptedBytes = cipher.doFinal(message.toByteArray(Charsets.UTF_8))
+        return encryptedBytes.joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun login(context: Context, emailInput: String, passwordInput: String): Result<WebtoonsSession> {
+        return login(emailInput, passwordInput, context)
+    }
+
+    suspend fun login(emailInput: String, passwordInput: String, context: Context? = null): Result<WebtoonsSession> {
         val email = emailInput.trim()
         val password = passwordInput.trim()
 
@@ -81,26 +136,116 @@ object WebtoonsApi {
             return Result.failure(IllegalArgumentException("Format email tidak valid"))
         }
 
-        delay(800) // Simulate network call
+        val deviceKey = getOrCreateDeviceKey(context)
 
-        val rawUser = email.substringBefore("@")
-        val username = if (rawUser.isNotEmpty()) {
-            rawUser.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-        } else {
-            "WebtoonsUser"
+        return try {
+            val rsaUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/getRsaKey?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+            val rsaRes = sendApiRequest(rsaUrl, deviceKey = deviceKey)
+                ?: return Result.failure(Exception("Gagal mengambil RSA Key dari server"))
+
+            val rsaResultObj = JSONObject(rsaRes).optJSONObject("message")?.optJSONObject("result")
+                ?: return Result.failure(Exception("Response RSA Key tidak valid"))
+
+            val keyName = rsaResultObj.optString("keyName")
+            val nvalue = rsaResultObj.optString("nvalue")
+            val evalue = rsaResultObj.optString("evalue")
+            val sessionKey = rsaResultObj.optString("sessionKey")
+
+            val encryptedPw = encryptCredentials(sessionKey, email, password, nvalue, evalue)
+
+            val loginUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/loginById?method=POST&serviceZone=GLOBAL&encpw=$encryptedPw&loginType=EMAIL&v=3&language=en&encnm=$keyName&locale=en&platform=APP_ANDROID"
+            val loginRes = sendApiRequest(loginUrl, method = "POST", deviceKey = deviceKey)
+                ?: return Result.failure(Exception("Gagal menghubungi server login"))
+
+            val loginMsg = JSONObject(loginRes).optJSONObject("message")
+            val loginResultObj = loginMsg?.optJSONObject("result")
+            val ses = loginResultObj?.optString("ses") ?: ""
+            if (ses.isEmpty()) {
+                val errMsg = loginMsg?.optString("message") ?: "Email atau password salah"
+                return Result.failure(Exception(errMsg))
+            }
+
+            var chk = ""
+            val devInfoUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/setDeviceInfo?deviceKey=$deviceKey&appType=LINEWEBTOON&pushToken=&pushCode=FCMV1&serviceZone=GLOBAL&v=1&language=en&locale=en&platform=APP_ANDROID"
+
+            val currTime = getCurrentTime()
+            val signedUrl = buildSignedUrl(devInfoUrl, currTime)
+
+            val conn = (URL(signedUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 15000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", USER_AGENT_APP)
+                setRequestProperty("wtu", deviceKey)
+                setRequestProperty("Cookie", "NEO_SES=\"$ses\"")
+            }
+
+            val headerFields = conn.headerFields
+            val setCookies = headerFields["Set-Cookie"] ?: headerFields["set-cookie"]
+            if (setCookies != null) {
+                for (c in setCookies) {
+                    if (c.contains("NEO_CHK=")) {
+                        val start = c.indexOf("NEO_CHK=\"")
+                        if (start != -1) {
+                            val sub = c.substring(start + 9)
+                            val end = sub.indexOf("\"")
+                            if (end != -1) chk = sub.substring(0, end)
+                        }
+                    }
+                }
+            }
+
+            var session = WebtoonsSession(
+                isLoggedIn = true,
+                email = email,
+                username = email.substringBefore("@"),
+                coins = 0,
+                token = ses,
+                neoSes = ses,
+                neoChk = chk,
+                deviceKey = deviceKey
+            )
+
+            session = fetchUserInfo(session)
+            if (context != null) {
+                saveSession(context, session)
+            }
+            Result.success(session)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    fun fetchUserInfo(session: WebtoonsSession): WebtoonsSession {
+        if (!session.isLoggedIn || session.neoSes.isBlank()) return session
+        var username = session.username
+        var coins = session.coins
+
+        try {
+            val memberUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/getMemberInfo?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+            val memberRes = sendApiRequest(memberUrl, session = session)
+            if (memberRes != null) {
+                val memberObj = JSONObject(memberRes).optJSONObject("message")?.optJSONObject("result")
+                val nickname = memberObj?.optString("nickname") ?: ""
+                if (nickname.isNotBlank()) {
+                    username = nickname
+                }
+            }
+
+            val coinUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/coinBalance?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+            val coinRes = sendApiRequest(coinUrl, session = session)
+            if (coinRes != null) {
+                val coinObj = JSONObject(coinRes).optJSONObject("message")?.optJSONObject("result")?.optJSONObject("balance")
+                if (coinObj != null && coinObj.has("amount")) {
+                    coins = coinObj.optInt("amount", 0)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
-        val coins = 50 // Default balance
-        val token = "wbtn_token_" + System.currentTimeMillis()
-
-        val session = WebtoonsSession(
-            isLoggedIn = true,
-            email = email,
-            username = username,
-            coins = coins,
-            token = token
-        )
-        return Result.success(session)
+        return session.copy(username = username, coins = coins)
     }
 
     private fun decodeHtmlEntities(input: String): String {
@@ -162,16 +307,29 @@ object WebtoonsApi {
         return "$unsignedUrl${separator}msgpad=$currentTime&md=$encodedSig"
     }
 
-    private fun sendApiRequest(unsignedUrl: String, method: String = "GET", jsonBody: String? = null): String? {
+    private fun sendApiRequest(
+        unsignedUrl: String,
+        method: String = "GET",
+        jsonBody: String? = null,
+        session: WebtoonsSession? = null,
+        deviceKey: String? = null
+    ): String? {
         val currTime = getCurrentTime()
         val signedUrl = buildSignedUrl(unsignedUrl, currTime)
+        val effectiveDeviceKey = session?.deviceKey?.ifBlank { null } ?: deviceKey ?: DEVICE_KEY
         return try {
             val conn = (URL(signedUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = 15000
                 readTimeout = 15000
                 setRequestProperty("User-Agent", USER_AGENT_APP)
-                setRequestProperty("wtu", DEVICE_KEY)
+                setRequestProperty("wtu", effectiveDeviceKey)
+                if (jsonBody == null && method.equals("GET", ignoreCase = true)) {
+                    setRequestProperty("Content-Length", "0")
+                }
+                if (session != null && session.neoSes.isNotBlank() && session.neoChk.isNotBlank()) {
+                    setRequestProperty("Cookie", "NEO_SES=\"${session.neoSes}\"; NEO_CHK=\"${session.neoChk}\"")
+                }
                 if (jsonBody != null || method.equals("POST", ignoreCase = true)) {
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     doOutput = true
@@ -186,12 +344,17 @@ object WebtoonsApi {
         }
     }
 
-    private fun getImageSecureToken() {
+    private fun getImageSecureToken(session: WebtoonsSession? = null) {
         val url = "https://global.apis.naver.com/lineWebtoon/webtoon/getImageSecureToken?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
-        sendApiRequest(url, "GET")
+        sendApiRequest(url, "GET", session = session)
     }
 
-    private fun buyProduct(productId: String, saleUnitId: String, price: Int): Boolean {
+    private fun buyProduct(
+        productId: String,
+        saleUnitId: String,
+        price: Int,
+        session: WebtoonsSession? = null
+    ): Boolean {
         return try {
             val encodedProductId = URLEncoder.encode(productId, "UTF-8")
             val encodedSaleUnitId = URLEncoder.encode(saleUnitId, "UTF-8")
@@ -202,8 +365,12 @@ object WebtoonsApi {
                 put("productSaleUnitId", saleUnitId)
                 put("price", price)
             }.toString()
-            val res = sendApiRequest(url, "POST", body)
-            res != null
+            val res = sendApiRequest(url, "POST", jsonBody = body, session = session)
+            if (res != null) {
+                val jsonObj = JSONObject(res)
+                val errCode = jsonObj.optJSONObject("message")?.optString("error_code")
+                errCode.isNullOrBlank()
+            } else false
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -252,17 +419,18 @@ object WebtoonsApi {
         return "https://www.webtoons.com/$lang/search?keyword=" + URLEncoder.encode(trimmed, "UTF-8")
     }
 
-    fun fetchSeriesInfo(inputUrlOrTitleNo: String, lang: String = "id"): WebtoonsSeriesInfo {
+    fun fetchSeriesInfo(inputUrlOrTitleNo: String, lang: String = "id", context: Context? = null): WebtoonsSeriesInfo {
         val (titleNo, detectedLang) = extractTitleNoAndLang(inputUrlOrTitleNo)
         var effectiveLang = if (inputUrlOrTitleNo.startsWith("http")) detectedLang else lang
+        val session = if (context != null) loadSession(context) else null
 
         if (titleNo != null) {
-            val apiInfo = fetchSeriesInfoFromApi(titleNo, effectiveLang)
+            val apiInfo = fetchSeriesInfoFromApi(titleNo, effectiveLang, session)
             if (apiInfo != null && apiInfo.chapters.isNotEmpty()) {
                 return apiInfo
             }
             if (effectiveLang != "en") {
-                val apiInfoEn = fetchSeriesInfoFromApi(titleNo, "en")
+                val apiInfoEn = fetchSeriesInfoFromApi(titleNo, "en", session)
                 if (apiInfoEn != null && apiInfoEn.chapters.isNotEmpty()) {
                     return apiInfoEn
                 }
@@ -277,10 +445,10 @@ object WebtoonsApi {
         return info
     }
 
-    private fun fetchSeriesInfoFromApi(titleNo: Int, lang: String): WebtoonsSeriesInfo? {
+    private fun fetchSeriesInfoFromApi(titleNo: Int, lang: String, session: WebtoonsSession? = null): WebtoonsSeriesInfo? {
         try {
             val infoUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/titleInfo?titleNo=$titleNo&v=1&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
-            val infoJsonStr = sendApiRequest(infoUrl) ?: return null
+            val infoJsonStr = sendApiRequest(infoUrl, session = session) ?: return null
             val infoObj = JSONObject(infoJsonStr)
             val titleInfo = infoObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("titleInfo") ?: return null
 
@@ -289,7 +457,7 @@ object WebtoonsApi {
 
             val pageSize = maxOf(totalEpisodes, 500)
             val listUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/episodeList?titleNo=$titleNo&startIndex=0&pageSize=$pageSize&v=6&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
-            val listJsonStr = sendApiRequest(listUrl) ?: return null
+            val listJsonStr = sendApiRequest(listUrl, session = session) ?: return null
             val listObj = JSONObject(listJsonStr)
             val epArray = listObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("episodeList")?.optJSONArray("episode") ?: return null
 
@@ -364,7 +532,6 @@ object WebtoonsApi {
                     currentBaseUrl = redirectedUrl
                 }
 
-                // Extract title
                 if (seriesTitle == "Webtoons Series") {
                     val titleMatcher = Pattern.compile("<h1[^>]*class=\"[^\"]*subj[^\"]*\"[^>]*>(.*?)</h1>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(html)
                     if (titleMatcher.find()) {
@@ -415,7 +582,6 @@ object WebtoonsApi {
                     )
                 }
 
-                // Fallback parsing if data-episode-no LI tags were not present
                 if (newCount == 0) {
                     val fallbackLinkPattern = Pattern.compile("<a[^>]*href=\"([^\"]*episode_no=(\\d+)[^\"]*)\"[^>]*>(.*?)</a>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
                     val fbMatcher = fallbackLinkPattern.matcher(html)
@@ -455,10 +621,12 @@ object WebtoonsApi {
         return WebtoonsSeriesInfo(title = seriesTitle, chapters = episodes)
     }
 
-    fun scrapeChapterImages(episodeUrl: String): List<String> {
+    fun scrapeChapterImages(episodeUrl: String): List<String> = scrapeChapterImages(null, episodeUrl)
+
+    fun scrapeChapterImages(context: Context? = null, episodeUrl: String): List<String> {
+        val session = if (context != null) loadSession(context) else null
         val images = mutableListOf<String>()
 
-        // Try API extraction first
         val titleNoPattern = Pattern.compile("title_no=(\\d+)", Pattern.CASE_INSENSITIVE)
         val epNoPattern = Pattern.compile("episode_no=(\\d+)", Pattern.CASE_INSENSITIVE)
         val tMatcher = titleNoPattern.matcher(episodeUrl)
@@ -469,7 +637,7 @@ object WebtoonsApi {
             val episodeNo = eMatcher.group(1)?.toIntOrNull()
             if (titleNo != null && episodeNo != null) {
                 val lang = if (episodeUrl.contains("/id/", ignoreCase = true)) "id" else "en"
-                val apiImages = scrapeChapterImagesFromApi(titleNo, episodeNo, lang)
+                val apiImages = scrapeChapterImagesFromApi(titleNo, episodeNo, lang, session)
                 if (apiImages.isNotEmpty()) {
                     return apiImages
                 }
@@ -489,7 +657,6 @@ object WebtoonsApi {
             if (conn.responseCode != 200) return images
             val html = conn.inputStream.bufferedReader().use { it.readText() }
 
-            // Extract images from _imageList
             val imgListMatcher = Pattern.compile("<div[^>]*id=\"_imageList\"[^>]*>(.*?)</div>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(html)
             val containerHtml = if (imgListMatcher.find()) imgListMatcher.group(1) ?: html else html
 
@@ -503,7 +670,6 @@ object WebtoonsApi {
                 }
             }
 
-            // Fallback if data-url attribute isn't found
             if (images.isEmpty()) {
                 val fallbackPattern = Pattern.compile("(https?://webtoon-phinf\\.pstatic\\.net/[^\"'\\s]+\\.(?:jpg|png|jpeg|webp))", Pattern.CASE_INSENSITIVE)
                 val fbMatcher = fallbackPattern.matcher(containerHtml)
@@ -520,11 +686,16 @@ object WebtoonsApi {
         return images
     }
 
-    private fun scrapeChapterImagesFromApi(titleNo: Int, episodeNo: Int, lang: String): List<String> {
+    private fun scrapeChapterImagesFromApi(
+        titleNo: Int,
+        episodeNo: Int,
+        lang: String,
+        session: WebtoonsSession? = null
+    ): List<String> {
         val images = mutableListOf<String>()
         try {
             val apiUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/episodeInfoWithLogin?titleNo=$titleNo&episodeNo=$episodeNo&v=4&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
-            val jsonStr = sendApiRequest(apiUrl) ?: return images
+            val jsonStr = sendApiRequest(apiUrl, session = session) ?: return images
             val jsonObj = JSONObject(jsonStr)
             val imgArray = jsonObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("episodeInfo")?.optJSONArray("imageInfo") ?: return images
 
@@ -544,10 +715,20 @@ object WebtoonsApi {
         return images
     }
 
-    suspend fun simulateAdView(episodeUrl: String = "", onProgressUpdate: (Double) -> Unit = {}) {
-        val totalSteps = 5
+    suspend fun simulateAdView(episodeUrl: String, onProgressUpdate: suspend (Double) -> Unit) {
+        simulateAdView(null, episodeUrl, onProgressUpdate)
+    }
+
+    suspend fun simulateAdView(
+        context: Context? = null,
+        episodeUrl: String = "",
+        onProgressUpdate: suspend (Double) -> Unit = {}
+    ) {
+        val session = if (context != null) loadSession(context) else null
+
+        val totalSteps = 30
         for (step in 1..totalSteps) {
-            delay(600)
+            delay(1000)
             onProgressUpdate(step.toDouble() / totalSteps)
         }
 
@@ -557,14 +738,18 @@ object WebtoonsApi {
         val eMatcher = epNoPattern.matcher(episodeUrl)
 
         if (tMatcher.find() && eMatcher.find()) {
-            val titleNo = tMatcher.group(1)
-            val epNo = eMatcher.group(1)
+            val titleNo = tMatcher.group(1)?.toIntOrNull()
+            val epNo = eMatcher.group(1)?.toIntOrNull()
             if (titleNo != null && epNo != null) {
                 try {
-                    getImageSecureToken()
+                    getImageSecureToken(session)
                     val productId = "linewebtoon-WEBTOON-$titleNo-$epNo"
-                    val saleUnitId = "$productId-reward_ad-1"
-                    buyProduct(productId, saleUnitId, 0)
+                    val adSaleUnitId = "$productId-reward_ad-1"
+                    val adClaimed = buyProduct(productId, adSaleUnitId, 0, session)
+                    if (!adClaimed) {
+                        val passSaleUnitId = "$productId-complete_daily_pass-1"
+                        buyProduct(productId, passSaleUnitId, 0, session)
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }

@@ -2224,7 +2224,7 @@ fun BatoTab(
                                 webtoonsLoginError = null
                                 isWebtoonsLoggingIn = true
                                 scope.launch(Dispatchers.IO) {
-                                    val res = WebtoonsApi.login(webtoonsEmailInput, webtoonsPasswordInput)
+                                    val res = WebtoonsApi.login(context, webtoonsEmailInput, webtoonsPasswordInput)
                                     withContext(Dispatchers.Main) {
                                         isWebtoonsLoggingIn = false
                                         if (res.isSuccess) {
@@ -2292,7 +2292,7 @@ fun BatoTab(
                                 isWebtoonsFetchingChapters = true
                                 scope.launch(Dispatchers.IO) {
                                     try {
-                                        val info = WebtoonsApi.fetchSeriesInfo(urlInput)
+                                        val info = WebtoonsApi.fetchSeriesInfo(urlInput, context = context)
                                         withContext(Dispatchers.Main) {
                                             isWebtoonsFetchingChapters = false
                                             if (info.chapters.isNotEmpty()) {
