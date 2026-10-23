@@ -332,189 +332,404 @@ object ScraperScripts {
         'use strict';
         $COMMON_SCRIPTS
 
-        window._mrblueState = window._mrblueState || {
-            isScanning: false,
-            autoScrollInterval: null
-        };
+        const ORDER = [29, 15, 24, 8, 4, 26, 0, 12, 14, 23, 17, 1, 9, 5, 20, 28,
+        11, 6, 19, 2, 16, 21, 30, 27, 25, 13, 7, 18, 3, 10, 22, 31];
 
-        function getViewerImages() {
-            let imgs = [];
-            const opacityImgs = Array.from(document.querySelectorAll('img[opacity]'));
-            if (opacityImgs.length > 0) {
-                imgs = opacityImgs;
-            } else {
-                const allImgs = Array.from(document.querySelectorAll('img'));
-                const parentMap = new Map();
-                allImgs.forEach(img => {
-                    const parent = img.parentElement;
-                    if (parent) {
-                        parentMap.set(parent, (parentMap.get(parent) || 0) + 1);
-                    }
-                });
-                for (const [parent, count] of parentMap.entries()) {
-                    if (count >= 5) {
-                        imgs = Array.from(parent.querySelectorAll('img'));
-                        break;
-                    }
+        function deobfuscate(data) {
+            const n = data.length;
+            const out = new Uint8Array(n);
+            let f = 0;
+            while (f < n - 32) {
+                for (let e = 0; e < 32; e++) {
+                    out[f + e] = data[f + ORDER[e]] ^ 0xFF;
                 }
-                if (imgs.length === 0) {
-                    imgs = allImgs.filter(img => (img.src && img.src.startsWith('blob:')) || img.hasAttribute('opacity'));
-                }
+                f += 32;
             }
-
-            imgs = imgs.filter(img => {
-                const src = img.src || img.getAttribute('src') || '';
-                return !src.startsWith('http:') && !src.startsWith('https:') && !src.startsWith('data:');
-            });
-
-            return imgs;
+            for (let i = f; i < n; i++) {
+                out[i] = data[i] ^ 0xFF;
+            }
+            return out;
         }
 
-        function isBlobLoaded(img) {
-            if (!img) return false;
-            const src = img.src || img.getAttribute('src') || '';
-            const opacity = img.getAttribute('opacity');
-            return src.startsWith('blob:') && opacity !== '0';
+        function isKnownHeader(view) {
+            const isJpeg = view[0] === 0xFF && view[1] === 0xD8;
+            const isPng = view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47;
+            const isGif = view[0] === 0x47 && view[1] === 0x49 && view[2] === 0x46;
+            const isWebp = view[0] === 0x52 && view[1] === 0x49 && view[2] === 0x46 && view[3] === 0x46 &&
+                           view[8] === 0x57 && view[9] === 0x45 && view[10] === 0x42 && view[11] === 0x50;
+            return isJpeg || isPng || isGif || isWebp;
         }
 
-        async function blobToDataUrl(blobUrl) {
+        async function decodeArrayBufferBuffer(buffer) {
             try {
-                const response = await fetch(blobUrl);
-                const blob = await response.blob();
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
+                const view = new Uint8Array(buffer);
+                if (isKnownHeader(view)) {
+                    return buffer;
+                }
+                const decodedData = deobfuscate(view);
+                const dView = new Uint8Array(decodedData.buffer);
+                if (isKnownHeader(dView)) {
+                    return decodedData.buffer;
+                }
+                return buffer;
             } catch (e) {
-                log("Error converting blob: " + e.message);
-                return null;
+                log("Decode error: " + e.message);
+                return buffer;
             }
         }
 
-        window.startMrBlueAutoLoad = function() {
-            log("MrBlue: Initializing viewer monitor...");
-            if (window._mrblueState.autoScrollInterval) {
-                clearInterval(window._mrblueState.autoScrollInterval);
+        function bufferToBase64(buffer, mimeType) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            const chunkSize = 0x8000;
+            for (let i = 0; i < len; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+            }
+            return "data:" + (mimeType || "image/jpeg") + ";base64," + btoa(binary);
+        }
+
+        const API_BASE = 'https://viewer.mrblue.com';
+        const ENDPOINT = {
+            sd: 'https://comics-c.mrblue.com',
+            hd: 'https://comicshd-c.mrblue.com',
+        };
+        const API_RE = /\/contents\/access\/([^/?#]+)\/(\d+)/;
+
+        window._mrblueState = window._mrblueState || {
+            token: (function(){ try { return localStorage.getItem('mrblue_token') || ''; } catch(e){ return ''; } })(),
+            channel: 'AW',
+            contentId: '',
+            episode: '',
+            data: null,
+            agent: 'daddy-mobile/2.44.0',
+            isHooked: false
+        };
+        const state = window._mrblueState;
+
+        function extractData(json) {
+            if (!json) return null;
+            if (json.sd || json.hd) return json;
+            if (json.data && (json.data.sd || json.data.hd)) return json.data;
+            if (json.result && (json.result.sd || json.result.hd)) return json.result;
+            if (json.response && (json.response.sd || json.response.hd)) return json.response;
+            if (json.data) {
+                const sub = extractData(json.data);
+                if (sub) return sub;
+            }
+            if (json.result) {
+                const sub = extractData(json.result);
+                if (sub) return sub;
+            }
+            return null;
+        }
+
+        function getStoredToken() {
+            if (state.token) return state.token;
+            try {
+                const cookies = document.cookie.split(';');
+                for (const c of cookies) {
+                    const parts = c.trim().split('=');
+                    if (parts.length >= 2 && /token|auth/i.test(parts[0])) {
+                        const v = parts.slice(1).join('=');
+                        if (v && v.length > 10) return v;
+                    }
+                }
+            } catch(e) {}
+            try {
+                const saved = localStorage.getItem('mrblue_token');
+                if (saved) return saved;
+            } catch(e) {}
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (/token|auth/i.test(k)) {
+                        const v = localStorage.getItem(k);
+                        if (v && v.length > 10) return v;
+                    }
+                }
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (/token|auth/i.test(k)) {
+                        const v = sessionStorage.getItem(k);
+                        if (v && v.length > 10) return v;
+                    }
+                }
+            } catch(e) {}
+            return '';
+        }
+
+        function parseHeadersObj(headers) {
+            const h = {};
+            if (!headers) return h;
+            try {
+                if (typeof headers.entries === 'function') {
+                    for (const [k, v] of headers.entries()) {
+                        if (k && v) h[String(k).toLowerCase()] = String(v);
+                    }
+                } else if (typeof headers.forEach === 'function') {
+                    headers.forEach((v, k) => {
+                        if (k && v) h[String(k).toLowerCase()] = String(v);
+                    });
+                } else if (typeof headers === 'object') {
+                    for (const k in headers) {
+                        if (Object.prototype.hasOwnProperty.call(headers, k)) {
+                            const v = headers[k];
+                            if (k && v) h[String(k).toLowerCase()] = String(v);
+                        }
+                    }
+                }
+            } catch(e) {}
+            return h;
+        }
+
+        function onApiSeen(url, headers, json) {
+            const m = String(url).match(API_RE);
+            if (!m) return;
+            state.contentId = m[1];
+            state.episode = m[2];
+            const h = parseHeadersObj(headers);
+            const tok = h['mrblue-auth-token'] || h['x-auth-token'];
+            if (tok) {
+                state.token = tok;
+                try { localStorage.setItem('mrblue_token', tok); } catch(e) {}
+            }
+            if (h['mrblue-channel']) state.channel = h['mrblue-channel'];
+            if (h['x-client-agent']) state.agent = h['x-client-agent'];
+            const extData = extractData(json);
+            if (extData && (extData.sd || extData.hd)) state.data = extData;
+            log("MrBlue API seen: cid=" + state.contentId + ", ep=" + state.episode + ", tok=" + (state.token ? "yes" : "no"));
+            if (window.Android && window.Android.updateProgress) {
+                const count = (state.data && (state.data.hd || state.data.sd)) ? (state.data.hd || state.data.sd).length : 0;
+                if (count > 0) {
+                    Android.updateProgress(count, count, true);
+                }
+            }
+        }
+
+        function installHooks() {
+            if (state.isHooked) return;
+            state.isHooked = true;
+
+            const origFetch = window.fetch;
+            window.fetch = function(input, init) {
+                const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                const headers = init && init.headers ? init.headers : (input && input.headers ? input.headers : null);
+                const resPromise = origFetch.apply(this, arguments);
+                if (url && API_RE.test(url)) {
+                    resPromise.then(res => {
+                        res.clone().json().then(json => {
+                            onApiSeen(url, headers, json);
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }
+                return resPromise;
+            };
+
+            const XHR = XMLHttpRequest;
+            const origOpen = XHR.prototype.open;
+            const origSetHeader = XHR.prototype.setRequestHeader;
+            const origSend = XHR.prototype.send;
+
+            XHR.prototype.open = function(method, url) {
+                this.__mb = { url, headers: {} };
+                return origOpen.apply(this, arguments);
+            };
+            XHR.prototype.setRequestHeader = function(header, value) {
+                if (this.__mb) this.__mb.headers[header] = value;
+                return origSetHeader.apply(this, arguments);
+            };
+            XHR.prototype.send = function() {
+                if (this.__mb && API_RE.test(this.__mb.url)) {
+                    this.addEventListener('load', () => {
+                        let json = null;
+                        try { json = JSON.parse(this.responseText); } catch (e) {}
+                        onApiSeen(this.__mb.url, this.__mb.headers, json);
+                    });
+                }
+                return origSend.apply(this, arguments);
+            };
+        }
+
+        function authHeaders() {
+            const tok = getStoredToken();
+            const h = {
+                'mrblue-channel': state.channel || 'AW',
+                'x-client-agent': state.agent || 'daddy-mobile/2.44.0',
+                'x-wasm-support': 'Y',
+                'cache-control': 'no-cache',
+                'pragma': 'no-cache',
+                'Referer': location.href
+            };
+            if (tok) {
+                h['mrblue-auth-token'] = tok;
+                h['x-auth-token'] = tok;
+            }
+            return h;
+        }
+
+        async function fetchAccess(contentId, episode) {
+            const url = `${"$"}{API_BASE}/home/api/gateway/api/v4/contents/access/${"$"}{contentId}/${"$"}{episode}?channel=${"$"}{state.channel}`;
+            const resp = await fetch(url, { headers: authHeaders(), credentials: 'include' });
+            if (!resp.ok) throw new Error("HTTP " + resp.status + " " + url);
+            return await resp.json();
+        }
+
+        function parseUrlParams() {
+            const href = location.href;
+            const pathname = location.pathname;
+
+            let m = href.match(/\/contents\/access\/([^/?#]+)\/(\d+)/);
+            if (m) return { cid: m[1], ep: m[2] };
+
+            m = pathname.match(/\/(wt_[a-zA-Z0-9_-]+)\/(\d+)/);
+            if (m) return { cid: m[1], ep: m[2] };
+
+            m = pathname.match(/\/([^\/]+)\/(\d+)/);
+            if (m && m[1] !== 'viewer' && m[1] !== 'contents') return { cid: m[1], ep: m[2] };
+
+            try {
+                const urlParams = new URLSearchParams(location.search);
+                const qCid = urlParams.get('contentId') || urlParams.get('cid') || urlParams.get('content_id');
+                const qEp = urlParams.get('episode') || urlParams.get('ep') || urlParams.get('episode_no') || '1';
+                if (qCid) return { cid: qCid, ep: qEp };
+            } catch(e) {}
+
+            m = href.match(/(wt_[a-zA-Z0-9_-]+)/);
+            if (m) {
+                const epMatch = href.match(/[\/=&](\d+)(?:[?#&]|$)/);
+                return { cid: m[1], ep: epMatch ? epMatch[1] : '1' };
             }
 
-            let scrollPos = 0;
-            let lastLoadedCount = -1;
-            let sameCountTicks = 0;
+            return { cid: state.contentId || '', ep: state.episode || '1' };
+        }
 
-            window._mrblueState.autoScrollInterval = setInterval(() => {
-                const imgs = getViewerImages();
-                const total = imgs.length;
-
-                if (total === 0) {
-                    if (window.Android && window.Android.updateProgress) {
-                        Android.updateProgress(0, 0, false);
-                    }
-                    log("Waiting for viewer images to load...");
-                    return;
-                }
-
-                const loadedImgs = imgs.filter(isBlobLoaded);
-                const loaded = loadedImgs.length;
-                let isReady = (loaded >= total && total > 0);
-
-                if (!isReady && loaded > 0) {
-                    // Fallback safety timeout if progress completely halts for 30s (60 ticks)
-                    if (sameCountTicks > 60) {
-                        log("MrBlue: Auto-load timed out with " + loaded + "/" + total + " loaded blobs.");
-                        isReady = true;
+        function findDataInDOM() {
+            try {
+                for (const key of Object.keys(window)) {
+                    if (/data|state|content|viewer/i.test(key) && key !== '_mrblueState') {
+                        const val = window[key];
+                        const ext = extractData(val);
+                        if (ext && (ext.sd || ext.hd)) return ext;
                     }
                 }
-
-                if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(loaded, isReady ? loaded : total, isReady);
-                }
-
-                log("Loading MrBlue blobs: " + loaded + " / " + total);
-
-                if (isReady) {
-                    clearInterval(window._mrblueState.autoScrollInterval);
-                    window._mrblueState.autoScrollInterval = null;
-                    log("All " + loaded + " image blobs loaded! Ready to scrape.");
-                    window.scrollTo(0, 0);
-                    return;
-                }
-
-                const scrollContainer = document.documentElement || document.body;
-                const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
-
-                const nextUnloaded = imgs.find(img => !isBlobLoaded(img));
-                if (nextUnloaded) {
-                    nextUnloaded.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    if (sameCountTicks > 5) {
-                        window.scrollBy(0, (sameCountTicks % 2 === 0 ? 50 : -50));
+                const scripts = document.querySelectorAll('script');
+                for (const s of scripts) {
+                    if (s.textContent && (s.textContent.includes('"hd"') || s.textContent.includes('"sd"'))) {
+                        try {
+                            const json = JSON.parse(s.textContent);
+                            const ext = extractData(json);
+                            if (ext && (ext.sd || ext.hd)) return ext;
+                        } catch(e) {
+                            const m = s.textContent.match(/(\{.*"(?:hd|sd)"\s*:\s*\[.*\})/);
+                            if (m) {
+                                try {
+                                    const json = JSON.parse(m[1]);
+                                    const ext = extractData(json);
+                                    if (ext && (ext.sd || ext.hd)) return ext;
+                                } catch(e2) {}
+                            }
+                        }
                     }
-                } else {
-                    scrollPos += 800;
-                    if (scrollPos > maxScroll + 1000) scrollPos = 0;
-                    window.scrollTo(0, scrollPos);
                 }
+            } catch(e) {}
+            return null;
+        }
 
-                if (loaded === lastLoadedCount) {
-                    sameCountTicks++;
-                    if (sameCountTicks > 15 && sameCountTicks % 10 === 0) {
-                        window.scrollTo(0, scrollContainer.scrollHeight);
-                    }
-                } else {
-                    lastLoadedCount = loaded;
-                    sameCountTicks = 0;
-                }
-            }, 500);
-        };
+        function extractTitle() {
+            const rawTitle = document.title;
+            let cleanTitle = rawTitle;
+            if (cleanTitle.includes('|')) {
+                cleanTitle = cleanTitle.split('|')[0];
+            }
+            const parenIndex = cleanTitle.lastIndexOf('(');
+            if (parenIndex !== -1) {
+                cleanTitle = cleanTitle.substring(0, parenIndex);
+            }
+            cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+            cleanTitle = cleanTitle.replace(/\s*\/\s*/g, ' - ');
+            cleanTitle = cleanTitle.replace(/- MrBlue${"$"}/i, '').replace(/미스터블루/g, '').trim();
+            return cleanTitle || 'MrBlueComic';
+        }
 
         window.runScraper = async function() {
-            log("Starting MrBlue Scraper...");
+            log("Starting MrBlue API Scraper...");
             try {
-                const imgs = getViewerImages();
-                const loadedImgs = imgs.filter(isBlobLoaded);
-                if (loadedImgs.length === 0) {
-                    throw new Error("No loaded viewer images found on page.");
+                const parsed = parseUrlParams();
+                let cid = state.contentId || parsed.cid;
+                let ep = state.episode || parsed.ep;
+
+                log("MrBlue target: cid=" + cid + ", ep=" + ep);
+
+                if (!cid) throw new Error("Could not detect Content ID from page URL");
+
+                let data = extractData(state.data);
+                if (!data) {
+                    data = findDataInDOM();
                 }
 
-                log("Converting " + loadedImgs.length + " blob images to base64...");
+                if (!data || (!data.hd && !data.sd)) {
+                    log("Fetching access data from API (" + cid + " / " + ep + ")...");
+                    const rawData = await fetchAccess(cid, ep || '1');
+                    data = extractData(rawData);
+                }
+
+                if (!data) throw new Error("No image list in API response");
+
+                let list = data.hd || data.sd;
+                let q = (data.hd && data.hd.length > 0) ? 'hd' : 'sd';
+
+                if (!list || list.length === 0) {
+                    throw new Error("Image list is empty in API response");
+                }
+
+                list = [...list].sort((a, b) => a.pn - b.pn);
+                log("MrBlue API: Found " + list.length + " pages (" + q.toUpperCase() + ")");
+
                 const dataUrls = [];
-                for (let i = 0; i < loadedImgs.length; i++) {
+                const total = list.length;
+
+                for (let i = 0; i < total; i++) {
+                    const item = list[i];
+                    const imgUrl = ENDPOINT[q] + item.path;
                     if (window.Android && window.Android.updateProgress) {
-                        Android.updateProgress(i + 1, loadedImgs.length, false);
+                        Android.updateProgress(i + 1, total, false);
                     }
-                    log("Converting image " + (i + 1) + "/" + loadedImgs.length + "...");
-                    const dataUrl = await blobToDataUrl(loadedImgs[i].src);
-                    if (dataUrl) {
-                        dataUrls.push(dataUrl);
-                    } else {
-                        throw new Error("Failed to read blob for image " + (i + 1));
-                    }
+                    log("Downloading & deobfuscating page " + (i + 1) + "/" + total + "...");
+
+                    const resp = await fetch(imgUrl, {
+                        headers: { 'Referer': 'https://viewer.mrblue.com/', 'Origin': 'https://viewer.mrblue.com' }
+                    });
+                    if (!resp.ok) throw new Error("Failed to fetch image page " + item.pn + " (HTTP " + resp.status + ")");
+
+                    const buffer = await resp.arrayBuffer();
+                    const decodedBuffer = await decodeArrayBufferBuffer(buffer);
+                    const mimeType = resp.headers.get('content-type') || 'image/jpeg';
+                    const dataUrl = bufferToBase64(decodedBuffer, mimeType);
+                    dataUrls.push(dataUrl);
                 }
 
                 if (window.Android && window.Android.updateProgress) {
-                    Android.updateProgress(loadedImgs.length, loadedImgs.length, true);
+                    Android.updateProgress(total, total, true);
                 }
 
-                let pageTitle = document.title.replace('- MrBlue', '').replace('미스터블루', '').trim();
-                if (!pageTitle) pageTitle = "MrBlue Chapter";
-
+                const pageTitle = extractTitle();
                 const result = {
                     title: pageTitle,
                     images: dataUrls,
                     cookie: document.cookie
                 };
 
-                log("MrBlue: Successfully scraped " + dataUrls.length + " images!");
+                log("MrBlue: Successfully scraped " + dataUrls.length + " images via API!");
                 if (window.Android && window.Android.onImagesFound) {
                     Android.onImagesFound(JSON.stringify(result));
                 }
-            } catch(e) {
+            } catch (e) {
                 log("MrBlue Scraper Error: " + e.message);
             }
         };
 
-        window.startMrBlueAutoLoad();
+        installHooks();
     })();
     """.trimIndent()
 }
@@ -656,6 +871,11 @@ fun ScraperWebViewDialog(
                                     } catch (e: Exception) {
                                         true
                                     }
+                                }
+
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    view?.evaluateJavascript(script, null)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
