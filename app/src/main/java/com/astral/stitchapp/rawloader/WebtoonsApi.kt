@@ -106,8 +106,8 @@ object WebtoonsApi {
         eHex: String
     ): String {
         val message = "${sessionKey.length.toChar()}$sessionKey${email.length.toChar()}$email${password.length.toChar()}$password"
-        val modulus = BigInteger(nHex, 16)
-        val exponent = BigInteger(eHex, 16)
+        val modulus = BigInteger(eHex, 16)
+        val exponent = BigInteger(nHex, 16)
 
         val keySpec = RSAPublicKeySpec(modulus, exponent)
         val keyFactory = KeyFactory.getInstance("RSA")
