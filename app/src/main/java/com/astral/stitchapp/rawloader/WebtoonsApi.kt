@@ -5,8 +5,12 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.util.Base64
 import java.util.Locale
 import java.util.regex.Pattern
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 data class WebtoonsSession(
     val isLoggedIn: Boolean = false,
@@ -30,7 +34,10 @@ data class WebtoonsSeriesInfo(
 
 object WebtoonsApi {
     private const val PREFS_NAME = "webtoons_session"
-    private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+    private const val USER_AGENT_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+    private const val USER_AGENT_APP = "nApps (Android 14; SM-A236B; linewebtoon; 3.3.2)"
+    private const val DEVICE_KEY = "abcdefghijklmnopqrstuvwxyz0123456789"
+    private val API_KEY = "gUtPzJFZch4ZyAGviiyH94P99lQ3pFdRTwpJWDlSGFfwgpr6ses5ALOxWHOIT7R1".toByteArray(Charsets.UTF_8)
 
     fun loadSession(context: Context): WebtoonsSession {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -112,6 +119,122 @@ object WebtoonsApi {
             .trim()
     }
 
+    private fun getCurrentTime(): String {
+        return try {
+            val conn = (URL("https://global.apis.naver.com/currentTime").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 10000
+                setRequestProperty("User-Agent", USER_AGENT_APP)
+            }
+            if (conn.responseCode == 200) {
+                conn.inputStream.bufferedReader().use { it.readText() }.trim()
+            } else {
+                System.currentTimeMillis().toString()
+            }
+        } catch (e: Exception) {
+            System.currentTimeMillis().toString()
+        }
+    }
+
+    private fun generateSignature(url: String, currentTime: String): String {
+        val urlBytes = url.toByteArray(Charsets.UTF_8)
+        val timeBytes = currentTime.toByteArray(Charsets.UTF_8)
+
+        val prefixLength = if (urlBytes.size > 255) 255 else urlBytes.size
+        val dataToSign = ByteArray(prefixLength + timeBytes.size)
+
+        System.arraycopy(urlBytes, 0, dataToSign, 0, prefixLength)
+        System.arraycopy(timeBytes, 0, dataToSign, prefixLength, timeBytes.size)
+
+        val sha1Hmac = Mac.getInstance("HmacSHA1")
+        val secretKey = SecretKeySpec(API_KEY, "HmacSHA1")
+        sha1Hmac.init(secretKey)
+
+        val macData = sha1Hmac.doFinal(dataToSign)
+        return Base64.getEncoder().encodeToString(macData).trim()
+    }
+
+    private fun buildSignedUrl(unsignedUrl: String, currentTime: String): String {
+        val signature = generateSignature(unsignedUrl, currentTime)
+        val encodedSig = URLEncoder.encode(signature, "UTF-8")
+        val separator = if (unsignedUrl.contains("?")) "&" else "?"
+        return "$unsignedUrl${separator}msgpad=$currentTime&md=$encodedSig"
+    }
+
+    private fun sendApiRequest(unsignedUrl: String, method: String = "GET", jsonBody: String? = null): String? {
+        val currTime = getCurrentTime()
+        val signedUrl = buildSignedUrl(unsignedUrl, currTime)
+        return try {
+            val conn = (URL(signedUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 15000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", USER_AGENT_APP)
+                setRequestProperty("wtu", DEVICE_KEY)
+                if (jsonBody != null || method.equals("POST", ignoreCase = true)) {
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    doOutput = true
+                    outputStream.use { it.write((jsonBody ?: "").toByteArray(Charsets.UTF_8)) }
+                }
+            }
+            if (conn.responseCode != 200) null
+            else conn.inputStream.bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun getImageSecureToken() {
+        val url = "https://global.apis.naver.com/lineWebtoon/webtoon/getImageSecureToken?v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+        sendApiRequest(url, "GET")
+    }
+
+    private fun buyProduct(productId: String, saleUnitId: String, price: Int): Boolean {
+        return try {
+            val encodedProductId = URLEncoder.encode(productId, "UTF-8")
+            val encodedSaleUnitId = URLEncoder.encode(saleUnitId, "UTF-8")
+            val url = "https://global.apis.naver.com/lineWebtoon/webtoon/buyProduct?method=POST&productId=$encodedProductId&productSaleUnitId=$encodedSaleUnitId&price=$price&v=1&serviceZone=GLOBAL&language=en&locale=en&platform=APP_ANDROID"
+            val body = JSONObject().apply {
+                put("method", "POST")
+                put("productId", productId)
+                put("productSaleUnitId", saleUnitId)
+                put("price", price)
+            }.toString()
+            val res = sendApiRequest(url, "POST", body)
+            res != null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private fun extractTitleNoAndLang(input: String): Pair<Int?, String> {
+        val trimmed = input.trim()
+        var lang = "id"
+        if (trimmed.contains("/en/", ignoreCase = true)) {
+            lang = "en"
+        } else if (trimmed.contains("/id/", ignoreCase = true)) {
+            lang = "id"
+        }
+
+        val pattern = Pattern.compile("title_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val matcher = pattern.matcher(trimmed)
+        if (matcher.find()) {
+            val titleNo = matcher.group(1)?.toIntOrNull()
+            if (titleNo != null) return Pair(titleNo, lang)
+        }
+
+        val digitsOnly = trimmed.filter { it.isDigit() }
+        if (digitsOnly.isNotEmpty()) {
+            val titleNo = digitsOnly.toIntOrNull()
+            if (titleNo != null) return Pair(titleNo, lang)
+        }
+
+        return Pair(null, lang)
+    }
+
     fun buildSeriesUrl(input: String, lang: String = "en"): String {
         var trimmed = input.trim()
         if (trimmed.contains("m.webtoons.com")) {
@@ -126,15 +249,85 @@ object WebtoonsApi {
         if (titleNo.isNotEmpty()) {
             return "https://www.webtoons.com/$lang/a/b/list?title_no=$titleNo"
         }
-        return "https://www.webtoons.com/$lang/search?keyword=" + java.net.URLEncoder.encode(trimmed, "UTF-8")
+        return "https://www.webtoons.com/$lang/search?keyword=" + URLEncoder.encode(trimmed, "UTF-8")
     }
 
     fun fetchSeriesInfo(inputUrlOrTitleNo: String, lang: String = "id"): WebtoonsSeriesInfo {
-        var info = fetchSeriesInfoForUrl(buildSeriesUrl(inputUrlOrTitleNo, lang))
-        if (info.chapters.isEmpty() && lang != "en" && inputUrlOrTitleNo.startsWith("http").not()) {
+        val (titleNo, detectedLang) = extractTitleNoAndLang(inputUrlOrTitleNo)
+        var effectiveLang = if (inputUrlOrTitleNo.startsWith("http")) detectedLang else lang
+
+        if (titleNo != null) {
+            val apiInfo = fetchSeriesInfoFromApi(titleNo, effectiveLang)
+            if (apiInfo != null && apiInfo.chapters.isNotEmpty()) {
+                return apiInfo
+            }
+            if (effectiveLang != "en") {
+                val apiInfoEn = fetchSeriesInfoFromApi(titleNo, "en")
+                if (apiInfoEn != null && apiInfoEn.chapters.isNotEmpty()) {
+                    return apiInfoEn
+                }
+            }
+        }
+
+        // Fallback to HTML scraping
+        var info = fetchSeriesInfoForUrl(buildSeriesUrl(inputUrlOrTitleNo, effectiveLang))
+        if (info.chapters.isEmpty() && effectiveLang != "en" && !inputUrlOrTitleNo.startsWith("http")) {
             info = fetchSeriesInfoForUrl(buildSeriesUrl(inputUrlOrTitleNo, "en"))
         }
         return info
+    }
+
+    private fun fetchSeriesInfoFromApi(titleNo: Int, lang: String): WebtoonsSeriesInfo? {
+        try {
+            val infoUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/titleInfo?titleNo=$titleNo&v=1&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+            val infoJsonStr = sendApiRequest(infoUrl) ?: return null
+            val infoObj = JSONObject(infoJsonStr)
+            val titleInfo = infoObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("titleInfo") ?: return null
+
+            val seriesTitle = titleInfo.optString("title").ifBlank { titleInfo.optString("titleName").ifBlank { "Webtoons Series $titleNo" } }
+            val totalEpisodes = titleInfo.optInt("totalEpisodeCount", 1000)
+
+            val pageSize = maxOf(totalEpisodes, 500)
+            val listUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/episodeList?titleNo=$titleNo&startIndex=0&pageSize=$pageSize&v=6&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+            val listJsonStr = sendApiRequest(listUrl) ?: return null
+            val listObj = JSONObject(listJsonStr)
+            val epArray = listObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("episodeList")?.optJSONArray("episode") ?: return null
+
+            val episodes = mutableListOf<WebtoonsChapter>()
+            for (i in 0 until epArray.length()) {
+                val epObj = epArray.optJSONObject(i) ?: continue
+                val epNum = epObj.optInt("episodeNo", -1)
+                if (epNum <= 0) continue
+
+                val epSubj = epObj.optString("episodeTitle").ifBlank { "Episode $epNum" }
+                val hasProdInfo = epObj.has("productInfo") && !epObj.isNull("productInfo") && epObj.opt("productInfo") != false
+                val isDailyPass = epObj.optBoolean("dailyPassEpisode", false)
+                val isRewardAd = epObj.optBoolean("rewardAdEpisode", false)
+                val isPassRestrict = epObj.optBoolean("passUseRestrictEpisode", false)
+                val allowsAd = epObj.optBoolean("allowsAd", false)
+                val price = epObj.optInt("price", 0)
+
+                val isPaid = hasProdInfo || isDailyPass || isRewardAd || isPassRestrict || allowsAd || price > 0
+
+                val epUrl = "https://www.webtoons.com/$lang/a/b/viewer?title_no=$titleNo&episode_no=$epNum"
+                episodes.add(
+                    WebtoonsChapter(
+                        number = epNum,
+                        title = epSubj,
+                        url = epUrl,
+                        isAdRequired = isPaid
+                    )
+                )
+            }
+
+            if (episodes.isNotEmpty()) {
+                episodes.sortBy { it.number }
+                return WebtoonsSeriesInfo(title = seriesTitle, chapters = episodes)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
     }
 
     private fun fetchSeriesInfoForUrl(targetUrl: String): WebtoonsSeriesInfo {
@@ -158,7 +351,7 @@ object WebtoonsApi {
                     connectTimeout = 15000
                     readTimeout = 15000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", USER_AGENT)
+                    setRequestProperty("User-Agent", USER_AGENT_WEB)
                     setRequestProperty("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
                 }
 
@@ -264,12 +457,32 @@ object WebtoonsApi {
 
     fun scrapeChapterImages(episodeUrl: String): List<String> {
         val images = mutableListOf<String>()
+
+        // Try API extraction first
+        val titleNoPattern = Pattern.compile("title_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val epNoPattern = Pattern.compile("episode_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val tMatcher = titleNoPattern.matcher(episodeUrl)
+        val eMatcher = epNoPattern.matcher(episodeUrl)
+
+        if (tMatcher.find() && eMatcher.find()) {
+            val titleNo = tMatcher.group(1)?.toIntOrNull()
+            val episodeNo = eMatcher.group(1)?.toIntOrNull()
+            if (titleNo != null && episodeNo != null) {
+                val lang = if (episodeUrl.contains("/id/", ignoreCase = true)) "id" else "en"
+                val apiImages = scrapeChapterImagesFromApi(titleNo, episodeNo, lang)
+                if (apiImages.isNotEmpty()) {
+                    return apiImages
+                }
+            }
+        }
+
+        // Fallback to HTML scraping
         try {
             val conn = (URL(episodeUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 20000
                 readTimeout = 20000
-                setRequestProperty("User-Agent", USER_AGENT)
+                setRequestProperty("User-Agent", USER_AGENT_WEB)
                 setRequestProperty("Referer", "https://www.webtoons.com/")
             }
 
@@ -307,11 +520,55 @@ object WebtoonsApi {
         return images
     }
 
-    suspend fun simulateAdView(onProgressUpdate: (Double) -> Unit = {}) {
+    private fun scrapeChapterImagesFromApi(titleNo: Int, episodeNo: Int, lang: String): List<String> {
+        val images = mutableListOf<String>()
+        try {
+            val apiUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/episodeInfoWithLogin?titleNo=$titleNo&episodeNo=$episodeNo&v=4&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+            val jsonStr = sendApiRequest(apiUrl) ?: return images
+            val jsonObj = JSONObject(jsonStr)
+            val imgArray = jsonObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("episodeInfo")?.optJSONArray("imageInfo") ?: return images
+
+            for (i in 0 until imgArray.length()) {
+                val imgObj = imgArray.optJSONObject(i) ?: continue
+                val rawUrl = imgObj.optString("url")
+                if (rawUrl.isBlank() || rawUrl.contains("warning", ignoreCase = true)) continue
+
+                val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "https://webtoon-phinf.pstatic.net$rawUrl"
+                if (!images.contains(fullUrl)) {
+                    images.add(fullUrl)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return images
+    }
+
+    suspend fun simulateAdView(episodeUrl: String = "", onProgressUpdate: (Double) -> Unit = {}) {
         val totalSteps = 5
         for (step in 1..totalSteps) {
             delay(600)
             onProgressUpdate(step.toDouble() / totalSteps)
+        }
+
+        val titleNoPattern = Pattern.compile("title_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val epNoPattern = Pattern.compile("episode_no=(\\d+)", Pattern.CASE_INSENSITIVE)
+        val tMatcher = titleNoPattern.matcher(episodeUrl)
+        val eMatcher = epNoPattern.matcher(episodeUrl)
+
+        if (tMatcher.find() && eMatcher.find()) {
+            val titleNo = tMatcher.group(1)
+            val epNo = eMatcher.group(1)
+            if (titleNo != null && epNo != null) {
+                try {
+                    getImageSecureToken()
+                    val productId = "linewebtoon-WEBTOON-$titleNo-$epNo"
+                    val saleUnitId = "$productId-reward_ad-1"
+                    buyProduct(productId, saleUnitId, 0)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 }
