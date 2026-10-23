@@ -807,7 +807,7 @@ fun ScraperWebViewDialog(
     val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
-    var isScrapeReady by remember { mutableStateOf(!isMrBlue) }
+    var isScrapeReady by remember { mutableStateOf(true) }
     var hasScraped by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
