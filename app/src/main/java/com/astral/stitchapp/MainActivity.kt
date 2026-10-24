@@ -2599,6 +2599,7 @@ fun BatoTab(
                             "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
                             "mrblue" -> { mrblueCookieInput = cookie; prefs.edit().putString("mrblue_cookie", cookie).apply() }
+                            "manta" -> { prefs.edit().putString("manta_cookie", cookie).apply() }
                         }
                     }
 
