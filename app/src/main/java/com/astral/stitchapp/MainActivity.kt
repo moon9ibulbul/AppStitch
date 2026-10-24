@@ -1074,12 +1074,14 @@ fun StitchSettingsUI(
                     val modeText = when (splitMode) {
                         1 -> "Direct (Fixed)"
                         2 -> "Super Smart"
+                        3 -> "Manganism"
                         else -> "Smart (Legacy)"
                     }
                     OutlinedButton(onClick = { expandedMode = true }) { Text(modeText) }
                     DropdownMenu(expanded = expandedMode, onDismissRequest = { expandedMode = false }) {
                         DropdownMenuItem(text = { Text("Smart (Legacy)") }, onClick = { onSplitMode(0); expandedMode = false })
                         DropdownMenuItem(text = { Text("Super Smart") }, onClick = { onSplitMode(2); expandedMode = false })
+                        DropdownMenuItem(text = { Text("Manganism") }, onClick = { onSplitMode(3); expandedMode = false })
                         DropdownMenuItem(text = { Text("Direct (Fixed)") }, onClick = { onSplitMode(1); expandedMode = false })
                     }
                 }
@@ -2599,7 +2601,6 @@ fun BatoTab(
                             "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
                             "mrblue" -> { mrblueCookieInput = cookie; prefs.edit().putString("mrblue_cookie", cookie).apply() }
-                            "manta" -> { prefs.edit().putString("manta_cookie", cookie).apply() }
                         }
                     }
 

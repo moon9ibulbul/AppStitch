@@ -484,6 +484,13 @@ object SmartStitcher {
             return resized
         }
 
+        if (splitMode == 3) {
+            progressWriter.step()
+            val finalImages = splitImagesManganism(resized, splitHeight)
+            progressWriter.step()
+            return finalImages
+        }
+
         val canvas = VirtualCanvas(resized)
         progressWriter.step()
 
@@ -739,6 +746,30 @@ object SmartStitcher {
         return combined
     }
 
+    private fun splitImagesManganism(images: List<Bitmap>, splitHeight: Int): List<Bitmap> {
+        if (images.isEmpty()) return emptyList()
+
+        val result = mutableListOf<Bitmap>()
+        val currentGroup = mutableListOf<Bitmap>()
+        var currentHeight = 0
+
+        for (img in images) {
+            if (currentGroup.isNotEmpty() && currentHeight + img.height > splitHeight) {
+                result.add(combineImages(currentGroup))
+                currentGroup.clear()
+                currentHeight = 0
+            }
+            currentGroup.add(img)
+            currentHeight += img.height
+        }
+
+        if (currentGroup.isNotEmpty()) {
+            result.add(combineImages(currentGroup))
+        }
+
+        return result
+    }
+
     private fun splitImage(
         canvas: VirtualCanvas,
         splitHeight: Int,
@@ -802,7 +833,7 @@ object SmartStitcher {
         val window = 12
 
         val minH = (0.4 * splitHeight).toInt().coerceAtLeast(1)
-        val maxH = (1.3 * splitHeight).toInt().coerceAtMost(maxHeight - splitOffset - 1)
+        val maxH = splitHeight.coerceAtMost(maxHeight - splitOffset - 1)
 
         val coarseStep = maxOf(scanStep * 3, 15)
 
@@ -1055,8 +1086,10 @@ object SmartStitcher {
 
             if (newSplitHeight < (0.4 * splitHeight).toInt()) {
                 newSplitHeight = splitHeight
-                countdown = false
-                adjustInProgress = true
+                break
+            } else if (!countdown && newSplitHeight > splitHeight) {
+                newSplitHeight = splitHeight
+                break
             }
         }
         return newSplitHeight
