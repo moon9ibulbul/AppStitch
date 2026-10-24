@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 import org.json.JSONArray
@@ -809,10 +810,14 @@ fun ScraperWebViewDialog(
     var totalCount by remember { mutableIntStateOf(0) }
     var isScrapeReady by remember { mutableStateOf(true) }
     var hasScraped by remember { mutableStateOf(false) }
+    var popupWebView by remember { mutableStateOf<WebView?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
-            modifier = Modifier.fillMaxSize().padding(8.dp),
+            modifier = Modifier.fillMaxSize().padding(4.dp),
             shape = MaterialTheme.shapes.large
         ) {
             Box(Modifier.fillMaxSize()) {
@@ -824,8 +829,8 @@ fun ScraperWebViewDialog(
                             settings.databaseEnabled = true
                             settings.setSupportMultipleWindows(true)
                             settings.javaScriptCanOpenWindowsAutomatically = true
-                            settings.useWideViewPort = true
-                            settings.loadWithOverviewMode = true
+                            settings.useWideViewPort = false
+                            settings.loadWithOverviewMode = false
                             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                             settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
@@ -900,14 +905,14 @@ fun ScraperWebViewDialog(
                                     resultMsg: android.os.Message?
                                 ): Boolean {
                                     val parentWebView = view ?: return false
-                                    val newWebView = WebView(parentWebView.context).apply {
+                                    val childWebView = WebView(parentWebView.context).apply {
                                         settings.javaScriptEnabled = true
                                         settings.domStorageEnabled = true
                                         settings.databaseEnabled = true
                                         settings.setSupportMultipleWindows(true)
                                         settings.javaScriptCanOpenWindowsAutomatically = true
-                                        settings.useWideViewPort = true
-                                        settings.loadWithOverviewMode = true
+                                        settings.useWideViewPort = false
+                                        settings.loadWithOverviewMode = false
                                         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                         settings.userAgentString = parentWebView.settings.userAgentString
 
@@ -919,8 +924,7 @@ fun ScraperWebViewDialog(
                                             override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                                 val popupUrl = request?.url?.toString() ?: return false
                                                 if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                    parentWebView.loadUrl(popupUrl)
-                                                    return true
+                                                    return false
                                                 }
                                                 return try {
                                                     val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
@@ -930,7 +934,7 @@ fun ScraperWebViewDialog(
                                                     } else {
                                                         val fallbackUrl = intent.getStringExtra("browser_fallback_url")
                                                         if (!fallbackUrl.isNullOrEmpty()) {
-                                                            parentWebView.loadUrl(fallbackUrl)
+                                                            v?.loadUrl(fallbackUrl)
                                                         }
                                                     }
                                                     true
@@ -938,36 +942,19 @@ fun ScraperWebViewDialog(
                                                     true
                                                 }
                                             }
-
-                                            override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
-                                                super.onPageStarted(v, popupUrl, favicon)
-                                                if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
-                                                    v?.stopLoading()
-                                                    parentWebView.loadUrl(popupUrl)
-                                                }
-                                            }
                                         }
 
                                         webChromeClient = object : WebChromeClient() {
-                                            override fun onCreateWindow(
-                                                subView: WebView?,
-                                                subIsDialog: Boolean,
-                                                subIsUserGesture: Boolean,
-                                                subResultMsg: android.os.Message?
-                                            ): Boolean {
-                                                val subTransport = subResultMsg?.obj as? WebView.WebViewTransport
-                                                if (subTransport != null) {
-                                                    subTransport.webView = parentWebView
-                                                    subResultMsg.sendToTarget()
-                                                }
-                                                return true
+                                            override fun onCloseWindow(window: WebView?) {
+                                                popupWebView = null
                                             }
                                         }
                                     }
 
+                                    popupWebView = childWebView
                                     val transport = resultMsg?.obj as? WebView.WebViewTransport
                                     if (transport != null) {
-                                        transport.webView = newWebView
+                                        transport.webView = childWebView
                                         resultMsg.sendToTarget()
                                     }
                                     return true
@@ -1032,6 +1019,36 @@ fun ScraperWebViewDialog(
                             enabled = isScrapeReady,
                             modifier = Modifier.weight(1f)
                         ) { Text("Scrape") }
+                    }
+                }
+
+                if (popupWebView != null) {
+                    Dialog(
+                        onDismissRequest = { popupWebView = null },
+                        properties = DialogProperties(usePlatformDefaultWidth = false)
+                    ) {
+                        Card(
+                            modifier = Modifier.fillMaxSize().padding(12.dp),
+                            shape = MaterialTheme.shapes.large
+                        ) {
+                            Box(Modifier.fillMaxSize()) {
+                                AndroidView(
+                                    factory = { popupWebView!! },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                IconButton(
+                                    onClick = { popupWebView = null },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = Color.Black.copy(alpha = 0.6f)
+                                    ) {
+                                        Text("✕", color = Color.White, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
