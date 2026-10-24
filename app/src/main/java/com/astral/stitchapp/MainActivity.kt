@@ -590,42 +590,68 @@ fun CookieWebViewDialog(
                                     isUserGesture: Boolean,
                                     resultMsg: android.os.Message?
                                 ): Boolean {
-                                    val newWebView = WebView(view!!.context)
-                                    newWebView.settings.javaScriptEnabled = true
-                                    newWebView.settings.domStorageEnabled = true
-                                    newWebView.settings.userAgentString = view.settings.userAgentString
-                                    CookieManager.getInstance().setAcceptCookie(true)
-                                    CookieManager.getInstance().setAcceptThirdPartyCookies(newWebView, true)
+                                     val parentWebView = view ?: return false
+                                     val newWebView = WebView(parentWebView.context).apply {
+                                         settings.javaScriptEnabled = true
+                                         settings.domStorageEnabled = true
+                                         settings.databaseEnabled = true
+                                         settings.setSupportMultipleWindows(true)
+                                         settings.javaScriptCanOpenWindowsAutomatically = true
+                                         settings.useWideViewPort = true
+                                         settings.loadWithOverviewMode = true
+                                         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                         settings.userAgentString = parentWebView.settings.userAgentString
 
-                                    newWebView.webViewClient = object : WebViewClient() {
-                                        override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                            val popupUrl = request?.url?.toString() ?: return false
-                                            if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                view.loadUrl(popupUrl)
-                                                return true
-                                            }
-                                            return try {
-                                                val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
-                                                val ctx = v?.context ?: return true
-                                                if (intent.resolveActivity(ctx.packageManager) != null) {
-                                                    ctx.startActivity(intent)
-                                                } else {
-                                                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                                    if (!fallbackUrl.isNullOrEmpty()) {
-                                                        view.loadUrl(fallbackUrl)
+                                         val cm = CookieManager.getInstance()
+                                         cm.setAcceptCookie(true)
+                                         cm.setAcceptThirdPartyCookies(this, true)
+
+                                         webViewClient = object : WebViewClient() {
+                                             override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                                 val popupUrl = request?.url?.toString() ?: return false
+                                                 if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
+                                                     parentWebView.loadUrl(popupUrl)
+                                                     return true
+                                                 }
+                                                 return try {
+                                                     val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
+                                                     val ctx = v?.context ?: return true
+                                                     if (intent.resolveActivity(ctx.packageManager) != null) {
+                                                         ctx.startActivity(intent)
+                                                     } else {
+                                                         val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                         if (!fallbackUrl.isNullOrEmpty()) {
+                                                             parentWebView.loadUrl(fallbackUrl)
+                                                         }
                                                     }
+                                                     true
+                                                 } catch (e: Exception) {
+                                                     true
                                                 }
-                                                true
-                                            } catch (e: Exception) {
-                                                true
                                             }
+
+                                             override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
+                                                 super.onPageStarted(v, popupUrl, favicon)
+                                                 if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
+                                                     v?.stopLoading()
+                                                     parentWebView.loadUrl(popupUrl)
+                                                 }
+                                             }
                                         }
 
-                                        override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
-                                            super.onPageStarted(v, popupUrl, favicon)
-                                            if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
-                                                v?.stopLoading()
-                                                view.loadUrl(popupUrl)
+                                         webChromeClient = object : WebChromeClient() {
+                                             override fun onCreateWindow(
+                                                 subView: WebView?,
+                                                 subIsDialog: Boolean,
+                                                 subIsUserGesture: Boolean,
+                                                 subResultMsg: android.os.Message?
+                                             ): Boolean {
+                                                 val subTransport = subResultMsg?.obj as? WebView.WebViewTransport
+                                                 if (subTransport != null) {
+                                                     subTransport.webView = parentWebView
+                                                     subResultMsg.sendToTarget()
+                                                 }
+                                                 return true
                                             }
                                         }
                                     }
