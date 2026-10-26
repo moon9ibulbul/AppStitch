@@ -691,15 +691,14 @@ object ScraperScripts {
                 list = [...list].sort((a, b) => a.pn - b.pn);
                 log("MrBlue API: Found " + list.length + " pages (" + q.toUpperCase() + ")");
 
-                const dataUrls = [];
+                const dataUrls = new Array(list.length);
                 const total = list.length;
+                const CONCURRENCY = 6;
+                let completed = 0;
 
-                for (let i = 0; i < total; i++) {
+                async function fetchAndDecode(i) {
                     const item = list[i];
                     const imgUrl = ENDPOINT[q] + item.path;
-                    if (window.Android && window.Android.updateProgress) {
-                        Android.updateProgress(i + 1, total, false);
-                    }
                     log("Downloading & deobfuscating page " + (i + 1) + "/" + total + "...");
 
                     const resp = await fetch(imgUrl, {
@@ -711,7 +710,20 @@ object ScraperScripts {
                     const decodedBuffer = await decodeArrayBufferBuffer(buffer);
                     const mimeType = resp.headers.get('content-type') || 'image/jpeg';
                     const dataUrl = bufferToBase64(decodedBuffer, mimeType);
-                    dataUrls.push(dataUrl);
+                    dataUrls[i] = dataUrl;
+
+                    completed++;
+                    if (window.Android && window.Android.updateProgress) {
+                        Android.updateProgress(completed, total, false);
+                    }
+                }
+
+                for (let i = 0; i < total; i += CONCURRENCY) {
+                    const chunk = [];
+                    for (let j = i; j < Math.min(i + CONCURRENCY, total); j++) {
+                        chunk.push(fetchAndDecode(j));
+                    }
+                    await Promise.all(chunk);
                 }
 
                 if (window.Android && window.Android.updateProgress) {
