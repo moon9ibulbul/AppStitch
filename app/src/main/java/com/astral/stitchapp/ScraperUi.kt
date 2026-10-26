@@ -407,12 +407,16 @@ object ScraperScripts {
         };
         const state = window._mrblueState;
 
+        function hasItems(arr) {
+            return Array.isArray(arr) && arr.length > 0;
+        }
+
         function extractData(json) {
             if (!json) return null;
-            if (json.sd || json.hd) return json;
-            if (json.data && (json.data.sd || json.data.hd)) return json.data;
-            if (json.result && (json.result.sd || json.result.hd)) return json.result;
-            if (json.response && (json.response.sd || json.response.hd)) return json.response;
+            if (hasItems(json.sd) || hasItems(json.hd)) return json;
+            if (json.data && (hasItems(json.data.sd) || hasItems(json.data.hd))) return json.data;
+            if (json.result && (hasItems(json.result.sd) || hasItems(json.result.hd))) return json.result;
+            if (json.response && (hasItems(json.response.sd) || hasItems(json.response.hd))) return json.response;
             if (json.data) {
                 const sub = extractData(json.data);
                 if (sub) return sub;
@@ -497,10 +501,11 @@ object ScraperScripts {
             if (h['mrblue-channel']) state.channel = h['mrblue-channel'];
             if (h['x-client-agent']) state.agent = h['x-client-agent'];
             const extData = extractData(json);
-            if (extData && (extData.sd || extData.hd)) state.data = extData;
+            if (extData && (hasItems(extData.sd) || hasItems(extData.hd))) state.data = extData;
             log("MrBlue API seen: cid=" + state.contentId + ", ep=" + state.episode + ", tok=" + (state.token ? "yes" : "no"));
             if (window.Android && window.Android.updateProgress) {
-                const count = (state.data && (state.data.hd || state.data.sd)) ? (state.data.hd || state.data.sd).length : 0;
+                const activeList = state.data ? (hasItems(state.data.hd) ? state.data.hd : (hasItems(state.data.sd) ? state.data.sd : [])) : [];
+                const count = activeList.length;
                 if (count > 0) {
                     Android.updateProgress(count, count, true);
                 }
@@ -610,7 +615,7 @@ object ScraperScripts {
                     if (/data|state|content|viewer/i.test(key) && key !== '_mrblueState') {
                         const val = window[key];
                         const ext = extractData(val);
-                        if (ext && (ext.sd || ext.hd)) return ext;
+                        if (ext && (hasItems(ext.sd) || hasItems(ext.hd))) return ext;
                     }
                 }
                 const scripts = document.querySelectorAll('script');
@@ -619,14 +624,14 @@ object ScraperScripts {
                         try {
                             const json = JSON.parse(s.textContent);
                             const ext = extractData(json);
-                            if (ext && (ext.sd || ext.hd)) return ext;
+                            if (ext && (hasItems(ext.sd) || hasItems(ext.hd))) return ext;
                         } catch(e) {
                             const m = s.textContent.match(/(\{.*"(?:hd|sd)"\s*:\s*\[.*\})/);
                             if (m) {
                                 try {
                                     const json = JSON.parse(m[1]);
                                     const ext = extractData(json);
-                                    if (ext && (ext.sd || ext.hd)) return ext;
+                                    if (ext && (hasItems(ext.sd) || hasItems(ext.hd))) return ext;
                                 } catch(e2) {}
                             }
                         }
@@ -668,7 +673,7 @@ object ScraperScripts {
                     data = findDataInDOM();
                 }
 
-                if (!data || (!data.hd && !data.sd)) {
+                if (!data || (!hasItems(data.hd) && !hasItems(data.sd))) {
                     log("Fetching access data from API (" + cid + " / " + ep + ")...");
                     const rawData = await fetchAccess(cid, ep || '1');
                     data = extractData(rawData);
@@ -676,7 +681,7 @@ object ScraperScripts {
 
                 if (!data) throw new Error("No image list in API response");
 
-                let list = data.hd || data.sd;
+                let list = (data.hd && data.hd.length > 0) ? data.hd : data.sd;
                 let q = (data.hd && data.hd.length > 0) ? 'hd' : 'sd';
 
                 if (!list || list.length === 0) {
