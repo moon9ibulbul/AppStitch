@@ -1081,6 +1081,7 @@ fun StitchSettingsUI(
                     DropdownMenu(expanded = expandedMode, onDismissRequest = { expandedMode = false }) {
                         DropdownMenuItem(text = { Text("Smart (Legacy)") }, onClick = { onSplitMode(0); expandedMode = false })
                         DropdownMenuItem(text = { Text("Super Smart") }, onClick = { onSplitMode(2); expandedMode = false })
+                        DropdownMenuItem(text = { Text("Manganism") }, onClick = { onSplitMode(3); expandedMode = false })
                         DropdownMenuItem(text = { Text("Direct (Fixed)") }, onClick = { onSplitMode(1); expandedMode = false })
                         DropdownMenuItem(text = { Text("Manganism") }, onClick = { onSplitMode(3); expandedMode = false })
                     }
