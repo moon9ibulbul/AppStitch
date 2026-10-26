@@ -750,6 +750,36 @@ object SmartStitcher {
         val maxHeight = canvas.height
         val maxWidth = canvas.width
         val result = mutableListOf<Bitmap>()
+
+        if (splitMode == 3) {
+            var splitOffset = 0
+            var i = 0
+            while (i < canvas.images.size) {
+                var chunkH = 0
+                val startI = i
+                while (i < canvas.images.size) {
+                    val imgH = canvas.images[i].height
+                    if (chunkH + imgH <= splitHeight) {
+                        chunkH += imgH
+                        i++
+                    } else {
+                        if (i == startI) {
+                            chunkH = imgH
+                            i++
+                        }
+                        break
+                    }
+                }
+                if (chunkH > 0) {
+                    val slice = canvas.extractSlice(0, splitOffset, maxWidth, chunkH)
+                    result.add(slice)
+                    splitOffset += chunkH
+                }
+            }
+            canvas.recycle()
+            return result
+        }
+
         var splitOffset = 0
 
         while (splitOffset + splitHeight < maxHeight) {
