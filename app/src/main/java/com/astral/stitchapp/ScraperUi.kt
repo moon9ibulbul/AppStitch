@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,6 +24,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.AllowOrDeny
 
 object ScraperScripts {
     private val COMMON_SCRIPTS = """
@@ -818,7 +824,10 @@ fun ScraperWebViewDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
-    var webView by remember { mutableStateOf<WebView?>(null) }
+    val context = LocalContext.current
+    val runtime = remember { GeckoRuntime.getDefault(context) }
+    val session = remember { GeckoSession() }
+
     var status by remember { mutableStateOf("Loading page...") }
 
     val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
@@ -827,6 +836,47 @@ fun ScraperWebViewDialog(
     var isScrapeReady by remember { mutableStateOf(true) }
     var hasScraped by remember { mutableStateOf(false) }
 
+    var popupSessionState by remember { mutableStateOf<GeckoSession?>(null) }
+
+    DisposableEffect(session) {
+        onDispose {
+            try { session.close() } catch (_: Exception) {}
+        }
+    }
+
+    val buildJsUri: (Boolean) -> String = remember(script) {
+        { autoRun ->
+            val code = """
+                (function() {
+                    if (!window.Android) {
+                        window.Android = {
+                            log: function(msg) { console.log("[Scraper] " + msg); },
+                            updateProgress: function(loaded, total, ready) {
+                                location.href = "astralstitch://progress?loaded=" + loaded + "&total=" + total + "&ready=" + ready;
+                            },
+                            onImagesFound: function(jsonStr) {
+                                try {
+                                    const parsed = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+                                    window._scrapedTitle = parsed.title || '';
+                                    window._scrapedImages = parsed.images || [];
+                                    window._scrapedCookie = parsed.cookie || document.cookie || '';
+                                } catch(e) {
+                                    window._scrapedTitle = 'Scraped Content';
+                                    window._scrapedImages = [];
+                                    window._scrapedCookie = document.cookie || '';
+                                }
+                                location.href = "astralstitch://result";
+                            }
+                        };
+                    }
+                })();
+                $script
+                ${if (autoRun) "if (window.runScraper) { window.runScraper(); }" else ""}
+            """.trimIndent()
+            "javascript:" + android.net.Uri.encode(code)
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -834,168 +884,88 @@ fun ScraperWebViewDialog(
         ) {
             Box(Modifier.fillMaxSize()) {
                 AndroidView(
-                    factory = { context ->
-                        WebView(context).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.databaseEnabled = true
-                            settings.setSupportMultipleWindows(true)
-                            settings.javaScriptCanOpenWindowsAutomatically = true
-                            settings.useWideViewPort = true
-                            settings.loadWithOverviewMode = true
-                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                    factory = { ctx ->
+                        GeckoView(ctx).apply {
+                            setSession(session)
+                            session.open(runtime)
 
-                            val cookieManager = CookieManager.getInstance()
-                            cookieManager.setAcceptCookie(true)
-                            cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                            addJavascriptInterface(ScraperJsInterface(
-                                onResult = { t, i, _ ->
-                                    if (!hasScraped) {
-                                        hasScraped = true
-                                        val cm = CookieManager.getInstance()
-                                        val currentCookie = cm.getCookie(url) ?: ""
-                                        onScrapeSuccess(t, i, currentCookie)
-                                    }
-                                },
-                                onLog = { msg -> status = msg },
-                                onProgress = { loaded, total, ready ->
-                                    loadedCount = loaded
-                                    totalCount = total
-                                    isScrapeReady = ready
+                            session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+                                override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
+                                    val popup = GeckoSession()
+                                    popup.open(runtime)
+                                    popupSessionState = popup
+                                    return GeckoResult.fromValue(popup)
                                 }
-                            ), "Android")
 
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                    val reqUrl = request?.url?.toString() ?: return false
-                                    if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
-                                        return false
-                                    }
-                                    return try {
-                                        val intent = android.content.Intent.parseUri(reqUrl, android.content.Intent.URI_INTENT_SCHEME)
-                                        val ctx = view?.context ?: return true
-                                        if (intent.resolveActivity(ctx.packageManager) != null) {
-                                            ctx.startActivity(intent)
-                                        } else {
-                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                            if (!fallbackUrl.isNullOrEmpty()) {
-                                                view?.loadUrl(fallbackUrl)
+                                override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
+                                    val reqUrl = request.uri
+                                    if (reqUrl.startsWith("astralstitch://progress")) {
+                                        val uri = android.net.Uri.parse(reqUrl)
+                                        loadedCount = uri.getQueryParameter("loaded")?.toIntOrNull() ?: 0
+                                        totalCount = uri.getQueryParameter("total")?.toIntOrNull() ?: 0
+                                        isScrapeReady = uri.getQueryParameter("ready")?.toBooleanStrictOrNull() ?: true
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                                    } else if (reqUrl.startsWith("astralstitch://result")) {
+                                        s.loadUri("javascript:location.href='astralstitch://data?title=' + encodeURIComponent(window._scrapedTitle||'') + '&cookie=' + encodeURIComponent(window._scrapedCookie||'') + '&images=' + encodeURIComponent(JSON.stringify(window._scrapedImages||[]));")
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                                    } else if (reqUrl.startsWith("astralstitch://data")) {
+                                        val uri = android.net.Uri.parse(reqUrl)
+                                        val title = uri.getQueryParameter("title") ?: "Scraped Content"
+                                        val cookie = uri.getQueryParameter("cookie") ?: ""
+                                        val imagesJson = uri.getQueryParameter("images") ?: "[]"
+                                        val list = mutableListOf<String>()
+                                        try {
+                                            val arr = org.json.JSONArray(imagesJson)
+                                            for (i in 0 until arr.length()) {
+                                                list.add(arr.getString(i))
                                             }
+                                        } catch (_: Exception) {}
+
+                                        if (!hasScraped && list.isNotEmpty()) {
+                                            hasScraped = true
+                                            onScrapeSuccess(title, list, cookie)
                                         }
-                                        true
-                                    } catch (e: Exception) {
-                                        true
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
                                     }
-                                }
-
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(script, null)
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    // Anti-bot: hide webdriver
-                                    view?.evaluateJavascript("""
-                                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                                    """.trimIndent(), null)
-                                    view?.evaluateJavascript(script, null)
+                                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                                 }
                             }
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                                    Log.d("ScraperJS", consoleMessage?.message() ?: "")
-                                    return true
+
+                            session.progressDelegate = object : GeckoSession.ProgressDelegate {
+                                override fun onPageStart(s: GeckoSession, pageUrl: String) {
+                                    status = "Loading page..."
                                 }
 
-                                override fun onCreateWindow(
-                                    view: WebView?,
-                                    isDialog: Boolean,
-                                    isUserGesture: Boolean,
-                                    resultMsg: android.os.Message?
-                                ): Boolean {
-                                    val parentWebView = view ?: return false
-                                    val newWebView = WebView(parentWebView.context).apply {
-                                        settings.javaScriptEnabled = true
-                                        settings.domStorageEnabled = true
-                                        settings.databaseEnabled = true
-                                        settings.setSupportMultipleWindows(true)
-                                        settings.javaScriptCanOpenWindowsAutomatically = true
-                                        settings.useWideViewPort = true
-                                        settings.loadWithOverviewMode = true
-                                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                        settings.userAgentString = parentWebView.settings.userAgentString
-
-                                        val cm = CookieManager.getInstance()
-                                        cm.setAcceptCookie(true)
-                                        cm.setAcceptThirdPartyCookies(this, true)
-
-                                        webViewClient = object : WebViewClient() {
-                                            override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                                val popupUrl = request?.url?.toString() ?: return false
-                                                if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                    parentWebView.loadUrl(popupUrl)
-                                                    return true
-                                                }
-                                                return try {
-                                                    val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
-                                                    val ctx = v?.context ?: return true
-                                                    if (intent.resolveActivity(ctx.packageManager) != null) {
-                                                        ctx.startActivity(intent)
-                                                    } else {
-                                                        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                                        if (!fallbackUrl.isNullOrEmpty()) {
-                                                            parentWebView.loadUrl(fallbackUrl)
-                                                        }
-                                                    }
-                                                    true
-                                                } catch (e: Exception) {
-                                                    true
-                                                }
-                                            }
-
-                                            override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
-                                                super.onPageStarted(v, popupUrl, favicon)
-                                                if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
-                                                    v?.stopLoading()
-                                                    parentWebView.loadUrl(popupUrl)
-                                                }
-                                            }
-                                        }
-
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onCreateWindow(
-                                                subView: WebView?,
-                                                subIsDialog: Boolean,
-                                                subIsUserGesture: Boolean,
-                                                subResultMsg: android.os.Message?
-                                            ): Boolean {
-                                                val subTransport = subResultMsg?.obj as? WebView.WebViewTransport
-                                                if (subTransport != null) {
-                                                    subTransport.webView = parentWebView
-                                                    subResultMsg.sendToTarget()
-                                                }
-                                                return true
-                                            }
-                                        }
-                                    }
-
-                                    val transport = resultMsg?.obj as? WebView.WebViewTransport
-                                    if (transport != null) {
-                                        transport.webView = newWebView
-                                        resultMsg.sendToTarget()
-                                    }
-                                    return true
+                                override fun onPageStop(s: GeckoSession, success: Boolean) {
+                                    status = if (success) "Page loaded" else "Failed to load"
+                                    s.loadUri(buildJsUri(false))
                                 }
                             }
-                            loadUrl(url)
-                            webView = this
+
+                            session.settings.userAgentOverride = "Mozilla/5.0 (Android 13; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0"
+                            session.loadUri(url)
                         }
                     },
                     modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)
                 )
+
+                popupSessionState?.let { popup ->
+                    Dialog(onDismissRequest = {
+                        popup.close()
+                        popupSessionState = null
+                    }) {
+                        Card(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    GeckoView(ctx).apply {
+                                        setSession(popup)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
 
                 Column(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -1042,9 +1012,7 @@ fun ScraperWebViewDialog(
                         Button(
                             onClick = {
                                 status = "Scraping started..."
-                                webView?.evaluateJavascript(script) {
-                                    webView?.evaluateJavascript("window.runScraper();", null)
-                                }
+                                session.loadUri(buildJsUri(true))
                             },
                             enabled = isScrapeReady,
                             modifier = Modifier.weight(1f)
