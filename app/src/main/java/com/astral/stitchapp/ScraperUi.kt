@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,6 +24,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.AllowOrDeny
 
 object ScraperScripts {
     private val COMMON_SCRIPTS = """
@@ -818,6 +824,238 @@ fun ScraperWebViewDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
+    val isManta = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true)
+
+    if (isManta) {
+        MantaGeckoScraperDialog(
+            url = url,
+            script = script,
+            onDismiss = onDismiss,
+            onScrapeSuccess = onScrapeSuccess
+        )
+    } else {
+        StandardWebViewScraperDialog(
+            url = url,
+            script = script,
+            onDismiss = onDismiss,
+            onScrapeSuccess = onScrapeSuccess
+        )
+    }
+}
+
+@Composable
+private fun MantaGeckoScraperDialog(
+    url: String,
+    script: String,
+    onDismiss: () -> Unit,
+    onScrapeSuccess: (String, List<String>, String) -> Unit
+) {
+    val context = LocalContext.current
+    val runtime = remember { GeckoRuntime.getDefault(context) }
+    val session = remember { GeckoSession() }
+
+    var status by remember { mutableStateOf("Loading page...") }
+
+    var loadedCount by remember { mutableIntStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var isScrapeReady by remember { mutableStateOf(true) }
+    var hasScraped by remember { mutableStateOf(false) }
+
+    var popupSessionState by remember { mutableStateOf<GeckoSession?>(null) }
+
+    DisposableEffect(session) {
+        onDispose {
+            try { session.close() } catch (_: Exception) {}
+        }
+    }
+
+    val buildJsUri: (Boolean) -> String = remember(script) {
+        { autoRun ->
+            val code = """
+                (function() {
+                    if (!window.Android) {
+                        window.Android = {
+                            log: function(msg) { console.log("[Scraper] " + msg); },
+                            updateProgress: function(loaded, total, ready) {
+                                location.href = "astralstitch://progress?loaded=" + loaded + "&total=" + total + "&ready=" + ready;
+                            },
+                            onImagesFound: function(jsonStr) {
+                                try {
+                                    const parsed = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+                                    window._scrapedTitle = parsed.title || '';
+                                    window._scrapedImages = parsed.images || [];
+                                    window._scrapedCookie = parsed.cookie || document.cookie || '';
+                                } catch(e) {
+                                    window._scrapedTitle = 'Scraped Content';
+                                    window._scrapedImages = [];
+                                    window._scrapedCookie = document.cookie || '';
+                                }
+                                location.href = "astralstitch://result";
+                            }
+                        };
+                    }
+                })();
+                $script
+                ${if (autoRun) "if (window.runScraper) { window.runScraper(); }" else ""}
+            """.trimIndent()
+            "javascript:" + android.net.Uri.encode(code)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { ctx ->
+                        GeckoView(ctx).apply {
+                            setSession(session)
+                            session.open(runtime)
+
+                            session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+                                override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
+                                    val popup = GeckoSession()
+                                    popup.open(runtime)
+                                    popupSessionState = popup
+                                    return GeckoResult.fromValue(popup)
+                                }
+
+                                override fun onLoadRequest(s: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
+                                    val reqUrl = request.uri
+                                    if (reqUrl.startsWith("astralstitch://progress")) {
+                                        val uri = android.net.Uri.parse(reqUrl)
+                                        loadedCount = uri.getQueryParameter("loaded")?.toIntOrNull() ?: 0
+                                        totalCount = uri.getQueryParameter("total")?.toIntOrNull() ?: 0
+                                        isScrapeReady = uri.getQueryParameter("ready")?.toBooleanStrictOrNull() ?: true
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                                    } else if (reqUrl.startsWith("astralstitch://result")) {
+                                        s.loadUri("javascript:location.href='astralstitch://data?title=' + encodeURIComponent(window._scrapedTitle||'') + '&cookie=' + encodeURIComponent(window._scrapedCookie||'') + '&images=' + encodeURIComponent(JSON.stringify(window._scrapedImages||[]));")
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                                    } else if (reqUrl.startsWith("astralstitch://data")) {
+                                        val uri = android.net.Uri.parse(reqUrl)
+                                        val title = uri.getQueryParameter("title") ?: "Scraped Content"
+                                        val cookie = uri.getQueryParameter("cookie") ?: ""
+                                        val imagesJson = uri.getQueryParameter("images") ?: "[]"
+                                        val list = mutableListOf<String>()
+                                        try {
+                                            val arr = org.json.JSONArray(imagesJson)
+                                            for (i in 0 until arr.length()) {
+                                                list.add(arr.getString(i))
+                                            }
+                                        } catch (_: Exception) {}
+
+                                        if (!hasScraped && list.isNotEmpty()) {
+                                            hasScraped = true
+                                            onScrapeSuccess(title, list, cookie)
+                                        }
+                                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                                    }
+                                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                                }
+                            }
+
+                            session.progressDelegate = object : GeckoSession.ProgressDelegate {
+                                override fun onPageStart(s: GeckoSession, pageUrl: String) {
+                                    status = "Loading page..."
+                                }
+
+                                override fun onPageStop(s: GeckoSession, success: Boolean) {
+                                    status = if (success) "Page loaded" else "Failed to load"
+                                    s.loadUri(buildJsUri(false))
+                                }
+                            }
+
+                            session.settings.userAgentOverride = "Mozilla/5.0 (Android 13; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0"
+                            session.loadUri(url)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)
+                )
+
+                popupSessionState?.let { popup ->
+                    Dialog(onDismissRequest = {
+                        popup.close()
+                        popupSessionState = null
+                    }) {
+                        Card(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    GeckoView(ctx).apply {
+                                        setSession(popup)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
+                ) {
+                    if (totalCount > 0) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (!isScrapeReady && totalCount > 0) {
+                                LinearProgressIndicator(
+                                    progress = { loadedCount.toFloat() / totalCount.toFloat() },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Loading images: $loadedCount / $totalCount",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else if (!isScrapeReady && totalCount == 0) {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Detecting viewer images...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            } else if (isScrapeReady && totalCount > 0) {
+                                Text(
+                                    text = "All $totalCount images loaded! Ready to scrape.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
+
+                    Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        Button(
+                            onClick = {
+                                status = "Scraping started..."
+                                session.loadUri(buildJsUri(true))
+                            },
+                            enabled = isScrapeReady,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scrape") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StandardWebViewScraperDialog(
+    url: String,
+    script: String,
+    onDismiss: () -> Unit,
+    onScrapeSuccess: (String, List<String>, String) -> Unit
+) {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var status by remember { mutableStateOf("Loading page...") }
 
@@ -897,7 +1135,6 @@ fun ScraperWebViewDialog(
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    // Anti-bot: hide webdriver
                                     view?.evaluateJavascript("""
                                         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                                     """.trimIndent(), null)
@@ -936,8 +1173,7 @@ fun ScraperWebViewDialog(
                                             override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                                 val popupUrl = request?.url?.toString() ?: return false
                                                 if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
-                                                    parentWebView.loadUrl(popupUrl)
-                                                    return true
+                                                    return false
                                                 }
                                                 return try {
                                                     val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
@@ -954,30 +1190,6 @@ fun ScraperWebViewDialog(
                                                 } catch (e: Exception) {
                                                     true
                                                 }
-                                            }
-
-                                            override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
-                                                super.onPageStarted(v, popupUrl, favicon)
-                                                if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
-                                                    v?.stopLoading()
-                                                    parentWebView.loadUrl(popupUrl)
-                                                }
-                                            }
-                                        }
-
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onCreateWindow(
-                                                subView: WebView?,
-                                                subIsDialog: Boolean,
-                                                subIsUserGesture: Boolean,
-                                                subResultMsg: android.os.Message?
-                                            ): Boolean {
-                                                val subTransport = subResultMsg?.obj as? WebView.WebViewTransport
-                                                if (subTransport != null) {
-                                                    subTransport.webView = parentWebView
-                                                    subResultMsg.sendToTarget()
-                                                }
-                                                return true
                                             }
                                         }
                                     }

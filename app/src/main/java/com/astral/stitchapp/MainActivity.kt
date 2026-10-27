@@ -623,10 +623,6 @@ fun CookieWebViewDialog(
 
                                         override fun onPageStarted(v: WebView?, popupUrl: String?, favicon: android.graphics.Bitmap?) {
                                             super.onPageStarted(v, popupUrl, favicon)
-                                            if (popupUrl != null && (popupUrl.startsWith("http://") || popupUrl.startsWith("https://"))) {
-                                                v?.stopLoading()
-                                                view.loadUrl(popupUrl)
-                                            }
                                         }
                                     }
 
