@@ -824,13 +824,38 @@ fun ScraperWebViewDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
+    val isManta = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true)
+
+    if (isManta) {
+        MantaGeckoScraperDialog(
+            url = url,
+            script = script,
+            onDismiss = onDismiss,
+            onScrapeSuccess = onScrapeSuccess
+        )
+    } else {
+        StandardWebViewScraperDialog(
+            url = url,
+            script = script,
+            onDismiss = onDismiss,
+            onScrapeSuccess = onScrapeSuccess
+        )
+    }
+}
+
+@Composable
+private fun MantaGeckoScraperDialog(
+    url: String,
+    script: String,
+    onDismiss: () -> Unit,
+    onScrapeSuccess: (String, List<String>, String) -> Unit
+) {
     val context = LocalContext.current
     val runtime = remember { GeckoRuntime.getDefault(context) }
     val session = remember { GeckoSession() }
 
     var status by remember { mutableStateOf("Loading page...") }
 
-    val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
     var isScrapeReady by remember { mutableStateOf(true) }
@@ -971,7 +996,7 @@ fun ScraperWebViewDialog(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
                 ) {
-                    if (isMrBlue || totalCount > 0) {
+                    if (totalCount > 0) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -1013,6 +1038,225 @@ fun ScraperWebViewDialog(
                             onClick = {
                                 status = "Scraping started..."
                                 session.loadUri(buildJsUri(true))
+                            },
+                            enabled = isScrapeReady,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scrape") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StandardWebViewScraperDialog(
+    url: String,
+    script: String,
+    onDismiss: () -> Unit,
+    onScrapeSuccess: (String, List<String>, String) -> Unit
+) {
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    var status by remember { mutableStateOf("Loading page...") }
+
+    val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
+    var loadedCount by remember { mutableIntStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var isScrapeReady by remember { mutableStateOf(true) }
+    var hasScraped by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.databaseEnabled = true
+                            settings.setSupportMultipleWindows(true)
+                            settings.javaScriptCanOpenWindowsAutomatically = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+
+                            val cookieManager = CookieManager.getInstance()
+                            cookieManager.setAcceptCookie(true)
+                            cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                            addJavascriptInterface(ScraperJsInterface(
+                                onResult = { t, i, _ ->
+                                    if (!hasScraped) {
+                                        hasScraped = true
+                                        val cm = CookieManager.getInstance()
+                                        val currentCookie = cm.getCookie(url) ?: ""
+                                        onScrapeSuccess(t, i, currentCookie)
+                                    }
+                                },
+                                onLog = { msg -> status = msg },
+                                onProgress = { loaded, total, ready ->
+                                    loadedCount = loaded
+                                    totalCount = total
+                                    isScrapeReady = ready
+                                }
+                            ), "Android")
+
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                    val reqUrl = request?.url?.toString() ?: return false
+                                    if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
+                                        return false
+                                    }
+                                    return try {
+                                        val intent = android.content.Intent.parseUri(reqUrl, android.content.Intent.URI_INTENT_SCHEME)
+                                        val ctx = view?.context ?: return true
+                                        if (intent.resolveActivity(ctx.packageManager) != null) {
+                                            ctx.startActivity(intent)
+                                        } else {
+                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                            if (!fallbackUrl.isNullOrEmpty()) {
+                                                view?.loadUrl(fallbackUrl)
+                                            }
+                                        }
+                                        true
+                                    } catch (e: Exception) {
+                                        true
+                                    }
+                                }
+
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    view?.evaluateJavascript(script, null)
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    view?.evaluateJavascript("""
+                                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                                    """.trimIndent(), null)
+                                    view?.evaluateJavascript(script, null)
+                                }
+                            }
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                    Log.d("ScraperJS", consoleMessage?.message() ?: "")
+                                    return true
+                                }
+
+                                override fun onCreateWindow(
+                                    view: WebView?,
+                                    isDialog: Boolean,
+                                    isUserGesture: Boolean,
+                                    resultMsg: android.os.Message?
+                                ): Boolean {
+                                    val parentWebView = view ?: return false
+                                    val newWebView = WebView(parentWebView.context).apply {
+                                        settings.javaScriptEnabled = true
+                                        settings.domStorageEnabled = true
+                                        settings.databaseEnabled = true
+                                        settings.setSupportMultipleWindows(true)
+                                        settings.javaScriptCanOpenWindowsAutomatically = true
+                                        settings.useWideViewPort = true
+                                        settings.loadWithOverviewMode = true
+                                        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                        settings.userAgentString = parentWebView.settings.userAgentString
+
+                                        val cm = CookieManager.getInstance()
+                                        cm.setAcceptCookie(true)
+                                        cm.setAcceptThirdPartyCookies(this, true)
+
+                                        webViewClient = object : WebViewClient() {
+                                            override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                                val popupUrl = request?.url?.toString() ?: return false
+                                                if (popupUrl.startsWith("http://") || popupUrl.startsWith("https://")) {
+                                                    return false
+                                                }
+                                                return try {
+                                                    val intent = android.content.Intent.parseUri(popupUrl, android.content.Intent.URI_INTENT_SCHEME)
+                                                    val ctx = v?.context ?: return true
+                                                    if (intent.resolveActivity(ctx.packageManager) != null) {
+                                                        ctx.startActivity(intent)
+                                                    } else {
+                                                        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                        if (!fallbackUrl.isNullOrEmpty()) {
+                                                            parentWebView.loadUrl(fallbackUrl)
+                                                        }
+                                                    }
+                                                    true
+                                                } catch (e: Exception) {
+                                                    true
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    val transport = resultMsg?.obj as? WebView.WebViewTransport
+                                    if (transport != null) {
+                                        transport.webView = newWebView
+                                        resultMsg.sendToTarget()
+                                    }
+                                    return true
+                                }
+                            }
+                            loadUrl(url)
+                            webView = this
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)
+                )
+
+                Column(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
+                ) {
+                    if (isMrBlue || totalCount > 0) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (!isScrapeReady && totalCount > 0) {
+                                LinearProgressIndicator(
+                                    progress = { loadedCount.toFloat() / totalCount.toFloat() },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Loading images: $loadedCount / $totalCount",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else if (!isScrapeReady && totalCount == 0) {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(6.dp))
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Detecting viewer images...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            } else if (isScrapeReady && totalCount > 0) {
+                                Text(
+                                    text = "All $totalCount images loaded! Ready to scrape.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
+
+                    Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        Button(
+                            onClick = {
+                                status = "Scraping started..."
+                                webView?.evaluateJavascript(script) {
+                                    webView?.evaluateJavascript("window.runScraper();", null)
+                                }
                             },
                             enabled = isScrapeReady,
                             modifier = Modifier.weight(1f)
