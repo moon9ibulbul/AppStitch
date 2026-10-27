@@ -869,9 +869,20 @@ private fun MantaGeckoScraperDialog(
         }
     }
 
+    val androidVersion = android.os.Build.VERSION.RELEASE
+    val model = android.os.Build.MODEL
+    val realDeviceUserAgent = "Mozilla/5.0 (Linux; Android $androidVersion; $model) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
     val buildJsUri: (Boolean) -> String = remember(script) {
         { autoRun ->
             val code = """
+                (function() {
+                    try {
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                    } catch(e) {}
+                })();
                 (function() {
                     if (!window.Android) {
                         window.Android = {
@@ -917,7 +928,15 @@ private fun MantaGeckoScraperDialog(
                             session.navigationDelegate = object : GeckoSession.NavigationDelegate {
                                 override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
                                     val popup = GeckoSession()
-                                    popup.open(runtime)
+                                    popup.settings.userAgentOverride = realDeviceUserAgent
+                                    popup.contentDelegate = object : GeckoSession.ContentDelegate {
+                                        override fun onCloseRequest(geckoSession: GeckoSession) {
+                                            try { geckoSession.close() } catch (_: Exception) {}
+                                            if (popupSessionState == geckoSession) {
+                                                popupSessionState = null
+                                            }
+                                        }
+                                    }
                                     popupSessionState = popup
                                     return GeckoResult.fromValue(popup)
                                 }
@@ -967,7 +986,7 @@ private fun MantaGeckoScraperDialog(
                                 }
                             }
 
-                            session.settings.userAgentOverride = "Mozilla/5.0 (Android 13; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0"
+                            session.settings.userAgentOverride = realDeviceUserAgent
                             session.loadUri(url)
                         }
                     },
@@ -976,7 +995,7 @@ private fun MantaGeckoScraperDialog(
 
                 popupSessionState?.let { popup ->
                     Dialog(onDismissRequest = {
-                        popup.close()
+                        try { popup.close() } catch (_: Exception) {}
                         popupSessionState = null
                     }) {
                         Card(modifier = Modifier.fillMaxSize().padding(16.dp)) {
