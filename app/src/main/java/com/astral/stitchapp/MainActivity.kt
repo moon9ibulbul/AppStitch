@@ -2360,6 +2360,7 @@ fun BatoTab(
                                         type == "bomtoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.bomtoon.com/", ScraperScripts.BOMTOON)
                                         type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
                                         type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
+                                        type == "kakaopage" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                         patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                         else -> null
                                     }

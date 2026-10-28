@@ -828,13 +828,6 @@ object BatoEngine {
                 }
                 images.addAll(WebtoonsApi.scrapeChapterImages(context, cleanUrl))
                 referer = "https://www.webtoons.com/"
-            } else if (sourceType == "kakaopage") {
-                if (item.preScrapedImages.isNotEmpty()) {
-                    images.addAll(item.preScrapedImages)
-                } else {
-                    images.addAll(fetchKakaopageImages(url, item.cookie))
-                }
-                referer = "https://page.kakao.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
