@@ -1009,7 +1009,8 @@ fun ScraperWebViewDialog(
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
-                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
+                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
@@ -1245,7 +1246,7 @@ private fun GeckoScraperDialog(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
                 ) {
-                    if (totalCount > 0) {
+                    if (!isComix && totalCount > 0) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -1279,7 +1280,9 @@ private fun GeckoScraperDialog(
                         }
                     }
 
-                    Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
+                    if (!isComix) {
+                        Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
 
@@ -1291,14 +1294,16 @@ private fun GeckoScraperDialog(
                             modifier = Modifier.weight(1f)
                         ) { Text("Reload") }
 
-                        Button(
-                            onClick = {
-                                status = "Scraping started..."
-                                session.loadUri(buildJsUri(true))
-                            },
-                            enabled = isScrapeReady,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Scrape") }
+                        if (!isComix) {
+                            Button(
+                                onClick = {
+                                    status = "Scraping started..."
+                                    session.loadUri(buildJsUri(true))
+                                },
+                                enabled = isScrapeReady,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Scrape") }
+                        }
                     }
                 }
             }
