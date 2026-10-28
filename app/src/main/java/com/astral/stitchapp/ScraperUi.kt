@@ -1060,13 +1060,75 @@ object ScraperScripts {
                     title = "Tappytoon Chapter " + chapterId;
                 }
 
+                let fullCookie = document.cookie || '';
+                if (state.bearer) fullCookie += (fullCookie ? '; ' : '') + 'Bearer=' + state.bearer;
+                if (state.deviceUuid) fullCookie += (fullCookie ? '; ' : '') + 'X-Device-Uuid=' + state.deviceUuid;
+                if (state.deviceIdSec) fullCookie += (fullCookie ? '; ' : '') + 'X-Device-Id-With-Security=' + state.deviceIdSec;
+
+                log("Tappytoon: Downloading & converting " + imageUrls.length + " images...");
+                const dataUrls = new Array(imageUrls.length);
+                const total = imageUrls.length;
+                let completed = 0;
+                const CONCURRENCY = 4;
+
+                function bufferToBase64(buffer, mimeType) {
+                    let binary = '';
+                    const bytes = new Uint8Array(buffer);
+                    const len = bytes.byteLength;
+                    const chunkSize = 0x8000;
+                    for (let i = 0; i < len; i += chunkSize) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                    }
+                    return "data:" + (mimeType || "image/jpeg") + ";base64," + btoa(binary);
+                }
+
+                async function downloadOne(i) {
+                    const imgUrl = imageUrls[i];
+                    try {
+                        const headers = {
+                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                            'Referer': 'https://www.tappytoon.com/',
+                            'Origin': 'https://www.tappytoon.com'
+                        };
+                        if (state.bearer) headers['Authorization'] = 'Bearer ' + state.bearer;
+                        if (state.deviceUuid) headers['X-Device-Uuid'] = state.deviceUuid;
+                        if (state.deviceIdSec) headers['X-Device-Id-With-Security'] = state.deviceIdSec;
+
+                        const resp = await fetch(imgUrl, { headers, credentials: 'include' });
+                        if (!resp.ok) throw new Error("HTTP " + resp.status);
+                        const mime = resp.headers.get('content-type') || 'image/jpeg';
+                        const buf = await resp.arrayBuffer();
+                        dataUrls[i] = bufferToBase64(buf, mime);
+                    } catch(err) {
+                        log("Tappytoon: Download error page " + (i + 1) + ": " + err.message + ", using direct URL fallback");
+                        dataUrls[i] = imgUrl;
+                    } finally {
+                        completed++;
+                        if (window.Android && window.Android.updateProgress) {
+                            window.Android.updateProgress(completed, total, false);
+                        }
+                    }
+                }
+
+                for (let i = 0; i < total; i += CONCURRENCY) {
+                    const chunk = [];
+                    for (let j = i; j < Math.min(i + CONCURRENCY, total); j++) {
+                        chunk.push(downloadOne(j));
+                    }
+                    await Promise.all(chunk);
+                }
+
+                if (window.Android && window.Android.updateProgress) {
+                    window.Android.updateProgress(total, total, true);
+                }
+
                 const result = {
                     title: title,
-                    images: imageUrls,
-                    cookie: document.cookie
+                    images: dataUrls,
+                    cookie: fullCookie
                 };
 
-                log("Tappytoon: Successfully scraped " + imageUrls.length + " images (variant: " + variantUsed + ")!");
+                log("Tappytoon: Successfully scraped " + dataUrls.length + " images (variant: " + variantUsed + ")!");
                 if (window.Android && window.Android.onImagesFound) {
                     window.Android.onImagesFound(JSON.stringify(result));
                 }

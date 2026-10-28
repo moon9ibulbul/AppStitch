@@ -616,8 +616,42 @@ object BatoEngine {
                     connectTimeout = 30000
                     readTimeout = 30000
                     setRequestProperty("User-Agent", USER_AGENT)
-                    if (!referer.isNullOrBlank()) setRequestProperty("Referer", referer)
-                    if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
+                    setRequestProperty("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                    if (!referer.isNullOrBlank()) {
+                        setRequestProperty("Referer", referer)
+                        if (referer.contains("tappytoon.com")) {
+                            setRequestProperty("Origin", "https://www.tappytoon.com")
+                        }
+                    }
+
+                    if (!cookie.isNullOrBlank()) {
+                        val cookieParts = cookie.split(";").map { it.trim() }
+                        val normalCookies = mutableListOf<String>()
+                        for (part in cookieParts) {
+                            when {
+                                part.startsWith("Bearer=") || part.startsWith("Authorization=") -> {
+                                    val token = part.substringAfter("=")
+                                    if (token.isNotBlank()) {
+                                        setRequestProperty("Authorization", if (token.startsWith("Bearer ")) token else "Bearer $token")
+                                    }
+                                }
+                                part.startsWith("X-Device-Uuid=") -> {
+                                    val valUuid = part.substringAfter("=")
+                                    if (valUuid.isNotBlank()) setRequestProperty("X-Device-Uuid", valUuid)
+                                }
+                                part.startsWith("X-Device-Id-With-Security=") -> {
+                                    val valSec = part.substringAfter("=")
+                                    if (valSec.isNotBlank()) setRequestProperty("X-Device-Id-With-Security", valSec)
+                                }
+                                else -> {
+                                    if (part.isNotBlank()) normalCookies.add(part)
+                                }
+                            }
+                        }
+                        if (normalCookies.isNotEmpty()) {
+                            setRequestProperty("Cookie", normalCookies.joinToString("; "))
+                        }
+                    }
                 }
 
                 val bytes = conn.inputStream.use { it.readBytes() }
