@@ -648,13 +648,11 @@ object BatoEngine {
                             }
                         }
 
-                        if (attempt > 0 || !cleanUrlStr.contains("cdn")) {
-                            if (!bearerToken.isNullOrBlank()) {
-                                setRequestProperty("Authorization", if (bearerToken.startsWith("Bearer ")) bearerToken else "Bearer $bearerToken")
-                            }
-                            if (!devUuid.isNullOrBlank()) setRequestProperty("X-Device-Uuid", devUuid)
-                            if (!devSec.isNullOrBlank()) setRequestProperty("X-Device-Id-With-Security", devSec)
+                        if (!bearerToken.isNullOrBlank()) {
+                            setRequestProperty("Authorization", if (bearerToken.startsWith("Bearer ")) bearerToken else "Bearer $bearerToken")
                         }
+                        if (!devUuid.isNullOrBlank()) setRequestProperty("X-Device-Uuid", devUuid)
+                        if (!devSec.isNullOrBlank()) setRequestProperty("X-Device-Id-With-Security", devSec)
 
                         if (normalCookies.isNotEmpty()) {
                             setRequestProperty("Cookie", normalCookies.joinToString("; "))

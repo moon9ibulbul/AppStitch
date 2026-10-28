@@ -1017,7 +1017,10 @@ object ScraperScripts {
                 const chapterParam = urlParams.get('chapter') || urlParams.get('chapterId');
                 if (chapterParam) return chapterParam;
 
-                const m = location.pathname.match(/\/chapter[s]?\/(\d+)/i);
+                let m = location.pathname.match(/\/(?:chapter[s]?|book\/[^\/]+)\/(\d+)/i);
+                if (m) return m[1];
+
+                m = location.pathname.match(/\/(\d{5,})/);
                 if (m) return m[1];
 
                 const dataChapter = document.querySelector('[data-chapter-id]');
@@ -1383,7 +1386,7 @@ private fun GeckoScraperDialog(
                                     } else if (reqUrl.startsWith("astralstitch://data")) {
                                         val uri = android.net.Uri.parse(reqUrl)
                                         val title = uri.getQueryParameter("title") ?: "Scraped Content"
-                                        val cookie = uri.getQueryParameter("cookie") ?: ""
+                                        val jsCookie = uri.getQueryParameter("cookie") ?: ""
                                         val imagesJson = uri.getQueryParameter("images") ?: "[]"
                                         val list = mutableListOf<String>()
                                         try {
@@ -1393,9 +1396,41 @@ private fun GeckoScraperDialog(
                                             }
                                         } catch (_: Exception) {}
 
+                                        val cm = CookieManager.getInstance()
+                                        cm.flush()
+                                        val cm1 = cm.getCookie("https://www.tappytoon.com/") ?: ""
+                                        val cm2 = cm.getCookie("https://api-global.tappytoon.com/") ?: ""
+                                        val cm3 = cm.getCookie("https://content-repository-cdn.tappytoon.com/") ?: ""
+                                        val cm4 = cm.getCookie(url) ?: ""
+
+                                        val cookieMap = mutableMapOf<String, String>()
+                                        fun parseIntoMap(cStr: String) {
+                                            if (cStr.isBlank()) return
+                                            for (p in cStr.split(";")) {
+                                                val trimmed = p.trim()
+                                                if (trimmed.contains("=")) {
+                                                    val k = trimmed.substringBefore("=").trim()
+                                                    val v = trimmed.substringAfter("=").trim()
+                                                    if (k.isNotBlank()) cookieMap[k] = v
+                                                } else if (trimmed.isNotBlank()) {
+                                                    cookieMap[trimmed] = ""
+                                                }
+                                            }
+                                        }
+
+                                        parseIntoMap(jsCookie)
+                                        parseIntoMap(cm1)
+                                        parseIntoMap(cm2)
+                                        parseIntoMap(cm3)
+                                        parseIntoMap(cm4)
+
+                                        val finalCookieString = cookieMap.entries.joinToString("; ") { (k, v) ->
+                                            if (v.isBlank()) k else "$k=$v"
+                                        }
+
                                         if (!hasScraped && list.isNotEmpty()) {
                                             hasScraped = true
-                                            onScrapeSuccess(title, list, cookie)
+                                            onScrapeSuccess(title, list, finalCookieString)
                                         }
                                         return GeckoResult.fromValue(AllowOrDeny.DENY)
                                     }
