@@ -905,10 +905,40 @@ object ScraperScripts {
             bearer: '',
             deviceUuid: '',
             deviceIdSec: '',
+            chapterId: '',
+            manifestData: null,
             cookie: '',
             isHooked: false
         };
         const state = window._tappyState;
+
+        function findTokensInObj(obj, depth) {
+            if (!obj || typeof obj !== 'object' || depth > 5) return;
+            try {
+                for (const k of Object.keys(obj)) {
+                    const lk = k.toLowerCase();
+                    const v = obj[k];
+                    if (typeof v === 'string' && v.length > 10) {
+                        if (!state.bearer && (lk.includes('token') || lk.includes('bearer') || lk.includes('auth'))) {
+                            if (!v.trim().startsWith('{')) {
+                                state.bearer = v.replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '').trim();
+                                log("Tappytoon: Found Bearer token in storage object");
+                            }
+                        }
+                        if (!state.deviceUuid && lk.includes('device') && lk.includes('uuid')) {
+                            state.deviceUuid = v.replace(/^"|"$/g, '').trim();
+                            log("Tappytoon: Found Device UUID in storage object");
+                        }
+                        if (!state.deviceIdSec && lk.includes('device') && (lk.includes('sec') || lk.includes('security'))) {
+                            state.deviceIdSec = v.replace(/^"|"$/g, '').trim();
+                            log("Tappytoon: Found Device ID Sec in storage object");
+                        }
+                    } else if (typeof v === 'object') {
+                        findTokensInObj(v, depth + 1);
+                    }
+                }
+            } catch(e) {}
+        }
 
         function extractFromStorage() {
             try {
@@ -917,22 +947,30 @@ object ScraperScripts {
                     const v = localStorage.getItem(k);
                     if (!v) continue;
                     const lk = k.toLowerCase();
-                    if (lk.includes('token') || lk.includes('bearer') || lk.includes('auth')) {
-                        if (!state.bearer && typeof v === 'string' && v.length > 15) {
-                            state.bearer = v.replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '');
-                            log("Tappytoon: Found Bearer token in localStorage");
+
+                    if (v.trim().startsWith('{') || v.trim().startsWith('[')) {
+                        try {
+                            const parsed = JSON.parse(v);
+                            findTokensInObj(parsed, 0);
+                        } catch(e) {}
+                    } else {
+                        if (lk.includes('token') || lk.includes('bearer') || lk.includes('auth')) {
+                            if (!state.bearer && v.length > 15) {
+                                state.bearer = v.replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '').trim();
+                                log("Tappytoon: Found Bearer token in localStorage");
+                            }
                         }
-                    }
-                    if (lk.includes('device') && lk.includes('uuid')) {
-                        if (!state.deviceUuid) {
-                            state.deviceUuid = v.replace(/^"|"$/g, '');
-                            log("Tappytoon: Found Device UUID in localStorage");
+                        if (lk.includes('device') && lk.includes('uuid')) {
+                            if (!state.deviceUuid) {
+                                state.deviceUuid = v.replace(/^"|"$/g, '').trim();
+                                log("Tappytoon: Found Device UUID in localStorage");
+                            }
                         }
-                    }
-                    if (lk.includes('device') && (lk.includes('sec') || lk.includes('security'))) {
-                        if (!state.deviceIdSec) {
-                            state.deviceIdSec = v.replace(/^"|"$/g, '');
-                            log("Tappytoon: Found Device ID Sec in localStorage");
+                        if (lk.includes('device') && (lk.includes('sec') || lk.includes('security'))) {
+                            if (!state.deviceIdSec) {
+                                state.deviceIdSec = v.replace(/^"|"$/g, '').trim();
+                                log("Tappytoon: Found Device ID Sec in localStorage");
+                            }
                         }
                     }
                 }
@@ -950,6 +988,15 @@ object ScraperScripts {
                     auth = headers.get('Authorization') || headers.get('authorization');
                     devUuid = headers.get('X-Device-Uuid') || headers.get('x-device-uuid');
                     devSec = headers.get('X-Device-Id-With-Security') || headers.get('x-device-id-with-security');
+                } else if (Array.isArray(headers)) {
+                    for (const entry of headers) {
+                        if (Array.isArray(entry) && entry.length >= 2) {
+                            const lk = String(entry[0]).toLowerCase();
+                            if (lk === 'authorization') auth = entry[1];
+                            if (lk === 'x-device-uuid') devUuid = entry[1];
+                            if (lk === 'x-device-id-with-security') devSec = entry[1];
+                        }
+                    }
                 } else if (typeof headers === 'object') {
                     for (const k in headers) {
                         const lk = k.toLowerCase();
@@ -959,20 +1006,31 @@ object ScraperScripts {
                     }
                 }
 
-                if (auth && auth.startsWith('Bearer ')) {
-                    const tok = auth.substring(7);
+                if (auth && String(auth).startsWith('Bearer ')) {
+                    const tok = String(auth).substring(7).trim();
                     if (tok && tok !== state.bearer) {
                         state.bearer = tok;
                         log("Tappytoon: Captured Bearer token");
                     }
                 }
                 if (devUuid && devUuid !== state.deviceUuid) {
-                    state.deviceUuid = devUuid;
+                    state.deviceUuid = String(devUuid).trim();
                     log("Tappytoon: Captured Device UUID");
                 }
                 if (devSec && devSec !== state.deviceIdSec) {
-                    state.deviceIdSec = devSec;
+                    state.deviceIdSec = String(devSec).trim();
                     log("Tappytoon: Captured Device ID Sec");
+                }
+            } catch(e) {}
+        }
+
+        function inspectUrl(urlStr) {
+            if (!urlStr || typeof urlStr !== 'string') return;
+            try {
+                const m = urlStr.match(/chapterId=(\d+)/i);
+                if (m && m[1]) {
+                    state.chapterId = m[1];
+                    log("Tappytoon: Intercepted Chapter ID " + state.chapterId);
                 }
             } catch(e) {}
         }
@@ -982,11 +1040,24 @@ object ScraperScripts {
             state.isHooked = true;
 
             const origFetch = window.fetch;
-            window.fetch = function(url, options = {}) {
-                if (String(url).includes('api-global.tappytoon.com')) {
-                    extractHeaders(options ? options.headers : null);
+            window.fetch = function(input, options = {}) {
+                const targetUrl = (typeof input === 'string') ? input : (input && input.url ? input.url : String(input));
+                inspectUrl(targetUrl);
+                if (targetUrl.includes('api-global.tappytoon.com')) {
+                    extractHeaders(options ? options.headers : (input && input.headers ? input.headers : null));
                 }
-                return origFetch.apply(this, arguments);
+                const resPromise = origFetch.apply(this, arguments);
+                if (targetUrl.includes('content-delivery/contents/manifest')) {
+                    resPromise.then(res => {
+                        res.clone().json().then(json => {
+                            if (json && (json.files || (json.data && json.data.files))) {
+                                state.manifestData = json;
+                                log("Tappytoon: Captured manifest data from fetch");
+                            }
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }
+                return resPromise;
             };
 
             const XHR = XMLHttpRequest;
@@ -995,8 +1066,9 @@ object ScraperScripts {
             const origSend = XHR.prototype.send;
 
             XHR.prototype.open = function(method, url) {
-                this._tappyUrl = url;
+                this._tappyUrl = (typeof url === 'string') ? url : String(url);
                 this._tappyHeaders = {};
+                inspectUrl(this._tappyUrl);
                 return origOpen.apply(this, arguments);
             };
             XHR.prototype.setRequestHeader = function(header, value) {
@@ -1004,38 +1076,72 @@ object ScraperScripts {
                 return origSetHeader.apply(this, arguments);
             };
             XHR.prototype.send = function() {
-                if (this._tappyUrl && String(this._tappyUrl).includes('api-global.tappytoon.com')) {
+                if (this._tappyUrl && this._tappyUrl.includes('api-global.tappytoon.com')) {
                     extractHeaders(this._tappyHeaders);
+                }
+                if (this._tappyUrl && this._tappyUrl.includes('content-delivery/contents/manifest')) {
+                    this.addEventListener('load', () => {
+                        try {
+                            const json = JSON.parse(this.responseText);
+                            if (json && (json.files || (json.data && json.data.files))) {
+                                state.manifestData = json;
+                                log("Tappytoon: Captured manifest data from XHR");
+                            }
+                        } catch(e) {}
+                    });
                 }
                 return origSend.apply(this, arguments);
             };
         }
 
         function autoDetectChapterId() {
+            if (state.chapterId) return state.chapterId;
             try {
                 const urlParams = new URLSearchParams(location.search);
-                const chapterParam = urlParams.get('chapter') || urlParams.get('chapterId');
+                const chapterParam = urlParams.get('chapter') || urlParams.get('chapterId') || urlParams.get('episode');
                 if (chapterParam) return chapterParam;
 
-                let m = location.pathname.match(/\/(?:chapter[s]?|book\/[^\/]+)\/(\d+)/i);
+                let m = location.pathname.match(/\/(?:chapters?|episodes?|book\/[^\/]+)\/(\d+)/i);
                 if (m) return m[1];
 
-                m = location.pathname.match(/\/(\d{5,})/);
+                m = location.pathname.match(/\/(?:comics?|shows?)\/[^\/]+\/(\d+)/i);
                 if (m) return m[1];
 
-                const dataChapter = document.querySelector('[data-chapter-id]');
-                if (dataChapter) return dataChapter.getAttribute('data-chapter-id');
+                m = location.pathname.match(/\/(?:comics?|shows?)\/[^\/]+\/chapters?\/(\d+)/i);
+                if (m) return m[1];
+
+                m = location.pathname.match(/\/(\d{1,8})(?:[?#]|$)/);
+                if (m && m[1] && m[1] !== '1234') return m[1];
+
+                const selectors = ['[data-chapter-id]', '[data-chapter]', '[data-episode-id]'];
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el) {
+                        const val = el.getAttribute('data-chapter-id') || el.getAttribute('data-chapter') || el.getAttribute('data-episode-id');
+                        if (val) return val;
+                    }
+                }
             } catch(e) {}
             return '';
         }
 
-        async function fetchManifest(chapterId, variant) {
-            const url = `${"$"}{API_BASE}?chapterId=${"$"}{chapterId}&variant=${"$"}{variant}&locale=en&isPreview=false&canAcceptSignedCookie=true`;
-            log("Tappytoon: Fetching manifest [" + variant + "] -> " + url);
+        function getLocale() {
+            try {
+                const m = location.pathname.match(/^\/([a-z]{2})(?:\/|$)/i);
+                if (m && m[1]) return m[1].toLowerCase();
+            } catch(e) {}
+            return 'en';
+        }
+
+        async function fetchManifest(chapterId, variant, canAcceptSignedCookie) {
+            const loc = getLocale();
+            const signedCookieParam = canAcceptSignedCookie ? 'true' : 'false';
+            const url = `${"$"}{API_BASE}?chapterId=${"$"}{chapterId}&variant=${"$"}{variant}&locale=${"$"}{loc}&isPreview=false&canAcceptSignedCookie=${"$"}{signedCookieParam}`;
+            log("Tappytoon: Fetching manifest [" + variant + ", signedCookie=" + signedCookieParam + "] -> " + url);
 
             const headers = {
                 'Accept': 'application/json',
-                'Accept-Language': 'en',
+                'Accept-Language': loc,
                 'Referer': 'https://www.tappytoon.com/',
                 'Origin': 'https://www.tappytoon.com'
             };
@@ -1048,6 +1154,18 @@ object ScraperScripts {
             return await resp.json();
         }
 
+        function extractFilesFromManifest(json) {
+            if (!json) return [];
+            const arr = json.files || (json.data && json.data.files) || (json.result && json.result.files) || json.images || json.pages || [];
+            if (!Array.isArray(arr)) return [];
+
+            const sorted = [...arr].sort((a, b) => (a.sortKey || a.order || a.no || a.page || 0) - (b.sortKey || b.order || b.no || b.page || 0));
+            return sorted.map(f => {
+                if (typeof f === 'string') return f;
+                return f.url || f.secureUrl || f.path || f.src || '';
+            }).filter(Boolean);
+        }
+
         window.runScraper = async function() {
             log("Starting Tappytoon Scraper...");
             try {
@@ -1058,30 +1176,36 @@ object ScraperScripts {
                 }
                 log("Tappytoon: Detected Chapter ID " + chapterId);
 
-                let json = null;
-                let variantUsed = 'super_high';
-                try {
-                    json = await fetchManifest(chapterId, 'super_high');
-                    if (!json || !json.files || json.files.length === 0) {
-                        log("Tappytoon: Super High returned no files, falling back to High...");
-                        variantUsed = 'high';
-                        json = await fetchManifest(chapterId, 'high');
-                    }
-                } catch(e) {
-                    log("Tappytoon: Super High failed (" + e.message + "), falling back to High...");
-                    variantUsed = 'high';
-                    json = await fetchManifest(chapterId, 'high');
-                }
-
-                if (!json || !json.files || json.files.length === 0) {
-                    throw new Error("No image files returned from Tappytoon API.");
-                }
-
-                const sortedFiles = [...json.files].sort((a, b) => (a.sortKey || 0) - (b.sortKey || 0));
-                const imageUrls = sortedFiles.map(f => f.url).filter(Boolean);
+                let json = state.manifestData;
+                let imageUrls = extractFilesFromManifest(json);
+                let variantUsed = 'captured';
 
                 if (imageUrls.length === 0) {
-                    throw new Error("Extracted image list is empty.");
+                    const variants = ['super_high', 'high', 'medium', 'standard'];
+                    for (const v of variants) {
+                        try {
+                            // First try canAcceptSignedCookie=false so CDN URLs contain signed query params
+                            json = await fetchManifest(chapterId, v, false);
+                            imageUrls = extractFilesFromManifest(json);
+                            if (imageUrls.length > 0) {
+                                variantUsed = v + " (signed URLs)";
+                                break;
+                            }
+                        } catch(e1) {
+                            try {
+                                json = await fetchManifest(chapterId, v, true);
+                                imageUrls = extractFilesFromManifest(json);
+                                if (imageUrls.length > 0) {
+                                    variantUsed = v + " (cookies)";
+                                    break;
+                                }
+                            } catch(e2) {}
+                        }
+                    }
+                }
+
+                if (imageUrls.length === 0) {
+                    throw new Error("No image files returned from Tappytoon API.");
                 }
 
                 if (window.Android && window.Android.updateProgress) {
@@ -1115,6 +1239,39 @@ object ScraperScripts {
                     return "data:" + (mimeType || "image/jpeg") + ";base64," + btoa(binary);
                 }
 
+                function loadImageCanvas(url) {
+                    return new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.crossOrigin = 'anonymous';
+                        img.onload = () => {
+                            try {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.naturalWidth || img.width;
+                                canvas.height = img.naturalHeight || img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                resolve(canvas.toDataURL('image/jpeg', 0.95));
+                            } catch(e) { reject(e); }
+                        };
+                        img.onerror = () => {
+                            const img2 = new Image();
+                            img2.onload = () => {
+                                try {
+                                    const canvas = document.createElement('canvas');
+                                    canvas.width = img2.naturalWidth || img2.width;
+                                    canvas.height = img2.naturalHeight || img2.height;
+                                    const ctx = canvas.getContext('2d');
+                                    ctx.drawImage(img2, 0, 0);
+                                    resolve(canvas.toDataURL('image/jpeg', 0.95));
+                                } catch(e) { reject(e); }
+                            };
+                            img2.onerror = reject;
+                            img2.src = url;
+                        };
+                        img.src = url;
+                    });
+                }
+
                 async function downloadOne(i) {
                     const imgUrl = imageUrls[i];
                     try {
@@ -1143,8 +1300,12 @@ object ScraperScripts {
                         const buf = await resp.arrayBuffer();
                         dataUrls[i] = bufferToBase64(buf, mime);
                     } catch(err) {
-                        log("Tappytoon: Download error page " + (i + 1) + ": " + err.message + ", using direct URL fallback");
-                        dataUrls[i] = imgUrl;
+                        try {
+                            dataUrls[i] = await loadImageCanvas(imgUrl);
+                        } catch(canvasErr) {
+                            log("Tappytoon: Download error page " + (i + 1) + ": " + err.message + ", using direct URL fallback");
+                            dataUrls[i] = imgUrl;
+                        }
                     } finally {
                         completed++;
                         if (window.Android && window.Android.updateProgress) {
