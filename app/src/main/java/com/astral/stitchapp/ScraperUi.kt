@@ -906,7 +906,7 @@ object ScraperScripts {
             deviceUuid: '',
             deviceIdSec: '',
             chapterId: '',
-            manifestData: null,
+            capturedData: null,
             cookie: '',
             isHooked: false
         };
@@ -977,6 +977,52 @@ object ScraperScripts {
             } catch(e) {}
         }
 
+        function getEpisodeIdFromUrl() {
+            try {
+                const match = location.pathname.match(/\/(?:chapters?|episodes?|book\/[^\/]+)\/(\d+)/i);
+                if (match) return match[1];
+                const m2 = location.pathname.match(/\/(?:comics?|shows?)\/[^\/]+\/(\d+)/i);
+                if (m2) return m2[1];
+                const urlParams = new URLSearchParams(location.search);
+                const chapterParam = urlParams.get('chapter') || urlParams.get('chapterId') || urlParams.get('episode');
+                if (chapterParam) return chapterParam;
+            } catch(e) {}
+            return state.chapterId || '';
+        }
+
+        function findChapterDataInObj(obj, url) {
+            if (!obj || typeof obj !== 'object') return null;
+
+            const episodeId = getEpisodeIdFromUrl();
+            if (episodeId && url && typeof url === 'string' && url.includes('chapterId=') && !url.includes(`chapterId=${"$"}{episodeId}`)) {
+                return null;
+            }
+
+            const files = obj.files || (obj.data && obj.data.files) || (obj.result && obj.result.files);
+            if (files && Array.isArray(files)) {
+                const validFiles = files.filter(f => f && (f.url || f.secureUrl || f.path) && (f.sortKey !== undefined || f.order !== undefined || f.no !== undefined));
+                if (validFiles.length > 0) {
+                    const sorted = [...validFiles].sort((a, b) => (a.sortKey ?? a.order ?? a.no ?? 0) - (b.sortKey ?? b.order ?? b.no ?? 0));
+                    const imageUrls = sorted.map(f => f.url || f.secureUrl || f.path).filter(Boolean);
+                    if (imageUrls.length > 0) {
+                        return {
+                            images: imageUrls,
+                            title: document.title || (episodeId ? `Chapter ${"$"}{episodeId}` : 'Tappytoon Chapter'),
+                            episodeId: episodeId
+                        };
+                    }
+                }
+            }
+
+            for (const k of Object.keys(obj)) {
+                if (obj[k] && typeof obj[k] === 'object') {
+                    const res = findChapterDataInObj(obj[k], url);
+                    if (res) return res;
+                }
+            }
+            return null;
+        }
+
         function extractHeaders(headers) {
             if (!headers) return;
             try {
@@ -1030,7 +1076,6 @@ object ScraperScripts {
                 const m = urlStr.match(/chapterId=(\d+)/i);
                 if (m && m[1]) {
                     state.chapterId = m[1];
-                    log("Tappytoon: Intercepted Chapter ID " + state.chapterId);
                 }
             } catch(e) {}
         }
@@ -1047,16 +1092,18 @@ object ScraperScripts {
                     extractHeaders(options ? options.headers : (input && input.headers ? input.headers : null));
                 }
                 const resPromise = origFetch.apply(this, arguments);
-                if (targetUrl.includes('content-delivery/contents/manifest')) {
-                    resPromise.then(res => {
-                        res.clone().json().then(json => {
-                            if (json && (json.files || (json.data && json.data.files))) {
-                                state.manifestData = json;
-                                log("Tappytoon: Captured manifest data from fetch");
+                resPromise.then(res => {
+                    res.clone().json().then(json => {
+                        const found = findChapterDataInObj(json, targetUrl);
+                        if (found && found.images.length > 0) {
+                            state.capturedData = found;
+                            log("Tappytoon: Captured " + found.images.length + " images via fetch interceptor!");
+                            if (window.Android && window.Android.updateProgress) {
+                                window.Android.updateProgress(found.images.length, found.images.length, true);
                             }
-                        }).catch(() => {});
+                        }
                     }).catch(() => {});
-                }
+                }).catch(() => {});
                 return resPromise;
             };
 
@@ -1079,50 +1126,21 @@ object ScraperScripts {
                 if (this._tappyUrl && this._tappyUrl.includes('api-global.tappytoon.com')) {
                     extractHeaders(this._tappyHeaders);
                 }
-                if (this._tappyUrl && this._tappyUrl.includes('content-delivery/contents/manifest')) {
-                    this.addEventListener('load', () => {
-                        try {
-                            const json = JSON.parse(this.responseText);
-                            if (json && (json.files || (json.data && json.data.files))) {
-                                state.manifestData = json;
-                                log("Tappytoon: Captured manifest data from XHR");
+                this.addEventListener('load', () => {
+                    try {
+                        const json = JSON.parse(this.responseText);
+                        const found = findChapterDataInObj(json, this._tappyUrl);
+                        if (found && found.images.length > 0) {
+                            state.capturedData = found;
+                            log("Tappytoon: Captured " + found.images.length + " images via XHR interceptor!");
+                            if (window.Android && window.Android.updateProgress) {
+                                window.Android.updateProgress(found.images.length, found.images.length, true);
                             }
-                        } catch(e) {}
-                    });
-                }
+                        }
+                    } catch(e) {}
+                });
                 return origSend.apply(this, arguments);
             };
-        }
-
-        function autoDetectChapterId() {
-            if (state.chapterId) return state.chapterId;
-            try {
-                const urlParams = new URLSearchParams(location.search);
-                const chapterParam = urlParams.get('chapter') || urlParams.get('chapterId') || urlParams.get('episode');
-                if (chapterParam) return chapterParam;
-
-                let m = location.pathname.match(/\/(?:chapters?|episodes?|book\/[^\/]+)\/(\d+)/i);
-                if (m) return m[1];
-
-                m = location.pathname.match(/\/(?:comics?|shows?)\/[^\/]+\/(\d+)/i);
-                if (m) return m[1];
-
-                m = location.pathname.match(/\/(?:comics?|shows?)\/[^\/]+\/chapters?\/(\d+)/i);
-                if (m) return m[1];
-
-                m = location.pathname.match(/\/(\d{1,8})(?:[?#]|$)/);
-                if (m && m[1] && m[1] !== '1234') return m[1];
-
-                const selectors = ['[data-chapter-id]', '[data-chapter]', '[data-episode-id]'];
-                for (const sel of selectors) {
-                    const el = document.querySelector(sel);
-                    if (el) {
-                        const val = el.getAttribute('data-chapter-id') || el.getAttribute('data-chapter') || el.getAttribute('data-episode-id');
-                        if (val) return val;
-                    }
-                }
-            } catch(e) {}
-            return '';
         }
 
         function getLocale() {
@@ -1154,49 +1172,39 @@ object ScraperScripts {
             return await resp.json();
         }
 
-        function extractFilesFromManifest(json) {
-            if (!json) return [];
-            const arr = json.files || (json.data && json.data.files) || (json.result && json.result.files) || json.images || json.pages || [];
-            if (!Array.isArray(arr)) return [];
-
-            const sorted = [...arr].sort((a, b) => (a.sortKey || a.order || a.no || a.page || 0) - (b.sortKey || b.order || b.no || b.page || 0));
-            return sorted.map(f => {
-                if (typeof f === 'string') return f;
-                return f.url || f.secureUrl || f.path || f.src || '';
-            }).filter(Boolean);
-        }
-
         window.runScraper = async function() {
             log("Starting Tappytoon Scraper...");
             try {
                 extractFromStorage();
-                const chapterId = autoDetectChapterId();
-                if (!chapterId) {
-                    throw new Error("Could not detect Chapter ID from page URL. Please open a chapter viewer first.");
-                }
-                log("Tappytoon: Detected Chapter ID " + chapterId);
+                let imageUrls = [];
+                let title = document.title || 'Tappytoon Chapter';
 
-                let json = state.manifestData;
-                let imageUrls = extractFilesFromManifest(json);
-                let variantUsed = 'captured';
+                if (state.capturedData && state.capturedData.images && state.capturedData.images.length > 0) {
+                    imageUrls = state.capturedData.images;
+                    if (state.capturedData.title) title = state.capturedData.title;
+                    log("Tappytoon: Using " + imageUrls.length + " captured images!");
+                } else {
+                    const chapterId = getEpisodeIdFromUrl();
+                    if (!chapterId) {
+                        throw new Error("Could not detect Chapter ID from page URL. Please open a chapter viewer first.");
+                    }
+                    log("Tappytoon: Detected Chapter ID " + chapterId);
 
-                if (imageUrls.length === 0) {
                     const variants = ['super_high', 'high', 'medium', 'standard'];
                     for (const v of variants) {
                         try {
-                            // First try canAcceptSignedCookie=false so CDN URLs contain signed query params
-                            json = await fetchManifest(chapterId, v, false);
-                            imageUrls = extractFilesFromManifest(json);
-                            if (imageUrls.length > 0) {
-                                variantUsed = v + " (signed URLs)";
+                            const json = await fetchManifest(chapterId, v, false);
+                            const found = findChapterDataInObj(json, '');
+                            if (found && found.images.length > 0) {
+                                imageUrls = found.images;
                                 break;
                             }
                         } catch(e1) {
                             try {
-                                json = await fetchManifest(chapterId, v, true);
-                                imageUrls = extractFilesFromManifest(json);
-                                if (imageUrls.length > 0) {
-                                    variantUsed = v + " (cookies)";
+                                const json = await fetchManifest(chapterId, v, true);
+                                const found = findChapterDataInObj(json, '');
+                                if (found && found.images.length > 0) {
+                                    imageUrls = found.images;
                                     break;
                                 }
                             } catch(e2) {}
@@ -1212,10 +1220,7 @@ object ScraperScripts {
                     window.Android.updateProgress(imageUrls.length, imageUrls.length, true);
                 }
 
-                let title = document.title.replace(/\s*-\s*Tappytoon.*${"$"}/i, '').trim();
-                if (!title || title === 'Tappytoon') {
-                    title = "Tappytoon Chapter " + chapterId;
-                }
+                title = title.replace(/\s*-\s*Tappytoon.*/i, '').trim() || 'Tappytoon Chapter';
 
                 let fullCookie = document.cookie || '';
                 if (state.bearer) fullCookie += (fullCookie ? '; ' : '') + 'Bearer=' + state.bearer;
@@ -1332,7 +1337,7 @@ object ScraperScripts {
                     cookie: fullCookie
                 };
 
-                log("Tappytoon: Successfully scraped " + dataUrls.length + " images (variant: " + variantUsed + ")!");
+                log("Tappytoon: Successfully scraped " + dataUrls.length + " images!");
                 if (window.Android && window.Android.onImagesFound) {
                     window.Android.onImagesFound(JSON.stringify(result));
                 }
