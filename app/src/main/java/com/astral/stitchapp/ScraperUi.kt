@@ -824,10 +824,11 @@ fun ScraperWebViewDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
-    val isManta = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true)
+    val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
+                   url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true)
 
-    if (isManta) {
-        MantaGeckoScraperDialog(
+    if (useGecko) {
+        GeckoScraperDialog(
             url = url,
             script = script,
             onDismiss = onDismiss,
@@ -844,7 +845,7 @@ fun ScraperWebViewDialog(
 }
 
 @Composable
-private fun MantaGeckoScraperDialog(
+private fun GeckoScraperDialog(
     url: String,
     script: String,
     onDismiss: () -> Unit,
