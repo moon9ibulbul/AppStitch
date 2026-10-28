@@ -1895,7 +1895,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Tappytoon", "Naver Webtoon")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -1920,6 +1920,7 @@ fun BatoTab(
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
     var mrblueCookieInput by remember { mutableStateOf(prefs.getString("mrblue_cookie", "") ?: "") }
     var kakaopageCookieInput by remember { mutableStateOf(prefs.getString("kakaopage_cookie", "") ?: "") }
+    var tappytoonCookieInput by remember { mutableStateOf(prefs.getString("tappytoon_cookie", "") ?: "") }
 
     var autoRetry by remember { mutableStateOf(true) }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
@@ -2351,6 +2352,7 @@ fun BatoTab(
                                         "Lezhin" -> "lezhin"
                                         "MrBlue" -> "mrblue"
                                         "KakaoPage" -> "kakaopage"
+                                        "Tappytoon" -> "tappytoon"
                                         "Naver Webtoon" -> "naver"
                                         else -> patchObj?.type ?: selectedSource.lowercase()
                                     }
@@ -2361,6 +2363,7 @@ fun BatoTab(
                                         type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
                                         type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
                                         type == "kakaopage" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
+                                        type == "tappytoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.tappytoon.com/", ScraperScripts.TAPPYTOON)
                                         patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                         else -> null
                                     }
@@ -2381,6 +2384,7 @@ fun BatoTab(
                                         "lezhin" -> lezhinCookieInput
                                         "mrblue" -> mrblueCookieInput
                                         "kakaopage" -> kakaopageCookieInput
+                                        "tappytoon" -> tappytoonCookieInput
                                         else -> ""
                                     }
 
@@ -2417,7 +2421,7 @@ fun BatoTab(
                                 }
                             }
                         },
-                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage")
+                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Tappytoon")
                     ) { Text("Add") }
                 }
             }
@@ -2438,6 +2442,7 @@ fun BatoTab(
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "MrBlue" -> OutlinedTextField(value = mrblueCookieInput, onValueChange = { mrblueCookieInput = it; prefs.edit().putString("mrblue_cookie", it).apply() }, label = { Text("MrBlue Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "KakaoPage" -> OutlinedTextField(value = kakaopageCookieInput, onValueChange = { kakaopageCookieInput = it; prefs.edit().putString("kakaopage_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            "Tappytoon" -> OutlinedTextField(value = tappytoonCookieInput, onValueChange = { tappytoonCookieInput = it; prefs.edit().putString("tappytoon_cookie", it).apply() }, label = { Text("Tappytoon Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         }
 
         if (showWebtoonsChapterDialog && webtoonsFetchedSeriesInfo != null) {
@@ -2595,6 +2600,7 @@ fun BatoTab(
                         "Lezhin" -> "lezhin"
                         "MrBlue" -> "mrblue"
                         "KakaoPage" -> "kakaopage"
+                        "Tappytoon" -> "tappytoon"
                         else -> patchObj?.type ?: selectedSource.lowercase()
                     }
                     if (cookie.isNotBlank()) {
@@ -2604,6 +2610,7 @@ fun BatoTab(
                             "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
                             "mrblue" -> { mrblueCookieInput = cookie; prefs.edit().putString("mrblue_cookie", cookie).apply() }
                             "kakaopage" -> { kakaopageCookieInput = cookie; prefs.edit().putString("kakaopage_cookie", cookie).apply() }
+                            "tappytoon" -> { tappytoonCookieInput = cookie; prefs.edit().putString("tappytoon_cookie", cookie).apply() }
                         }
                     }
 
