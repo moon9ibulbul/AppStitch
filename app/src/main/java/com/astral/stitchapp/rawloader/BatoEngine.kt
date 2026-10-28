@@ -634,13 +634,13 @@ object BatoEngine {
                         for (part in cookieParts) {
                             when {
                                 part.startsWith("Bearer=") || part.startsWith("Authorization=") -> {
-                                    bearerToken = part.substringAfter("=")
+                                    bearerToken = part.substringAfter("=").trim()
                                 }
                                 part.startsWith("X-Device-Uuid=") -> {
-                                    devUuid = part.substringAfter("=")
+                                    devUuid = part.substringAfter("=").trim()
                                 }
                                 part.startsWith("X-Device-Id-With-Security=") -> {
-                                    devSec = part.substringAfter("=")
+                                    devSec = part.substringAfter("=").trim()
                                 }
                                 else -> {
                                     if (part.isNotBlank()) normalCookies.add(part)
@@ -649,7 +649,10 @@ object BatoEngine {
                         }
 
                         if (!bearerToken.isNullOrBlank()) {
-                            setRequestProperty("Authorization", if (bearerToken.startsWith("Bearer ")) bearerToken else "Bearer $bearerToken")
+                            val cleanTok = bearerToken.replace(Regex("(?i)^Bearer\\s+"), "").trim()
+                            if (cleanTok.isNotBlank()) {
+                                setRequestProperty("Authorization", "Bearer $cleanTok")
+                            }
                         }
                         if (!devUuid.isNullOrBlank()) setRequestProperty("X-Device-Uuid", devUuid)
                         if (!devSec.isNullOrBlank()) setRequestProperty("X-Device-Id-With-Security", devSec)
@@ -660,9 +663,17 @@ object BatoEngine {
                     }
                 }
 
-                val bytes = conn.inputStream.use { it.readBytes() }
-                target.writeBytes(bytes)
-                return fixImageExtension(target)
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    val bytes = conn.inputStream.use { it.readBytes() }
+                    target.writeBytes(bytes)
+                    return fixImageExtension(target)
+                } else {
+                    val errBody = try {
+                        conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    } catch (_: Exception) { "" }
+                    throw Exception("HTTP $responseCode downloading image from $cleanUrlStr ${if (errBody.isNotBlank()) ": $errBody" else ""}")
+                }
             } catch (e: Exception) {
                 lastException = e
             }
