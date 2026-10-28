@@ -1895,7 +1895,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "Naver Webtoon")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -1920,6 +1920,11 @@ fun BatoTab(
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
     var mrblueCookieInput by remember { mutableStateOf(prefs.getString("mrblue_cookie", "") ?: "") }
     var kakaopageCookieInput by remember { mutableStateOf(prefs.getString("kakaopage_cookie", "") ?: "") }
+
+    var comixAddonVersion by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)) }
+    var isComixAutoUpdate by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.isAutoUpdateEnabled(context)) }
+    var isComixUpdating by remember { mutableStateOf(false) }
+    var comixStatusMsg by remember { mutableStateOf<String?>(null) }
 
     var autoRetry by remember { mutableStateOf(true) }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
@@ -2351,6 +2356,7 @@ fun BatoTab(
                                         "Lezhin" -> "lezhin"
                                         "MrBlue" -> "mrblue"
                                         "KakaoPage" -> "kakaopage"
+                                        "Comix" -> "comix"
                                         "Naver Webtoon" -> "naver"
                                         else -> patchObj?.type ?: selectedSource.lowercase()
                                     }
@@ -2361,6 +2367,7 @@ fun BatoTab(
                                         type == "lezhin" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.lezhin.com/", ScraperScripts.LEZHIN)
                                         type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
                                         type == "kakaopage" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
+                                        type == "comix" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://comix.to/", ScraperScripts.COMIX)
                                         patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                         else -> null
                                     }
@@ -2417,7 +2424,7 @@ fun BatoTab(
                                 }
                             }
                         },
-                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage")
+                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix")
                     ) { Text("Add") }
                 }
             }
@@ -2438,6 +2445,82 @@ fun BatoTab(
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "MrBlue" -> OutlinedTextField(value = mrblueCookieInput, onValueChange = { mrblueCookieInput = it; prefs.edit().putString("mrblue_cookie", it).apply() }, label = { Text("MrBlue Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "KakaoPage" -> OutlinedTextField(value = kakaopageCookieInput, onValueChange = { kakaopageCookieInput = it; prefs.edit().putString("kakaopage_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            "Comix" -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Comix Chapter Downloader Addon",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Installed Version: $comixAddonVersion",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        comixStatusMsg?.let { msg ->
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isComixAutoUpdate,
+                                    onCheckedChange = { checked ->
+                                        isComixAutoUpdate = checked
+                                        com.astral.stitchapp.rawloader.ComixExtensionManager.setAutoUpdateEnabled(context, checked)
+                                    }
+                                )
+                                Text("Auto Update", style = MaterialTheme.typography.bodySmall)
+                            }
+
+                            Button(
+                                onClick = {
+                                    isComixUpdating = true
+                                    comixStatusMsg = "Checking update..."
+                                    scope.launch(Dispatchers.IO) {
+                                        val res = com.astral.stitchapp.rawloader.ComixExtensionManager.checkAndUpdateAddon(
+                                            context,
+                                            forceManual = true,
+                                            onProgress = { status ->
+                                                scope.launch(Dispatchers.Main) { comixStatusMsg = status }
+                                            }
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            isComixUpdating = false
+                                            if (res.isSuccess) {
+                                                comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                                                comixStatusMsg = "Update check completed!"
+                                            } else {
+                                                comixStatusMsg = "Update error: ${res.exceptionOrNull()?.message}"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isComixUpdating
+                            ) {
+                                if (isComixUpdating) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text("Update Addon")
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (showWebtoonsChapterDialog && webtoonsFetchedSeriesInfo != null) {
