@@ -1038,6 +1038,72 @@ object ScraperScripts {
             return null;
         }
 
+        function bufferToBase64(buffer, mimeType) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            const chunkSize = 0x8000;
+            for (let i = 0; i < len; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+            }
+            return "data:" + (mimeType || "image/jpeg") + ";base64," + btoa(binary);
+        }
+
+        function loadImageCanvas(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width;
+                        canvas.height = img.naturalHeight || img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/jpeg', 0.95));
+                    } catch(e) { reject(e); }
+                };
+                img.onerror = () => {
+                    const img2 = new Image();
+                    img2.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img2.naturalWidth || img2.width;
+                            canvas.height = img2.naturalHeight || img2.height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img2, 0, 0);
+                            resolve(canvas.toDataURL('image/jpeg', 0.95));
+                        } catch(e) { reject(e); }
+                    };
+                    img2.onerror = reject;
+                    img2.src = url;
+                };
+                img.src = url;
+            });
+        }
+
+        async function downloadOneImage(imgUrl) {
+            let lastErr = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const resp = await fetch(imgUrl, { credentials: 'include' });
+                    if (resp && resp.ok) {
+                        const mime = resp.headers.get('content-type') || 'image/jpeg';
+                        const buf = await resp.arrayBuffer();
+                        return bufferToBase64(buf, mime);
+                    }
+                } catch(e1) { lastErr = e1; }
+
+                try {
+                    const dataUrl = await loadImageCanvas(imgUrl);
+                    if (dataUrl && dataUrl.startsWith('data:image')) return dataUrl;
+                } catch(e2) { lastErr = e2; }
+
+                await new Promise(r => setTimeout(r, 800));
+            }
+            throw lastErr || new Error("Failed to download image " + imgUrl);
+        }
+
         window.installTappyHooks = installHooks;
 
         window.runScraper = async function() {
@@ -1066,14 +1132,49 @@ object ScraperScripts {
                 }
 
                 state.capturedChapterData = data;
+                const rawUrls = data.images;
+                log("Tappytoon: Downloading & converting " + rawUrls.length + " images in GeckoView...");
 
+                const dataUrls = new Array(rawUrls.length);
+                const total = rawUrls.length;
+                let completed = 0;
+                const CONCURRENCY = 4;
+
+                async function processIdx(i) {
+                    const url = rawUrls[i];
+                    try {
+                        dataUrls[i] = await downloadOneImage(url);
+                    } catch(err) {
+                        log("Tappytoon image " + (i + 1) + " download failed (" + err.message + "), using raw URL");
+                        dataUrls[i] = url;
+                    } finally {
+                        completed++;
+                        if (window.Android && window.Android.updateProgress) {
+                            window.Android.updateProgress(completed, total, false);
+                        }
+                    }
+                }
+
+                for (let i = 0; i < total; i += CONCURRENCY) {
+                    const chunk = [];
+                    for (let j = i; j < Math.min(i + CONCURRENCY, total); j++) {
+                        chunk.push(processIdx(j));
+                    }
+                    await Promise.all(chunk);
+                }
+
+                if (window.Android && window.Android.updateProgress) {
+                    window.Android.updateProgress(total, total, true);
+                }
+
+                const title = data.title || document.title.replace(/\s*-\s*Tappytoon.*/i, '').trim() || "Tappytoon Chapter";
                 const result = {
-                    title: data.title || document.title.replace(/\s*-\s*Tappytoon.*/i, '').trim() || "Tappytoon Chapter",
-                    images: data.images,
+                    title: title,
+                    images: dataUrls,
                     cookie: document.cookie || ''
                 };
 
-                log("Tappytoon: Successfully scraped " + result.images.length + " images!");
+                log("Tappytoon: Successfully scraped " + dataUrls.length + " downloaded images!");
                 if (window.Android && window.Android.onImagesFound) {
                     window.Android.onImagesFound(JSON.stringify(result));
                 }
@@ -1234,7 +1335,16 @@ private fun GeckoScraperDialog(
                                     window._scrapedImages = [];
                                     window._scrapedCookie = document.cookie || '';
                                 }
-                                location.href = "astralstitch://result";
+                                try {
+                                    const payload = JSON.stringify({
+                                        title: window._scrapedTitle,
+                                        images: window._scrapedImages,
+                                        cookie: window._scrapedCookie
+                                    });
+                                    prompt("ASTRAL_DATA", payload);
+                                } catch(e) {
+                                    location.href = "astralstitch://result";
+                                }
                             }
                         };
                     }
@@ -1257,6 +1367,69 @@ private fun GeckoScraperDialog(
                         GeckoView(ctx).apply {
                             setSession(session)
                             session.open(runtime)
+
+                            session.promptDelegate = object : GeckoSession.PromptDelegate {
+                                override fun onTextPrompt(s: GeckoSession, prompt: GeckoSession.PromptDelegate.TextPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                                    if (prompt.title == "ASTRAL_DATA" || prompt.message == "ASTRAL_DATA") {
+                                        val jsonStr = prompt.defaultValue ?: ""
+                                        if (jsonStr.isNotBlank()) {
+                                            try {
+                                                val jsonObj = JSONObject(jsonStr)
+                                                val title = jsonObj.optString("title", "Scraped Content")
+                                                val jsCookie = jsonObj.optString("cookie", "")
+                                                val imagesArr = jsonObj.optJSONArray("images")
+                                                val list = mutableListOf<String>()
+                                                if (imagesArr != null) {
+                                                    for (i in 0 until imagesArr.length()) {
+                                                        list.add(imagesArr.getString(i))
+                                                    }
+                                                }
+
+                                                val cm = CookieManager.getInstance()
+                                                cm.flush()
+                                                val cm1 = cm.getCookie("https://www.tappytoon.com/") ?: ""
+                                                val cm2 = cm.getCookie("https://api-global.tappytoon.com/") ?: ""
+                                                val cm3 = cm.getCookie("https://content-repository-cdn.tappytoon.com/") ?: ""
+                                                val cm4 = cm.getCookie(url) ?: ""
+
+                                                val cookieMap = mutableMapOf<String, String>()
+                                                fun parseIntoMap(cStr: String) {
+                                                    if (cStr.isBlank()) return
+                                                    for (p in cStr.split(";")) {
+                                                        val trimmed = p.trim()
+                                                        if (trimmed.contains("=")) {
+                                                            val k = trimmed.substringBefore("=").trim()
+                                                            val v = trimmed.substringAfter("=").trim()
+                                                            if (k.isNotBlank()) cookieMap[k] = v
+                                                        } else if (trimmed.isNotBlank()) {
+                                                            cookieMap[trimmed] = ""
+                                                        }
+                                                    }
+                                                }
+
+                                                parseIntoMap(jsCookie)
+                                                parseIntoMap(cm1)
+                                                parseIntoMap(cm2)
+                                                parseIntoMap(cm3)
+                                                parseIntoMap(cm4)
+
+                                                val finalCookieString = cookieMap.entries.joinToString("; ") { (k, v) ->
+                                                    if (v.isBlank()) k else "$k=$v"
+                                                }
+
+                                                if (!hasScraped && list.isNotEmpty()) {
+                                                    hasScraped = true
+                                                    onScrapeSuccess(title, list, finalCookieString)
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        }
+                                        return GeckoResult.fromValue(prompt.dismiss())
+                                    }
+                                    return GeckoResult.fromValue(null)
+                                }
+                            }
 
                             session.navigationDelegate = object : GeckoSession.NavigationDelegate {
                                 override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
