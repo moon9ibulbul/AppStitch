@@ -180,6 +180,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "Webtoons Chapter", type = "webtoons", cookie = cookie))
                     added = 1
                 }
+            } else if (sourceType == "kakaopage") {
+                val existingKakao = queue.filter { it.url == url }
+                existingKakao.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "KakaoPage Chapter", type = "kakaopage", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -429,6 +442,75 @@ object BatoEngine {
             put("title", "Naver Webtoon Chapter")
             put("url", urlStr)
         }
+    }
+
+    fun fetchKakaopageImages(urlStr: String, cookie: String? = null): List<String> {
+        val seriesSingleMatch = Pattern.compile("(?<=\\/viewer\\/|\\/content\\/)(\\d+)").matcher(urlStr)
+        var productId: String? = null
+        if (seriesSingleMatch.find()) {
+            productId = seriesSingleMatch.group(1)
+        }
+
+        val apiUrl = "https://bff-page.kakao.com/api/gateway/api/v1/viewer/data"
+        val conn = URL(apiUrl).openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("User-Agent", USER_AGENT)
+        conn.setRequestProperty("Referer", "https://page.kakao.com/")
+        if (!cookie.isNullOrBlank()) {
+            conn.setRequestProperty("Cookie", cookie)
+        }
+        conn.doOutput = true
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
+
+        val payload = JSONObject().apply {
+            if (!productId.isNullOrBlank()) {
+                put("productId", productId)
+            }
+        }
+
+        conn.outputStream.use { os ->
+            os.write(payload.toString().toByteArray(Charsets.UTF_8))
+        }
+
+        val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+        val jsonObj = JSONObject(responseText)
+
+        val viewerData = jsonObj.optJSONObject("dataData")
+            ?: jsonObj.optJSONObject("downloadData")
+            ?: jsonObj.optJSONObject("data")
+            ?: jsonObj
+
+        val itemsArr = viewerData.optJSONArray("files")
+            ?: viewerData.optJSONArray("pages")
+            ?: viewerData.optJSONArray("imageData")
+            ?: jsonObj.optJSONArray("data")
+            ?: JSONArray()
+
+        val list = mutableListOf<Pair<Int, String>>()
+        for (i in 0 until itemsArr.length()) {
+            val itemObj = itemsArr.optJSONObject(i)
+            if (itemObj != null) {
+                var imgUrl = itemObj.optString("secureUrl", "")
+                if (imgUrl.isBlank()) imgUrl = itemObj.optString("url", "")
+                if (imgUrl.isBlank()) imgUrl = itemObj.optString("path", "")
+                if (imgUrl.isNotBlank()) {
+                    if (imgUrl.startsWith("//")) imgUrl = "https:$imgUrl"
+                    val sortOrder = itemObj.optInt("sortOrder", itemObj.optInt("pageNo", i))
+                    list.add(Pair(sortOrder, imgUrl))
+                }
+            } else {
+                val strUrl = itemsArr.optString(i, "")
+                if (strUrl.isNotBlank()) {
+                    var finalUrl = strUrl
+                    if (finalUrl.startsWith("//")) finalUrl = "https:$finalUrl"
+                    list.add(Pair(i, finalUrl))
+                }
+            }
+        }
+
+        return list.sortedBy { it.first }.map { it.second }
     }
 
     fun getNaverImages(urlStr: String): List<String> {
@@ -746,6 +828,13 @@ object BatoEngine {
                 }
                 images.addAll(WebtoonsApi.scrapeChapterImages(context, cleanUrl))
                 referer = "https://www.webtoons.com/"
+            } else if (sourceType == "kakaopage") {
+                if (item.preScrapedImages.isNotEmpty()) {
+                    images.addAll(item.preScrapedImages)
+                } else {
+                    images.addAll(fetchKakaopageImages(url, item.cookie))
+                }
+                referer = "https://page.kakao.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
@@ -758,6 +847,7 @@ object BatoEngine {
                     "bomtoon" -> "https://www.bomtoon.com/"
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
+                    "kakaopage" -> "https://page.kakao.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
