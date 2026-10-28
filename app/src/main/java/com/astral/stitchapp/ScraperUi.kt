@@ -755,6 +755,145 @@ object ScraperScripts {
         installHooks();
     })();
     """.trimIndent()
+
+    val KAKAOPAGE = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        const BFF_HOST = 'bff-page.kakao.com';
+        const API_PATH = '/api/gateway/api/v1/viewer/data';
+
+        window._kpState = window._kpState || {
+            items: new Map(),
+            orderedNos: [],
+            titleHint: null
+        };
+        const state = window._kpState;
+
+        function safeParse(jsonText) {
+            try { return JSON.parse(jsonText); } catch(e) { return null; }
+        }
+
+        function extractFilesFromRestAPI(jsonObj) {
+            try {
+                if (!jsonObj) return null;
+                let title = null;
+                if (jsonObj.item && jsonObj.item.title) {
+                    title = jsonObj.item.title;
+                }
+                const viewerData = jsonObj.viewer_data || jsonObj.viewerData;
+                if (viewerData) {
+                    if (viewerData.type === 'ImageViewerData' && viewerData.imageDownloadData && viewerData.imageDownloadData.files) {
+                        const files = viewerData.imageDownloadData.files.map(f => ({
+                            no: f.no,
+                            url: f.secureUrl
+                        }));
+                        return { title, files };
+                    }
+                }
+                return null;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function addFiles(list) {
+            let added = 0;
+            for (const item of list) {
+                if (!item || !item.no || !item.url) continue;
+                const key = Number(item.no);
+                if (!state.items.has(key)) {
+                    state.items.set(key, { no: key, url: item.url });
+                    added++;
+                }
+            }
+            state.orderedNos = Array.from(state.items.keys()).sort((a, b) => a - b);
+            if (window.Android && window.Android.updateProgress) {
+                window.Android.updateProgress(state.items.size, state.items.size, true);
+            }
+        }
+
+        function detectAndIngest(text) {
+            if (!text) return;
+            if (text.indexOf('"viewer_data"') === -1 && text.indexOf('"viewerData"') === -1 && text.indexOf('"imageDownloadData"') === -1) {
+                return;
+            }
+            const obj = safeParse(text);
+            if (!obj) return;
+            const result = extractFilesFromRestAPI(obj);
+            if (result && result.files && result.files.length) {
+                if (result.title) state.titleHint = result.title;
+                addFiles(result.files);
+                log("Detected KakaoPage viewer data: " + result.files.length + " files. Title: " + (result.title || "Unknown"));
+            }
+        }
+
+        function installHooks() {
+            if (window._kpHooksInstalled) return;
+            window._kpHooksInstalled = true;
+
+            const _fetch = window.fetch;
+            window.fetch = async function(input, init) {
+                try {
+                    const url = (typeof input === 'string') ? input : (input?.url || '');
+                    const isTarget = url.includes(BFF_HOST) && url.includes(API_PATH);
+                    const resp = await _fetch.apply(this, arguments);
+                    if (isTarget) {
+                        resp.clone().text().then(detectAndIngest).catch(()=>{});
+                    }
+                    return resp;
+                } catch (e) {
+                    return _fetch.apply(this, arguments);
+                }
+            };
+
+            const origOpen = XMLHttpRequest.prototype.open;
+            const origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this._kakaoTarget = (typeof url === 'string' && url.includes(BFF_HOST) && url.includes(API_PATH));
+                return origOpen.apply(this, arguments);
+            };
+            XMLHttpRequest.prototype.send = function() {
+                if (this._kakaoTarget) {
+                    this.addEventListener('readystatechange', function() {
+                        try {
+                            if (this.readyState === 4 && (this.status >= 200 && this.status < 300)) {
+                                detectAndIngest(this.responseText);
+                            }
+                        } catch(e) {}
+                    });
+                }
+                return origSend.apply(this, arguments);
+            };
+        }
+
+        installHooks();
+
+        window.runScraper = async function() {
+            log("Starting KakaoPage Scraper...");
+            try {
+                if (!state.items || state.items.size === 0) {
+                    log("No images detected yet. Opening/browsing viewer episode required.");
+                    throw new Error("No images detected. Please open an episode in KakaoPage viewer first.");
+                }
+                const orderedUrls = state.orderedNos.map(no => state.items.get(no).url);
+                const title = state.titleHint || document.title.replace(" - 카카오페이지", "").trim() || "KakaoPage Episode";
+                const result = {
+                    title: title,
+                    images: orderedUrls,
+                    cookie: document.cookie
+                };
+                log("KakaoPage: Successfully scraped " + orderedUrls.length + " images!");
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
 }
 
 class ScraperJsInterface(
@@ -825,7 +964,8 @@ fun ScraperWebViewDialog(
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
-                   url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true)
+                   url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
