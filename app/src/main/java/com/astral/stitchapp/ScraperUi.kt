@@ -29,6 +29,8 @@ import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.AllowOrDeny
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object ScraperScripts {
     private val COMMON_SCRIPTS = """
@@ -756,6 +758,48 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
+    val COMIX = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        window.runScraper = async function() {
+            log("Starting Comix Scraper...");
+            try {
+                let pages = [];
+                const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
+                window.dispatchEvent(extractEvent);
+                if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
+                    pages = extractEvent.detail.pages.map(p => p.src);
+                    log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
+                }
+
+                if (!pages || pages.length === 0) {
+                    const imgs = Array.from(document.querySelectorAll('img')).map(img => img.src).filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo'));
+                    pages = Array.from(new Set(imgs));
+                    log("Fallback extracted " + pages.length + " image URLs from DOM.");
+                }
+
+                if (!pages || pages.length === 0) {
+                    throw new Error("No images found. Open a chapter on comix.to first.");
+                }
+
+                const result = {
+                    title: document.title.replace(" | Comix", "").trim() || "Comix Chapter",
+                    images: pages,
+                    cookie: document.cookie
+                };
+
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
+
     val KAKAOPAGE = """
     (function() {
         'use strict';
@@ -1004,6 +1048,25 @@ private fun GeckoScraperDialog(
 
     var popupSessionState by remember { mutableStateOf<GeckoSession?>(null) }
 
+    val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+
+    LaunchedEffect(runtime) {
+        if (isComix) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
+                    if (addonFile != null) {
+                        com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(context, runtime)
+                        Log.d("ScraperUi", "Installed Comix addon into GeckoRuntime")
+                    }
+                    Unit
+                } catch (e: Exception) {
+                    Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
+                }
+            }
+        }
+    }
+
     DisposableEffect(session) {
         onDispose {
             try { session.close() } catch (_: Exception) {}
@@ -1219,6 +1282,14 @@ private fun GeckoScraperDialog(
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        OutlinedButton(
+                            onClick = {
+                                status = "Reloading page..."
+                                session.reload()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Reload") }
 
                         Button(
                             onClick = {
@@ -1436,6 +1507,14 @@ private fun StandardWebViewScraperDialog(
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        OutlinedButton(
+                            onClick = {
+                                status = "Reloading page..."
+                                webView?.reload()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Reload") }
 
                         Button(
                             onClick = {
