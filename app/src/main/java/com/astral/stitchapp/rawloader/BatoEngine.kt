@@ -193,19 +193,6 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "KakaoPage Chapter", type = "kakaopage", cookie = cookie))
                     added = 1
                 }
-            } else if (sourceType == "tappytoon") {
-                val existingTappy = queue.filter { it.url == url }
-                existingTappy.forEach { oldItem ->
-                    if (oldItem.status == "done" || oldItem.status == "failed") {
-                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
-                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
-                        queue.remove(oldItem)
-                    }
-                }
-                if (queue.none { it.url == url }) {
-                    queue.add(QueueItem(url = url, title = "Tappytoon Chapter", type = "tappytoon", cookie = cookie))
-                    added = 1
-                }
             }
 
             if (added > 0) {
@@ -619,9 +606,6 @@ object BatoEngine {
                     setRequestProperty("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
                     if (!referer.isNullOrBlank()) {
                         setRequestProperty("Referer", referer)
-                        if (referer.contains("tappytoon.com")) {
-                            setRequestProperty("Origin", "https://www.tappytoon.com")
-                        }
                     }
 
                     if (!cookie.isNullOrBlank()) {
@@ -894,7 +878,6 @@ object BatoEngine {
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
                     "kakaopage" -> "https://page.kakao.com/"
-                    "tappytoon" -> "https://www.tappytoon.com/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
