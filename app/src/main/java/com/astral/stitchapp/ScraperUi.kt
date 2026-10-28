@@ -1009,8 +1009,7 @@ fun ScraperWebViewDialog(
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
-                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
-                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
@@ -1284,6 +1283,14 @@ private fun GeckoScraperDialog(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
 
+                        OutlinedButton(
+                            onClick = {
+                                status = "Reloading page..."
+                                session.reload()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Reload") }
+
                         Button(
                             onClick = {
                                 status = "Scraping started..."
@@ -1500,6 +1507,14 @@ private fun StandardWebViewScraperDialog(
                     Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
+
+                        OutlinedButton(
+                            onClick = {
+                                status = "Reloading page..."
+                                webView?.reload()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Reload") }
 
                         Button(
                             onClick = {
