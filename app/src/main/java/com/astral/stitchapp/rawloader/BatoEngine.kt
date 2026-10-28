@@ -627,27 +627,35 @@ object BatoEngine {
                     if (!cookie.isNullOrBlank()) {
                         val cookieParts = cookie.split(";").map { it.trim() }
                         val normalCookies = mutableListOf<String>()
+                        var bearerToken: String? = null
+                        var devUuid: String? = null
+                        var devSec: String? = null
+
                         for (part in cookieParts) {
                             when {
                                 part.startsWith("Bearer=") || part.startsWith("Authorization=") -> {
-                                    val token = part.substringAfter("=")
-                                    if (token.isNotBlank()) {
-                                        setRequestProperty("Authorization", if (token.startsWith("Bearer ")) token else "Bearer $token")
-                                    }
+                                    bearerToken = part.substringAfter("=")
                                 }
                                 part.startsWith("X-Device-Uuid=") -> {
-                                    val valUuid = part.substringAfter("=")
-                                    if (valUuid.isNotBlank()) setRequestProperty("X-Device-Uuid", valUuid)
+                                    devUuid = part.substringAfter("=")
                                 }
                                 part.startsWith("X-Device-Id-With-Security=") -> {
-                                    val valSec = part.substringAfter("=")
-                                    if (valSec.isNotBlank()) setRequestProperty("X-Device-Id-With-Security", valSec)
+                                    devSec = part.substringAfter("=")
                                 }
                                 else -> {
                                     if (part.isNotBlank()) normalCookies.add(part)
                                 }
                             }
                         }
+
+                        if (attempt > 0 || !cleanUrlStr.contains("cdn")) {
+                            if (!bearerToken.isNullOrBlank()) {
+                                setRequestProperty("Authorization", if (bearerToken.startsWith("Bearer ")) bearerToken else "Bearer $bearerToken")
+                            }
+                            if (!devUuid.isNullOrBlank()) setRequestProperty("X-Device-Uuid", devUuid)
+                            if (!devSec.isNullOrBlank()) setRequestProperty("X-Device-Id-With-Security", devSec)
+                        }
+
                         if (normalCookies.isNotEmpty()) {
                             setRequestProperty("Cookie", normalCookies.joinToString("; "))
                         }

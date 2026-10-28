@@ -910,6 +910,35 @@ object ScraperScripts {
         };
         const state = window._tappyState;
 
+        function extractFromStorage() {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    const v = localStorage.getItem(k);
+                    if (!v) continue;
+                    const lk = k.toLowerCase();
+                    if (lk.includes('token') || lk.includes('bearer') || lk.includes('auth')) {
+                        if (!state.bearer && typeof v === 'string' && v.length > 15) {
+                            state.bearer = v.replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '');
+                            log("Tappytoon: Found Bearer token in localStorage");
+                        }
+                    }
+                    if (lk.includes('device') && lk.includes('uuid')) {
+                        if (!state.deviceUuid) {
+                            state.deviceUuid = v.replace(/^"|"$/g, '');
+                            log("Tappytoon: Found Device UUID in localStorage");
+                        }
+                    }
+                    if (lk.includes('device') && (lk.includes('sec') || lk.includes('security'))) {
+                        if (!state.deviceIdSec) {
+                            state.deviceIdSec = v.replace(/^"|"$/g, '');
+                            log("Tappytoon: Found Device ID Sec in localStorage");
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
+
         function extractHeaders(headers) {
             if (!headers) return;
             try {
@@ -1019,6 +1048,7 @@ object ScraperScripts {
         window.runScraper = async function() {
             log("Starting Tappytoon Scraper...");
             try {
+                extractFromStorage();
                 const chapterId = autoDetectChapterId();
                 if (!chapterId) {
                     throw new Error("Could not detect Chapter ID from page URL. Please open a chapter viewer first.");
@@ -1085,17 +1115,27 @@ object ScraperScripts {
                 async function downloadOne(i) {
                     const imgUrl = imageUrls[i];
                     try {
-                        const headers = {
-                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                            'Referer': 'https://www.tappytoon.com/',
-                            'Origin': 'https://www.tappytoon.com'
-                        };
-                        if (state.bearer) headers['Authorization'] = 'Bearer ' + state.bearer;
-                        if (state.deviceUuid) headers['X-Device-Uuid'] = state.deviceUuid;
-                        if (state.deviceIdSec) headers['X-Device-Id-With-Security'] = state.deviceIdSec;
+                        let resp = null;
+                        try {
+                            resp = await fetch(imgUrl, { credentials: 'include' });
+                        } catch(e1) {
+                            resp = null;
+                        }
 
-                        const resp = await fetch(imgUrl, { headers, credentials: 'include' });
-                        if (!resp.ok) throw new Error("HTTP " + resp.status);
+                        if (!resp || !resp.ok) {
+                            const headers = {
+                                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                                'Referer': 'https://www.tappytoon.com/',
+                                'Origin': 'https://www.tappytoon.com'
+                            };
+                            if (state.bearer) headers['Authorization'] = 'Bearer ' + state.bearer;
+                            if (state.deviceUuid) headers['X-Device-Uuid'] = state.deviceUuid;
+                            if (state.deviceIdSec) headers['X-Device-Id-With-Security'] = state.deviceIdSec;
+
+                            resp = await fetch(imgUrl, { headers, credentials: 'include' });
+                        }
+
+                        if (!resp || !resp.ok) throw new Error("HTTP " + (resp ? resp.status : 'fetch failed'));
                         const mime = resp.headers.get('content-type') || 'image/jpeg';
                         const buf = await resp.arrayBuffer();
                         dataUrls[i] = bufferToBase64(buf, mime);
