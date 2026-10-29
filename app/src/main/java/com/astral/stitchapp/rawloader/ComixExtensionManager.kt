@@ -140,6 +140,22 @@ object ComixExtensionManager {
     fun installToGecko(context: Context, runtime: GeckoRuntime): GeckoResult<WebExtension>? {
         val addonFile = getAddonFile(context)
         if (!addonFile.exists()) return null
+
+        runtime.webExtensionController.setPromptDelegate(object : org.mozilla.geckoview.WebExtensionController.PromptDelegate {
+            override fun onInstallPrompt(extension: WebExtension): GeckoResult<org.mozilla.geckoview.AllowOrDeny> {
+                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.ALLOW)
+            }
+
+            override fun onUpdatePrompt(
+                currentlyInstalled: WebExtension,
+                updated: WebExtension,
+                newPermissions: Array<out String>,
+                newOrigins: Array<out String>
+            ): GeckoResult<org.mozilla.geckoview.AllowOrDeny> {
+                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.ALLOW)
+            }
+        })
+
         val fileUri = "file://" + addonFile.absolutePath
         return runtime.webExtensionController.install(fileUri)
     }
