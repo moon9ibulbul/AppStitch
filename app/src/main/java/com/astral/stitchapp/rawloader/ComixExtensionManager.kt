@@ -163,6 +163,64 @@ object ComixExtensionManager {
                     if (entry.name == "manifest.json") {
                         val manifestText = zis.bufferedReader().use { it.readText() }
                         val jsonObj = JSONObject(manifestText)
+
+                        // Convert MV3 to MV2 if manifest_version is 3
+                        if (jsonObj.optInt("manifest_version", 2) == 3) {
+                            jsonObj.put("manifest_version", 2)
+                            needsPatch = true
+
+                            if (jsonObj.has("action")) {
+                                val actionObj = jsonObj.get("action")
+                                jsonObj.remove("action")
+                                jsonObj.put("browser_action", actionObj)
+                            }
+
+                            val permissionsArray = jsonObj.optJSONArray("permissions") ?: org.json.JSONArray()
+                            if (jsonObj.has("host_permissions")) {
+                                val hostPerms = jsonObj.optJSONArray("host_permissions")
+                                if (hostPerms != null) {
+                                    for (i in 0 until hostPerms.length()) {
+                                        permissionsArray.put(hostPerms.getString(i))
+                                    }
+                                }
+                                jsonObj.remove("host_permissions")
+                            }
+                            jsonObj.put("permissions", permissionsArray)
+
+                            if (jsonObj.has("optional_host_permissions")) {
+                                val optHostPerms = jsonObj.optJSONArray("optional_host_permissions")
+                                val optPermsArray = jsonObj.optJSONArray("optional_permissions") ?: org.json.JSONArray()
+                                if (optHostPerms != null) {
+                                    for (i in 0 until optHostPerms.length()) {
+                                        optPermsArray.put(optHostPerms.getString(i))
+                                    }
+                                }
+                                jsonObj.remove("optional_host_permissions")
+                                jsonObj.put("optional_permissions", optPermsArray)
+                            }
+
+                            if (jsonObj.has("web_accessible_resources")) {
+                                val war = jsonObj.optJSONArray("web_accessible_resources")
+                                if (war != null) {
+                                    val flatResources = org.json.JSONArray()
+                                    for (i in 0 until war.length()) {
+                                        val item = war.get(i)
+                                        if (item is JSONObject && item.has("resources")) {
+                                            val resArr = item.optJSONArray("resources")
+                                            if (resArr != null) {
+                                                for (j in 0 until resArr.length()) {
+                                                    flatResources.put(resArr.getString(j))
+                                                }
+                                            }
+                                        } else if (item is String) {
+                                            flatResources.put(item)
+                                        }
+                                    }
+                                    jsonObj.put("web_accessible_resources", flatResources)
+                                }
+                            }
+                        }
+
                         if (jsonObj.has("browser_specific_settings")) {
                             val bss = jsonObj.getJSONObject("browser_specific_settings")
                             if (bss.has("gecko")) {
@@ -180,6 +238,7 @@ object ComixExtensionManager {
                                 }
                             }
                         }
+
                         if (needsPatch) {
                             patchedManifestBytes = jsonObj.toString(2).toByteArray(Charsets.UTF_8)
                         }
@@ -278,14 +337,18 @@ object ComixExtensionManager {
             geckoResult.accept({ extension ->
                 Log.d(TAG, "Successfully installed WebExtension to GeckoView: ${extension?.id} (${extension?.location})")
                 if (extension != null) {
-                    runtime.webExtensionController.setAllowedInPrivateBrowsing(extension, true)
-                    runtime.webExtensionController.enable(extension, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+                    try {
+                        runtime.webExtensionController.setAllowedInPrivateBrowsing(extension, true)
+                        runtime.webExtensionController.enable(extension, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set allowedInPrivateBrowsing / enable extension", e)
+                    }
                 }
                 if (continuation.isActive) {
                     continuation.resume(extension)
                 }
             }, { throwable ->
-                Log.e(TAG, "Failed to install WebExtension to GeckoView", throwable)
+                Log.e(TAG, "Failed to install WebExtension to GeckoView: ${throwable?.message}", throwable)
                 if (continuation.isActive) {
                     continuation.resume(null)
                 }
