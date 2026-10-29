@@ -330,29 +330,49 @@ object ComixExtensionManager {
         }
 
         val fileUri = "file://" + addonFile.absolutePath
-        Log.d(TAG, "Installing WebExtension to GeckoRuntime from $fileUri...")
-        val geckoResult = runtime.webExtensionController.install(fileUri)
+        val addonId = "comix-downloader@n3uralcreativity.github.io"
+        Log.d(TAG, "Attempting ensureBuiltIn for WebExtension from $fileUri (id=$addonId)...")
 
-        return@withContext suspendCancellableCoroutine<WebExtension?> { continuation ->
-            geckoResult.accept({ extension ->
-                Log.d(TAG, "Successfully installed WebExtension to GeckoView: ${extension?.id} (${extension?.location})")
-                if (extension != null) {
-                    try {
-                        runtime.webExtensionController.setAllowedInPrivateBrowsing(extension, true)
-                        runtime.webExtensionController.enable(extension, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to set allowedInPrivateBrowsing / enable extension", e)
-                    }
-                }
-                if (continuation.isActive) {
-                    continuation.resume(extension)
-                }
+        val builtInResult = suspendCancellableCoroutine<WebExtension?> { continuation ->
+            runtime.webExtensionController.ensureBuiltIn(fileUri, addonId).accept({ extension ->
+                Log.d(TAG, "ensureBuiltIn success: ${extension?.id}")
+                if (continuation.isActive) continuation.resume(extension)
             }, { throwable ->
-                Log.e(TAG, "Failed to install WebExtension to GeckoView: ${throwable?.message}", throwable)
-                if (continuation.isActive) {
-                    continuation.resume(null)
-                }
+                Log.w(TAG, "ensureBuiltIn failed: ${throwable?.message}")
+                if (continuation.isActive) continuation.resume(null)
             })
         }
+
+        if (builtInResult != null) {
+            try {
+                runtime.webExtensionController.setAllowedInPrivateBrowsing(builtInResult, true)
+                runtime.webExtensionController.enable(builtInResult, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set allowedInPrivateBrowsing/enable on builtInResult", e)
+            }
+            return@withContext builtInResult
+        }
+
+        Log.d(TAG, "Falling back to install() for WebExtension from $fileUri...")
+        val installResult = suspendCancellableCoroutine<WebExtension?> { continuation ->
+            runtime.webExtensionController.install(fileUri).accept({ extension ->
+                Log.d(TAG, "install() success: ${extension?.id}")
+                if (continuation.isActive) continuation.resume(extension)
+            }, { throwable ->
+                Log.e(TAG, "install() failed: ${throwable?.message}", throwable)
+                if (continuation.isActive) continuation.resume(null)
+            })
+        }
+
+        if (installResult != null) {
+            try {
+                runtime.webExtensionController.setAllowedInPrivateBrowsing(installResult, true)
+                runtime.webExtensionController.enable(installResult, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set allowedInPrivateBrowsing/enable on installResult", e)
+            }
+        }
+
+        return@withContext installResult
     }
 }

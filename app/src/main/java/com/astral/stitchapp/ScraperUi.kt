@@ -763,29 +763,85 @@ object ScraperScripts {
         'use strict';
         $COMMON_SCRIPTS
 
+        window._comixState = window._comixState || {
+            images: []
+        };
+
+        function tryExtractFromDOM() {
+            const list = [];
+            const selector = 'img.rpage-page__img, img[src*="wowpic"], img[data-page], .rpage-page img';
+            const imgs = Array.from(document.querySelectorAll(selector));
+            for (const img of imgs) {
+                const src = img.src || img.getAttribute('data-src') || img.currentSrc;
+                if (src && !src.includes('avatar') && !src.includes('logo') && !src.includes('data:image')) {
+                    if (!list.includes(src)) list.push(src);
+                }
+            }
+            return list;
+        }
+
+        function tryExtractFromNextData() {
+            try {
+                const el = document.getElementById('__NEXT_DATA__');
+                if (!el) return [];
+                const json = JSON.parse(el.textContent || '{}');
+                const pageProps = json.props?.pageProps;
+                if (!pageProps) return [];
+                const chapter = pageProps.chapter || pageProps.data || pageProps;
+                const images = chapter.images || chapter.pages || [];
+                if (Array.isArray(images) && images.length > 0) {
+                    return images.map(img => typeof img === 'string' ? img : (img.src || img.url)).filter(Boolean);
+                }
+            } catch(e) {}
+            return [];
+        }
+
         window.runScraper = async function() {
             log("Starting Comix Scraper...");
             try {
                 let pages = [];
-                const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
-                window.dispatchEvent(extractEvent);
-                if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
-                    pages = extractEvent.detail.pages.map(p => p.src);
-                    log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
+
+                // 1. Try CustomEvent via Extension bridge
+                try {
+                    const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
+                    window.dispatchEvent(extractEvent);
+                    if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
+                        pages = extractEvent.detail.pages.map(p => typeof p === 'string' ? p : p.src);
+                        log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
+                    }
+                } catch(e) {}
+
+                // 2. Try Next.js state
+                if (!pages || pages.length === 0) {
+                    pages = tryExtractFromNextData();
+                    if (pages.length > 0) log("Extracted " + pages.length + " pages from __NEXT_DATA__.");
+                }
+
+                // 3. Try DOM extraction
+                if (!pages || pages.length === 0) {
+                    pages = tryExtractFromDOM();
+                    if (pages.length > 0) log("Extracted " + pages.length + " pages from DOM.");
+                }
+
+                // 4. Try all image tags
+                if (!pages || pages.length === 0) {
+                    const allImgs = Array.from(document.querySelectorAll('img'))
+                        .map(img => img.src)
+                        .filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon'));
+                    pages = Array.from(new Set(allImgs));
+                    if (pages.length > 0) log("Fallback extracted " + pages.length + " image URLs from all DOM images.");
                 }
 
                 if (!pages || pages.length === 0) {
-                    const imgs = Array.from(document.querySelectorAll('img')).map(img => img.src).filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo'));
-                    pages = Array.from(new Set(imgs));
-                    log("Fallback extracted " + pages.length + " image URLs from DOM.");
+                    throw new Error("No images found. Please open a chapter episode on comix.to first.");
                 }
 
-                if (!pages || pages.length === 0) {
-                    throw new Error("No images found. Open a chapter on comix.to first.");
+                if (window.Android && window.Android.updateProgress) {
+                    window.Android.updateProgress(pages.length, pages.length, true);
                 }
 
                 const result = {
-                    title: document.title.replace(" | Comix", "").trim() || "Comix Chapter",
+                    title: document.title.replace(" | Comix", "").replace(" - Comix", "").trim() || "Comix Chapter",
                     images: pages,
                     cookie: document.cookie
                 };
@@ -794,7 +850,7 @@ object ScraperScripts {
                     window.Android.onImagesFound(JSON.stringify(result));
                 }
             } catch(e) {
-                log("Error: " + e.message);
+                log("Comix Scraper Error: " + e.message);
             }
         };
     })();
@@ -1255,7 +1311,7 @@ private fun GeckoScraperDialog(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
                 ) {
-                    if (!isComix && totalCount > 0) {
+                    if (totalCount > 0) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -1301,16 +1357,14 @@ private fun GeckoScraperDialog(
                             modifier = Modifier.weight(1f)
                         ) { Text("Reload") }
 
-                        if (!isComix) {
-                            Button(
-                                onClick = {
-                                    status = "Scraping started..."
-                                    session.loadUri(buildJsUri(true))
-                                },
-                                enabled = isScrapeReady,
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Scrape") }
-                        }
+                        Button(
+                            onClick = {
+                                status = "Scraping started..."
+                                session.loadUri(buildJsUri(true))
+                            },
+                            enabled = isScrapeReady,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scrape") }
                     }
                 }
             }
