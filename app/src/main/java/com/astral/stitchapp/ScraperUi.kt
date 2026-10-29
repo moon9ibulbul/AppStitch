@@ -1053,18 +1053,25 @@ private fun GeckoScraperDialog(
 
     LaunchedEffect(runtime) {
         if (isComix) {
+            status = "Preparing Comix addon..."
             try {
                 val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
                 if (addonFile != null) {
+                    status = "Installing Comix addon into GeckoView..."
                     val extension = com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(context, runtime)
                     if (extension != null) {
+                        status = "Comix addon active (v${extension.metaData.version}). Reloading page..."
                         Log.d("ScraperUi", "Installed Comix addon into GeckoRuntime (${extension.id}), reloading session...")
                         session.reload()
                     } else {
+                        status = "Comix addon installation returned null"
                         Log.w("ScraperUi", "Comix addon installation returned null extension")
                     }
+                } else {
+                    status = "Failed to download Comix addon file"
                 }
             } catch (e: Exception) {
+                status = "Comix addon error: ${e.message}"
                 Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
             }
         }
@@ -1282,9 +1289,7 @@ private fun GeckoScraperDialog(
                         }
                     }
 
-                    if (!isComix) {
-                        Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
-                    }
+                    Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
 

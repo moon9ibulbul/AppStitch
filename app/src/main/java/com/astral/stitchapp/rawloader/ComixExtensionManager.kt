@@ -164,6 +164,23 @@ object ComixExtensionManager {
             }
         })
 
+        // First check if already installed in GeckoRuntime list
+        val existingList = suspendCancellableCoroutine<List<WebExtension>?> { cont ->
+            runtime.webExtensionController.list().accept({ list ->
+                if (cont.isActive) cont.resume(list)
+            }, {
+                if (cont.isActive) cont.resume(null)
+            })
+        }
+
+        val existing = existingList?.find { it.id.contains("comix", ignoreCase = true) || it.location.contains("comix", ignoreCase = true) }
+        if (existing != null) {
+            Log.d(TAG, "Comix WebExtension is already in GeckoRuntime list: ${existing.id}")
+            runtime.webExtensionController.setAllowedInPrivateBrowsing(existing, true)
+            runtime.webExtensionController.enable(existing, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+            return@withContext existing
+        }
+
         val fileUri = "file://" + addonFile.absolutePath
         Log.d(TAG, "Installing WebExtension to GeckoRuntime from $fileUri...")
         val geckoResult = runtime.webExtensionController.install(fileUri)
@@ -171,6 +188,10 @@ object ComixExtensionManager {
         return@withContext suspendCancellableCoroutine<WebExtension?> { continuation ->
             geckoResult.accept({ extension ->
                 Log.d(TAG, "Successfully installed WebExtension to GeckoView: ${extension?.id} (${extension?.location})")
+                if (extension != null) {
+                    runtime.webExtensionController.setAllowedInPrivateBrowsing(extension, true)
+                    runtime.webExtensionController.enable(extension, org.mozilla.geckoview.WebExtensionController.EnableSource.USER)
+                }
                 if (continuation.isActive) {
                     continuation.resume(extension)
                 }
