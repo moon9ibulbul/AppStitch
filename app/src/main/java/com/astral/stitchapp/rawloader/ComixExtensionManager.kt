@@ -3,12 +3,15 @@ package com.astral.stitchapp.rawloader
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.WebExtension
 import java.io.File
+import kotlin.coroutines.resume
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -137,13 +140,17 @@ object ComixExtensionManager {
         return if (addonFile.exists()) addonFile else null
     }
 
-    fun installToGecko(context: Context, runtime: GeckoRuntime): GeckoResult<WebExtension>? {
+    suspend fun installToGecko(context: Context, runtime: GeckoRuntime): WebExtension? = withContext(Dispatchers.Main) {
         val addonFile = getAddonFile(context)
-        if (!addonFile.exists()) return null
+        if (!addonFile.exists()) {
+            Log.e(TAG, "Cannot install extension: file does not exist")
+            return@withContext null
+        }
 
         runtime.webExtensionController.setPromptDelegate(object : org.mozilla.geckoview.WebExtensionController.PromptDelegate {
-            override fun onInstallPrompt(extension: WebExtension): GeckoResult<org.mozilla.geckoview.AllowOrDeny> {
-                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.ALLOW)
+            override fun onInstallPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
+                Log.d(TAG, "PromptDelegate.onInstallPrompt for extension: ${extension.id}")
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
 
             override fun onUpdatePrompt(
@@ -151,12 +158,28 @@ object ComixExtensionManager {
                 updated: WebExtension,
                 newPermissions: Array<out String>,
                 newOrigins: Array<out String>
-            ): GeckoResult<org.mozilla.geckoview.AllowOrDeny> {
-                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.ALLOW)
+            ): GeckoResult<AllowOrDeny> {
+                Log.d(TAG, "PromptDelegate.onUpdatePrompt for extension: ${updated.id}")
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
         })
 
         val fileUri = "file://" + addonFile.absolutePath
-        return runtime.webExtensionController.install(fileUri)
+        Log.d(TAG, "Installing WebExtension to GeckoRuntime from $fileUri...")
+        val geckoResult = runtime.webExtensionController.install(fileUri)
+
+        return@withContext suspendCancellableCoroutine<WebExtension?> { continuation ->
+            geckoResult.accept({ extension ->
+                Log.d(TAG, "Successfully installed WebExtension to GeckoView: ${extension?.id} (${extension?.location})")
+                if (continuation.isActive) {
+                    continuation.resume(extension)
+                }
+            }, { throwable ->
+                Log.e(TAG, "Failed to install WebExtension to GeckoView", throwable)
+                if (continuation.isActive) {
+                    continuation.resume(null)
+                }
+            })
+        }
     }
 }

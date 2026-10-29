@@ -1053,17 +1053,19 @@ private fun GeckoScraperDialog(
 
     LaunchedEffect(runtime) {
         if (isComix) {
-            withContext(Dispatchers.IO) {
-                try {
-                    val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
-                    if (addonFile != null) {
-                        com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(context, runtime)
-                        Log.d("ScraperUi", "Installed Comix addon into GeckoRuntime")
+            try {
+                val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
+                if (addonFile != null) {
+                    val extension = com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(context, runtime)
+                    if (extension != null) {
+                        Log.d("ScraperUi", "Installed Comix addon into GeckoRuntime (${extension.id}), reloading session...")
+                        session.reload()
+                    } else {
+                        Log.w("ScraperUi", "Comix addon installation returned null extension")
                     }
-                    Unit
-                } catch (e: Exception) {
-                    Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
                 }
+            } catch (e: Exception) {
+                Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
             }
         }
     }
