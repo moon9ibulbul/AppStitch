@@ -12,9 +12,13 @@ import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.WebExtension
 import java.io.File
 import kotlin.coroutines.resume
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 object ComixExtensionManager {
     private const val TAG = "ComixExtensionManager"
@@ -110,6 +114,8 @@ object ComixExtensionManager {
                 tmpFile.delete()
             }
 
+            patchXpiManifestIfNeeded(addonFile)
+
             val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
             prefs.edit().putString(PREF_KEY_VERSION, latestVersion).apply()
 
@@ -137,7 +143,90 @@ object ComixExtensionManager {
             checkAndUpdateAddon(context, forceManual = false, onProgress = onProgress)
         }
         val addonFile = getAddonFile(context)
-        return if (addonFile.exists()) addonFile else null
+        if (addonFile.exists()) {
+            patchXpiManifestIfNeeded(addonFile)
+            return addonFile
+        }
+        return null
+    }
+
+    private fun patchXpiManifestIfNeeded(xpiFile: File) {
+        try {
+            if (!xpiFile.exists() || xpiFile.length() == 0L) return
+
+            var needsPatch = false
+            var patchedManifestBytes: ByteArray? = null
+
+            ZipInputStream(xpiFile.inputStream()).use { zis ->
+                var entry: ZipEntry? = zis.nextEntry
+                while (entry != null) {
+                    if (entry.name == "manifest.json") {
+                        val manifestText = zis.bufferedReader().use { it.readText() }
+                        val jsonObj = JSONObject(manifestText)
+                        if (jsonObj.has("browser_specific_settings")) {
+                            val bss = jsonObj.getJSONObject("browser_specific_settings")
+                            if (bss.has("gecko")) {
+                                val gecko = bss.getJSONObject("gecko")
+                                if (gecko.has("strict_min_version")) {
+                                    gecko.put("strict_min_version", "90.0")
+                                    needsPatch = true
+                                }
+                            }
+                            if (bss.has("gecko_android")) {
+                                val geckoAndroid = bss.getJSONObject("gecko_android")
+                                if (geckoAndroid.has("strict_min_version")) {
+                                    geckoAndroid.put("strict_min_version", "90.0")
+                                    needsPatch = true
+                                }
+                            }
+                        }
+                        if (needsPatch) {
+                            patchedManifestBytes = jsonObj.toString(2).toByteArray(Charsets.UTF_8)
+                        }
+                        break
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+
+            if (!needsPatch || patchedManifestBytes == null) {
+                return
+            }
+
+            Log.d(TAG, "Patching manifest.json in XPI to lower strict_min_version for GeckoView v99...")
+            val patchedTmpFile = File(xpiFile.parentFile, "comix_extension_patched.xpi")
+
+            ZipInputStream(xpiFile.inputStream()).use { zis ->
+                ZipOutputStream(FileOutputStream(patchedTmpFile)).use { zos ->
+                    var entry: ZipEntry? = zis.nextEntry
+                    while (true) {
+                        val currentEntry = entry ?: break
+                        val newEntry = ZipEntry(currentEntry.name)
+                        zos.putNextEntry(newEntry)
+                        if (currentEntry.name == "manifest.json") {
+                            zos.write(patchedManifestBytes!!)
+                        } else {
+                            zis.copyTo(zos)
+                        }
+                        zos.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+            }
+
+            if (patchedTmpFile.exists() && patchedTmpFile.length() > 0L) {
+                xpiFile.delete()
+                if (!patchedTmpFile.renameTo(xpiFile)) {
+                    patchedTmpFile.copyTo(xpiFile, overwrite = true)
+                    patchedTmpFile.delete()
+                }
+                Log.d(TAG, "Successfully patched XPI manifest.json for GeckoView compatibility!")
+            } else {
+                patchedTmpFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error patching XPI manifest.json", e)
+        }
     }
 
     suspend fun installToGecko(context: Context, runtime: GeckoRuntime): WebExtension? = withContext(Dispatchers.Main) {
