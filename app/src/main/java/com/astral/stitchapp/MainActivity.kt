@@ -61,6 +61,7 @@ import com.astral.stitchapp.rawloader.WebtoonsApi
 import com.astral.stitchapp.rawloader.WebtoonsSession
 import com.astral.stitchapp.rawloader.WebtoonsChapter
 import com.astral.stitchapp.rawloader.WebtoonsSeriesInfo
+import com.astral.stitchapp.rawloader.GeckoCookieExtractor
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -2387,7 +2388,11 @@ fun BatoTab(
                                         "bomtoon" -> bomtoonCookieInput
                                         "lezhin" -> lezhinCookieInput
                                         "mrblue" -> mrblueCookieInput
-                                        "kakaopage" -> kakaopageCookieInput
+                                        "kakaopage" -> {
+                                            if (kakaopageCookieInput.isNotBlank()) kakaopageCookieInput
+                                            else prefs.getString("kakaopage_cookie", "")?.takeIf { it.isNotBlank() }
+                                                ?: GeckoCookieExtractor.extractCookieString(context, "https://page.kakao.com/")
+                                        }
                                         else -> ""
                                     }
 
@@ -2680,19 +2685,54 @@ fun BatoTab(
                         "KakaoPage" -> "kakaopage"
                         else -> patchObj?.type ?: selectedSource.lowercase()
                     }
-                    if (cookie.isNotBlank()) {
-                        when(type) {
-                            "ridi" -> { cookieInput = cookie; prefs.edit().putString("ridi_cookie", cookie).apply() }
-                            "bomtoon" -> { bomtoonCookieInput = cookie; prefs.edit().putString("bomtoon_cookie", cookie).apply() }
-                            "lezhin" -> { lezhinCookieInput = cookie; prefs.edit().putString("lezhin_cookie", cookie).apply() }
-                            "mrblue" -> { mrblueCookieInput = cookie; prefs.edit().putString("mrblue_cookie", cookie).apply() }
-                            "kakaopage" -> { kakaopageCookieInput = cookie; prefs.edit().putString("kakaopage_cookie", cookie).apply() }
+                    val resolvedCookie = when(type) {
+                        "ridi" -> {
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(cookieInput, cookie)
+                            if (merged.isNotBlank()) {
+                                cookieInput = merged
+                                prefs.edit().putString("ridi_cookie", merged).apply()
+                                merged
+                            } else cookie
                         }
+                        "bomtoon" -> {
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(bomtoonCookieInput, cookie)
+                            if (merged.isNotBlank()) {
+                                bomtoonCookieInput = merged
+                                prefs.edit().putString("bomtoon_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        "lezhin" -> {
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(lezhinCookieInput, cookie)
+                            if (merged.isNotBlank()) {
+                                lezhinCookieInput = merged
+                                prefs.edit().putString("lezhin_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        "mrblue" -> {
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(mrblueCookieInput, cookie)
+                            if (merged.isNotBlank()) {
+                                mrblueCookieInput = merged
+                                prefs.edit().putString("mrblue_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        "kakaopage" -> {
+                            val existing = if (kakaopageCookieInput.isNotBlank()) kakaopageCookieInput else prefs.getString("kakaopage_cookie", "") ?: ""
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(existing, cookie)
+                            if (merged.isNotBlank()) {
+                                kakaopageCookieInput = merged
+                                prefs.edit().putString("kakaopage_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        else -> cookie
                     }
 
                     scope.launch(Dispatchers.IO) {
                         try {
-                            BatoEngine.addDirectJob(context.cacheDir, title, images, cookie, type)
+                            BatoEngine.addDirectJob(context.cacheDir, title, images, resolvedCookie, type)
 
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Added ${images.size} images: $title", Toast.LENGTH_SHORT).show()

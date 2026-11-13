@@ -873,6 +873,65 @@ object ScraperScripts {
             }
         }
 
+        window._kpTokens = window._kpTokens || {};
+
+        function captureHeaders(headers) {
+            if (!headers) return;
+            try {
+                if (typeof headers.forEach === 'function') {
+                    headers.forEach((v, k) => {
+                        if (k && v && (k.toLowerCase().includes('cookie') || k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.startsWith('_k') || k.startsWith('T_'))) {
+                            window._kpTokens[k] = v;
+                        }
+                    });
+                } else if (typeof headers === 'object') {
+                    for (const [k, v] of Object.entries(headers)) {
+                        if (k && v && (k.toLowerCase().includes('cookie') || k.toLowerCase().includes('auth') || k.toLowerCase().includes('token') || k.startsWith('_k') || k.startsWith('T_'))) {
+                            window._kpTokens[k] = v;
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
+
+        function getExtraTokens() {
+            const list = [];
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && (k.startsWith('_kp') || k.startsWith('_ka') || k.startsWith('T_') || k.toLowerCase().includes('token') || k.toLowerCase().includes('auth'))) {
+                        const v = localStorage.getItem(k);
+                        if (v && typeof v === 'string' && v.length < 3000) {
+                            list.push(k + '=' + v);
+                        }
+                    }
+                }
+            } catch(e) {}
+            try {
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const k = sessionStorage.key(i);
+                    if (k && (k.startsWith('_kp') || k.startsWith('_ka') || k.startsWith('T_') || k.toLowerCase().includes('token') || k.toLowerCase().includes('auth'))) {
+                        const v = sessionStorage.getItem(k);
+                        if (v && typeof v === 'string' && v.length < 3000) {
+                            list.push(k + '=' + v);
+                        }
+                    }
+                }
+            } catch(e) {}
+            if (window._kpTokens) {
+                for (const [k, v] of Object.entries(window._kpTokens)) {
+                    if (k.toLowerCase() === 'cookie') {
+                        list.push(v);
+                    } else if (k.toLowerCase() === 'authorization') {
+                        list.push('Authorization=' + v);
+                    } else {
+                        list.push(k + '=' + v);
+                    }
+                }
+            }
+            return list.join('; ');
+        }
+
         function installHooks() {
             if (window._kpHooksInstalled) return;
             window._kpHooksInstalled = true;
@@ -880,6 +939,8 @@ object ScraperScripts {
             const _fetch = window.fetch;
             window.fetch = async function(input, init) {
                 try {
+                    if (init && init.headers) captureHeaders(init.headers);
+                    if (input && input.headers) captureHeaders(input.headers);
                     const url = (typeof input === 'string') ? input : (input?.url || '');
                     const isTarget = url.includes(BFF_HOST) && url.includes(API_PATH);
                     const resp = await _fetch.apply(this, arguments);
@@ -894,6 +955,14 @@ object ScraperScripts {
 
             const origOpen = XMLHttpRequest.prototype.open;
             const origSend = XMLHttpRequest.prototype.send;
+            const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+            XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+                if (header && value && (header.toLowerCase().includes('auth') || header.toLowerCase().includes('cookie') || header.toLowerCase().includes('token') || header.startsWith('_k') || header.startsWith('T_'))) {
+                    window._kpTokens = window._kpTokens || {};
+                    window._kpTokens[header] = value;
+                }
+                return origSetHeader.apply(this, arguments);
+            };
             XMLHttpRequest.prototype.open = function(method, url) {
                 this._kakaoTarget = (typeof url === 'string' && url.includes(BFF_HOST) && url.includes(API_PATH));
                 return origOpen.apply(this, arguments);
@@ -923,10 +992,25 @@ object ScraperScripts {
                 }
                 const orderedUrls = state.orderedNos.map(no => state.items.get(no).url);
                 const title = state.titleHint || document.title.replace(" - 카카오페이지", "").trim() || "KakaoPage Episode";
+
+                // Request freshest cookies from AstralCookieBridge extension
+                window.dispatchEvent(new CustomEvent('astral:request-cookies'));
+                await new Promise(r => setTimeout(r, 400));
+
+                let extCookies = (document.documentElement ? document.documentElement.getAttribute('data-astral-cookies') : null) || window.__ASTRAL_COOKIES__ || '';
+                let docCookie = document.cookie || '';
+                let extraTokens = getExtraTokens();
+
+                let cookieParts = [];
+                if (docCookie) cookieParts.push(docCookie);
+                if (extraTokens) cookieParts.push(extraTokens);
+                if (extCookies) cookieParts.push(extCookies);
+                let cookieStr = cookieParts.join('; ');
+
                 const result = {
                     title: title,
                     images: orderedUrls,
-                    cookie: document.cookie
+                    cookie: cookieStr
                 };
                 log("KakaoPage: Successfully scraped " + orderedUrls.length + " images!");
                 if (window.Android && window.Android.onImagesFound) {
@@ -1051,9 +1135,24 @@ private fun GeckoScraperDialog(
 
     val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
 
+    fun fixKakaoUrl(targetUrl: String): String {
+        if (!targetUrl.contains("kakao.com")) return targetUrl
+        var fixed = targetUrl.replace("#webTalkLogin", "")
+        if (!fixed.contains("talk_login_error=true")) {
+            fixed = if (fixed.contains("?")) "$fixed&talk_login_error=true" else "$fixed?talk_login_error=true"
+        }
+        return fixed
+    }
+
     LaunchedEffect(runtime) {
-        if (isComix) {
-            withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
+            try {
+                com.astral.stitchapp.rawloader.GeckoCookieBridge.install(context, runtime)
+                Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
+            } catch (e: Exception) {
+                Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
+            }
+            if (isComix) {
                 try {
                     val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
                     if (addonFile != null) {
@@ -1142,6 +1241,28 @@ private fun GeckoScraperDialog(
                                             }
                                         }
                                     }
+                                    popup.navigationDelegate = object : GeckoSession.NavigationDelegate {
+                                        override fun onLoadRequest(popupSession: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
+                                            val reqUri = request.uri
+                                            if (reqUri.startsWith("http://") || reqUri.startsWith("https://")) {
+                                                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                                            }
+                                            return try {
+                                                val intent = android.content.Intent.parseUri(reqUri, android.content.Intent.URI_INTENT_SCHEME)
+                                                if (intent.resolveActivity(context.packageManager) != null) {
+                                                    context.startActivity(intent)
+                                                } else {
+                                                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                                                    if (!fallbackUrl.isNullOrEmpty()) {
+                                                        popupSession.loadUri(fallbackUrl)
+                                                    }
+                                                }
+                                                GeckoResult.fromValue(AllowOrDeny.DENY)
+                                            } catch (_: Exception) {
+                                                GeckoResult.fromValue(AllowOrDeny.DENY)
+                                            }
+                                        }
+                                    }
                                     popupSessionState = popup
                                     return GeckoResult.fromValue(popup)
                                 }
@@ -1189,8 +1310,27 @@ private fun GeckoScraperDialog(
                                             }
                                         }
 
-                                        parseIntoMap(jsCookie)
                                         parseIntoMap(cm4)
+                                        parseIntoMap(jsCookie)
+
+                                        val bridgeCookie = com.astral.stitchapp.rawloader.GeckoCookieBridge.getCookieString()
+                                        parseIntoMap(bridgeCookie)
+                                        for ((k, v) in com.astral.stitchapp.rawloader.GeckoCookieBridge.getCookies()) {
+                                            if (v.isNotBlank() || !cookieMap.containsKey(k)) {
+                                                cookieMap[k] = v
+                                            }
+                                        }
+
+                                        try {
+                                            val geckoCookies = com.astral.stitchapp.rawloader.GeckoCookieExtractor.extractCookies(context, url)
+                                            for ((k, v) in geckoCookies) {
+                                                if (v.isNotBlank() || !cookieMap.containsKey(k)) {
+                                                    cookieMap[k] = v
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("ScraperUi", "Error extracting Gecko cookies: ${e.message}", e)
+                                        }
 
                                         val finalCookieString = cookieMap.entries.joinToString("; ") { (k, v) ->
                                             if (v.isBlank()) k else "$k=$v"
@@ -1218,7 +1358,7 @@ private fun GeckoScraperDialog(
                             }
 
                             session.settings.userAgentOverride = realDeviceUserAgent
-                            session.loadUri(url)
+                            session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
                         }
                     },
                     modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)
@@ -1351,12 +1491,13 @@ private fun StandardWebViewScraperDialog(
                             cookieManager.setAcceptThirdPartyCookies(this, true)
 
                             addJavascriptInterface(ScraperJsInterface(
-                                onResult = { t, i, _ ->
+                                onResult = { t, i, jsCookie ->
                                     if (!hasScraped) {
                                         hasScraped = true
                                         val cm = CookieManager.getInstance()
                                         val currentCookie = cm.getCookie(url) ?: ""
-                                        onScrapeSuccess(t, i, currentCookie)
+                                        val merged = com.astral.stitchapp.rawloader.GeckoCookieExtractor.mergeCookieStrings(currentCookie, jsCookie)
+                                        onScrapeSuccess(t, i, if (merged.isNotBlank()) merged else currentCookie)
                                     }
                                 },
                                 onLog = { msg -> status = msg },
