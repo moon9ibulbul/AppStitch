@@ -2794,8 +2794,11 @@ fun BatoTab(
                                     Spacer(Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text("Episode ${ch.number}: ${ch.title}", style = MaterialTheme.typography.bodyMedium)
-                                        if (ch.isAdRequired) {
-                                            Text("[Ad Watch / Fast Pass]", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF9800))
+                                        if (ch.isPurchased) {
+                                            Text("[Sudah Dibeli / Unlocked]", style = MaterialTheme.typography.labelSmall, color = Color(0xFF4CAF50))
+                                        } else if (ch.isAdRequired) {
+                                            val label = if (ch.price > 0) "[Fast Pass - ${ch.price} Coins / Ad Watch]" else "[Fast Pass / Ad Watch]"
+                                            Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF9800))
                                         }
                                     }
                                 }
