@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "AstralCookieBridge",
+  "version": "1.0",
+  "description": "Cookie extractor for Astral Stitch Rawloader",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "cookie-bridge@astral.stitchapp",
+      "strict_min_version": "90.0"
+    }
+  },
+  "permissions": [
+    "cookies",
+    "<all_urls>",
+    "geckoViewAddons"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}
