@@ -69,7 +69,6 @@ import com.astral.stitchapp.rawloader.BilibiliQrData
 import com.astral.stitchapp.rawloader.BilibiliQrPollStatus
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
-import android.graphics.Bitmap
 import com.astral.stitchapp.rawloader.GeckoCookieExtractor
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.*
