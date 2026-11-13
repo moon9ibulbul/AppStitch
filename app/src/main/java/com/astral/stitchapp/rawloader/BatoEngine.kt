@@ -193,6 +193,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "KakaoPage Chapter", type = "kakaopage", cookie = cookie))
                     added = 1
                 }
+            } else if (sourceType == "bilibili") {
+                val existingBilibili = queue.filter { it.url == url }
+                existingBilibili.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "Bilibili Chapter", type = "bilibili", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -225,6 +238,37 @@ object BatoEngine {
 
             if (queue.none { it.url == urlWithFlag }) {
                 queue.add(QueueItem(url = urlWithFlag, title = chTitle, type = "webtoons", cookie = cookie))
+                addedCount++
+            }
+        }
+
+        if (addedCount > 0) {
+            saveQueue(cacheDir, queue)
+        }
+        return@withLock addedCount
+    }
+
+    suspend fun addBilibiliChapters(cacheDir: File, chapters: List<BilibiliChapter>, seriesTitle: String, cookie: String = ""): Int = queueMutex.withLock {
+        val queue = loadQueue(cacheDir)
+        var addedCount = 0
+        val sanitizedSeries = sanitizeFilename(seriesTitle)
+
+        chapters.forEach { ch ->
+            val chNumStr = if (ch.number % 1.0f == 0.0f) ch.number.toInt().toString() else ch.number.toString()
+            val chTitle = "$sanitizedSeries - Chapter $chNumStr${if (ch.title.isNotBlank()) " - ${ch.title}" else ""}"
+            val chUrl = "https://manga.bilibili.com/detail/mc${ch.comicId}#ep_id=${ch.id}&comic_id=${ch.comicId}"
+
+            val existing = queue.filter { it.url == chUrl || (it.title == chTitle && it.type == "bilibili") }
+            existing.forEach { oldItem ->
+                if (oldItem.status == "done" || oldItem.status == "failed") {
+                    val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                    if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                    queue.remove(oldItem)
+                }
+            }
+
+            if (queue.none { it.url == chUrl }) {
+                queue.add(QueueItem(url = chUrl, title = chTitle, type = "bilibili", cookie = cookie))
                 addedCount++
             }
         }
@@ -644,7 +688,12 @@ object BatoEngine {
                     }
                 }
 
-                val bytes = conn.inputStream.use { it.readBytes() }
+                val rawBytes = conn.inputStream.use { it.readBytes() }
+                val bytes = if (cleanUrlStr.contains("cpx=") || urlStr.contains("cpx=") || BilibiliApi.isCpxPayload(rawBytes)) {
+                    BilibiliApi.decryptCpxImage(rawBytes, urlStr)
+                } else {
+                    rawBytes
+                }
                 target.writeBytes(bytes)
                 return fixImageExtension(target)
             } catch (e: Exception) {
@@ -865,6 +914,9 @@ object BatoEngine {
                 }
                 images.addAll(WebtoonsApi.scrapeChapterImages(context, cleanUrl))
                 referer = "https://www.webtoons.com/"
+            } else if (sourceType == "bilibili") {
+                images.addAll(BilibiliApi.scrapeChapterImages(context, url, item.cookie))
+                referer = "https://manga.bilibili.com/"
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)

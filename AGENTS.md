@@ -85,6 +85,15 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Menyediakan dialog pemilihan chapter untuk URL/ID series Webtoons.
 - Fase simulasi iklan (`simulating ad view`) beserta request pembelian produk di `BatoEngine.kt` sebelum mengunduh chapter yang terkunci iklan.
 
+### Bilibili
+- File terkait: `BilibiliApi.kt`, `BatoEngine.kt`, `MainActivity.kt`.
+- State login disimpan di SharedPreferences (`bilibili_session`) dengan dukungan reusable session.
+- Login via scan QR code resmi Bilibili (polling endpoint `/x/passport-login/web/qrcode/poll`) menggunakan renderer QR berbasis ZXing.
+- Mengambil info seri dan daftar episode melalui API Twirp Android Comic (`ComicDetail`) dengan query identity `APP_QUERY` dan fingerprint anti-abuse `buvid3`/`buvid4`.
+- Mengambil URL gambar via Twirp `GetImageIndex` dan `ImageToken`.
+- Dekripsi gambar format CPX secara native menggunakan AES-CBC (`javax.crypto.Cipher`) dengan decoding parameter token `cpx`.
+- Dialog pemilihan chapter interaktif (multi-select, rentang episode, info episode terkunci/koin) sebelum dimasukkan ke antrean scraping `BatoEngine`.
+
 ## 6. Patch Sumber (`.asp`)
 
 - Lokasi: `patches/` dan `app/src/main/assets/patches/` (jaga keduanya tetap sinkron).
