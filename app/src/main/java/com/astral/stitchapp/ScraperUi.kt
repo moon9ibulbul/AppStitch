@@ -758,47 +758,6 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
-    val COMIX = """
-    (function() {
-        'use strict';
-        $COMMON_SCRIPTS
-
-        window.runScraper = async function() {
-            log("Starting Comix Scraper...");
-            try {
-                let pages = [];
-                const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
-                window.dispatchEvent(extractEvent);
-                if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
-                    pages = extractEvent.detail.pages.map(p => p.src);
-                    log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
-                }
-
-                if (!pages || pages.length === 0) {
-                    const imgs = Array.from(document.querySelectorAll('img')).map(img => img.src).filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo'));
-                    pages = Array.from(new Set(imgs));
-                    log("Fallback extracted " + pages.length + " image URLs from DOM.");
-                }
-
-                if (!pages || pages.length === 0) {
-                    throw new Error("No images found. Open a chapter on comix.to first.");
-                }
-
-                const result = {
-                    title: document.title.replace(" | Comix", "").trim() || "Comix Chapter",
-                    images: pages,
-                    cookie: document.cookie
-                };
-
-                if (window.Android && window.Android.onImagesFound) {
-                    window.Android.onImagesFound(JSON.stringify(result));
-                }
-            } catch(e) {
-                log("Error: " + e.message);
-            }
-        };
-    })();
-    """.trimIndent()
 
     val KAKAOPAGE = """
     (function() {
@@ -1093,8 +1052,7 @@ fun ScraperWebViewDialog(
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
-                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
-                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
@@ -1133,8 +1091,6 @@ private fun GeckoScraperDialog(
 
     var popupSessionState by remember { mutableStateOf<GeckoSession?>(null) }
 
-    val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
-
     fun fixKakaoUrl(targetUrl: String): String {
         if (!targetUrl.contains("kakao.com")) return targetUrl
         var fixed = targetUrl.replace("#webTalkLogin", "")
@@ -1151,18 +1107,6 @@ private fun GeckoScraperDialog(
                 Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
             } catch (e: Exception) {
                 Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
-            }
-            if (isComix) {
-                try {
-                    val addonFile = com.astral.stitchapp.rawloader.ComixExtensionManager.ensureAddonFile(context)
-                    if (addonFile != null) {
-                        com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(context, runtime)
-                        Log.d("ScraperUi", "Installed Comix addon into GeckoRuntime")
-                    }
-                    Unit
-                } catch (e: Exception) {
-                    Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
-                }
             }
         }
     }
@@ -1386,7 +1330,7 @@ private fun GeckoScraperDialog(
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(8.dp)
                 ) {
-                    if (!isComix && totalCount > 0) {
+                    if (totalCount > 0) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -1420,9 +1364,7 @@ private fun GeckoScraperDialog(
                         }
                     }
 
-                    if (!isComix) {
-                        Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
-                    }
+                    Text(text = status, style = MaterialTheme.typography.bodySmall, maxLines = 2, modifier = Modifier.padding(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Close") }
 
@@ -1434,16 +1376,14 @@ private fun GeckoScraperDialog(
                             modifier = Modifier.weight(1f)
                         ) { Text("Reload") }
 
-                        if (!isComix) {
-                            Button(
-                                onClick = {
-                                    status = "Scraping started..."
-                                    session.loadUri(buildJsUri(true))
-                                },
-                                enabled = isScrapeReady,
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Scrape") }
-                        }
+                        Button(
+                            onClick = {
+                                status = "Scraping started..."
+                                session.loadUri(buildJsUri(true))
+                            },
+                            enabled = isScrapeReady,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scrape") }
                     }
                 }
             }
