@@ -35,8 +35,6 @@
             queries.push({ domain: "mrblue.com" });
         } else if (domain.includes("manta")) {
             queries.push({ domain: "manta.net" });
-        } else if (domain.includes("comix")) {
-            queries.push({ domain: "comix.to" });
         } else if (domain) {
             queries.push({ domain: domain });
             const parts = domain.split('.');

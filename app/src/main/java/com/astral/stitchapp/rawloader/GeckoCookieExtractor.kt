@@ -93,7 +93,6 @@ object GeckoCookieExtractor {
             lower.contains("lezhin") -> listOf("lezhin")
             lower.contains("mrblue") -> listOf("mrblue")
             lower.contains("manta") -> listOf("manta")
-            lower.contains("comix") -> listOf("comix")
             else -> {
                 val host = try {
                     Uri.parse(urlOrDomain).host ?: urlOrDomain

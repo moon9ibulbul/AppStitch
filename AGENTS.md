@@ -19,7 +19,7 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 ## 3. Arsitektur Scraper
 
 ### Routing dialog (`ScraperUi.kt`)
-- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks, Comix** (`manta`, `kakao`, `ridi`, `comix`) ke `GeckoScraperDialog`.
+- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks** (`manta`, `kakao`, `ridi`) ke `GeckoScraperDialog`.
   - Memakai Mozilla GeckoView (`GeckoRuntime` + `GeckoSession`) agar popup OAuth, anti-bot, dan WebExtension berfungsi.
 - Sumber lain memakai `StandardWebViewScraperDialog`.
 - Kedua dialog punya tombol **Reload** (`session.reload()` / `webView?.reload()`).
@@ -31,7 +31,7 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Tombol dinonaktifkan sementara selama scraping gambar berlangsung.
 
 ### Daftar sumber bawaan
-- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, Naver Webtoon.
+- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Naver Webtoon.
 - Ditambah patch sumber kustom dinamis (`.asp`).
 
 ## 4. Autentikasi & Cookie
@@ -45,23 +45,6 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Mengatur `MIXED_CONTENT_ALWAYS_ALLOW`.
 
 ## 5. Catatan per Sumber
-
-### Comix
-- `GeckoScraperDialog` mendukung dua jalur: integrasi WebExtension native dan fallback JS (`ScraperScripts.COMIX`).
-- Fallback JS memindai `__NEXT_DATA__`, selector gambar DOM, dan event `cdl:extract-pages`.
-- UI menampilkan status progress dan mengaktifkan tombol Scrape di toolbar bawah.
-
-#### `ComixExtensionManager` (`com.astral.stitchapp.rawloader.ComixExtensionManager`)
-- Mengelola download, update, patch, dan instalasi asinkron add-on Firefox `comix-chapter-downloader` (`.xpi`) dari Mozilla Add-ons (AMO API v5) ke GeckoView.
-- `suspend fun installToGecko` berjalan di `Dispatchers.Main`, memakai `suspendCancellableCoroutine` untuk menunggu `GeckoResult<WebExtension>`.
-- `PromptDelegate` otomatis menyetujui prompt instalasi/update (`AllowOrDeny.ALLOW`).
-- `patchXpiManifestIfNeeded` memeriksa dan mem-patch `manifest.json` di XPI:
-  - mengonversi Manifest V3 ke V2,
-  - menurunkan `strict_min_version` ke `90.0` agar kompatibel dengan GeckoView 99.
-- Urutan instalasi: coba `ensureBuiltIn`, fallback ke `install`.
-- Jika sudah terpasang, cek `webExtensionController.list()` lalu aktifkan lewat `WebExtensionController.EnableSource.USER`.
-- Mengaktifkan mode private browsing via `setAllowedInPrivateBrowsing`.
-- Setelah selesai, memicu `session.reload()` di `GeckoScraperDialog` dan memperbarui status UI.
 
 ### KakaoPage
 - Ekstraksi gambar memakai `ScraperWebViewDialog` dengan `ScraperScripts.KAKAOPAGE` di GeckoView.
