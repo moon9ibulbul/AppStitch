@@ -61,6 +61,14 @@ import com.astral.stitchapp.rawloader.WebtoonsApi
 import com.astral.stitchapp.rawloader.WebtoonsSession
 import com.astral.stitchapp.rawloader.WebtoonsChapter
 import com.astral.stitchapp.rawloader.WebtoonsSeriesInfo
+import com.astral.stitchapp.rawloader.BilibiliApi
+import com.astral.stitchapp.rawloader.BilibiliSession
+import com.astral.stitchapp.rawloader.BilibiliChapter
+import com.astral.stitchapp.rawloader.BilibiliSeriesInfo
+import com.astral.stitchapp.rawloader.BilibiliQrData
+import com.astral.stitchapp.rawloader.BilibiliQrPollStatus
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 import com.astral.stitchapp.rawloader.GeckoCookieExtractor
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import kotlinx.coroutines.*
@@ -1896,7 +1904,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon", "Bilibili")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -1913,6 +1921,18 @@ fun BatoTab(
     var webtoonsSelectedChapters by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var isWebtoonsFetchingChapters by remember { mutableStateOf(false) }
     var webtoonsRangeInput by remember { mutableStateOf("") }
+
+    var bilibiliSession by remember { mutableStateOf(BilibiliApi.loadSession(context)) }
+    var bilibiliQrData by remember { mutableStateOf<BilibiliQrData?>(null) }
+    var bilibiliQrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var bilibiliQrStatusText by remember { mutableStateOf("") }
+    var isGeneratingBilibiliQr by remember { mutableStateOf(false) }
+    var isBilibiliPolling by remember { mutableStateOf(false) }
+    var showBilibiliChapterDialog by remember { mutableStateOf(false) }
+    var bilibiliFetchedSeriesInfo by remember { mutableStateOf<BilibiliSeriesInfo?>(null) }
+    var bilibiliSelectedChapters by remember { mutableStateOf<Set<Float>>(emptySet()) }
+    var isBilibiliFetchingChapters by remember { mutableStateOf(false) }
+    var bilibiliRangeInput by remember { mutableStateOf("") }
 
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
@@ -1937,6 +1957,44 @@ fun BatoTab(
     }
 
     var isAddingToQueue by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isBilibiliPolling, bilibiliQrData) {
+        if (isBilibiliPolling && bilibiliQrData != null && !bilibiliSession.isLoggedIn) {
+            val key = bilibiliQrData!!.qrcodeKey
+            var keepPolling = true
+            while (keepPolling && isActive) {
+                delay(2000L)
+                val status = BilibiliApi.pollQrCode(key, bilibiliSession)
+                when (status) {
+                    is BilibiliQrPollStatus.WaitingScan -> {
+                        bilibiliQrStatusText = "Menunggu scan..."
+                    }
+                    is BilibiliQrPollStatus.ScannedWaitingConfirmation -> {
+                        bilibiliQrStatusText = "QR telah di-scan! Konfirmasi di aplikasi Bilibili..."
+                    }
+                    is BilibiliQrPollStatus.Expired -> {
+                        bilibiliQrStatusText = "Kode QR telah kedaluwarsa. Silakan refresh."
+                        isBilibiliPolling = false
+                        keepPolling = false
+                    }
+                    is BilibiliQrPollStatus.Success -> {
+                        bilibiliQrStatusText = "Login berhasil!"
+                        isBilibiliPolling = false
+                        keepPolling = false
+                        val newSession = status.session
+                        BilibiliApi.saveSession(context, newSession)
+                        bilibiliSession = newSession
+                        bilibiliQrBitmap = null
+                        bilibiliQrData = null
+                        Toast.makeText(context, "Login Bilibili berhasil: ${newSession.username}", Toast.LENGTH_SHORT).show()
+                    }
+                    is BilibiliQrPollStatus.Error -> {
+                        bilibiliQrStatusText = status.message
+                    }
+                }
+            }
+        }
+    }
 
     var rawloaderOutputUri by remember { mutableStateOf(prefs.getString("rawloader_output_uri", null)) }
     val pickRawloaderOutput = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -2319,6 +2377,200 @@ fun BatoTab(
                     }
                 }
             }
+        } else if (selectedSource == "Bilibili") {
+            if (!bilibiliSession.isLoggedIn) {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Login Bilibili", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Scan kode QR dengan aplikasi resmi Bilibili di ponsel Anda.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+
+                        if (bilibiliQrBitmap == null) {
+                            Button(
+                                onClick = {
+                                    isGeneratingBilibiliQr = true
+                                    bilibiliQrStatusText = "Menghubungi server Bilibili..."
+                                    scope.launch(Dispatchers.IO) {
+                                        val qrResult = BilibiliApi.generateQrCode()
+                                        withContext(Dispatchers.Main) {
+                                            isGeneratingBilibiliQr = false
+                                            if (qrResult.isSuccess) {
+                                                val data = qrResult.getOrThrow()
+                                                bilibiliQrData = data
+                                                bilibiliQrBitmap = BilibiliApi.generateQrBitmap(data.url)
+                                                bilibiliQrStatusText = "Silakan scan kode QR dengan aplikasi Bilibili"
+                                                isBilibiliPolling = true
+                                            } else {
+                                                bilibiliQrStatusText = "Gagal membuat QR: ${qrResult.exceptionOrNull()?.message}"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isGeneratingBilibiliQr,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (isGeneratingBilibiliQr) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Generate QR Login")
+                                }
+                            }
+                        } else {
+                            Card(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray),
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        bitmap = bilibiliQrBitmap!!.asImageBitmap(),
+                                        contentDescription = "Bilibili Login QR",
+                                        modifier = Modifier.size(200.dp)
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (isBilibiliPolling) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                }
+                                Text(
+                                    bilibiliQrStatusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        bilibiliQrBitmap = null
+                                        bilibiliQrData = null
+                                        isBilibiliPolling = false
+                                        bilibiliQrStatusText = ""
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Batal")
+                                }
+                                Button(
+                                    onClick = {
+                                        isGeneratingBilibiliQr = true
+                                        bilibiliQrStatusText = "Membuat QR baru..."
+                                        scope.launch(Dispatchers.IO) {
+                                            val qrResult = BilibiliApi.generateQrCode()
+                                            withContext(Dispatchers.Main) {
+                                                isGeneratingBilibiliQr = false
+                                                if (qrResult.isSuccess) {
+                                                    val data = qrResult.getOrThrow()
+                                                    bilibiliQrData = data
+                                                    bilibiliQrBitmap = BilibiliApi.generateQrBitmap(data.url)
+                                                    bilibiliQrStatusText = "Silakan scan kode QR dengan aplikasi Bilibili"
+                                                    isBilibiliPolling = true
+                                                } else {
+                                                    bilibiliQrStatusText = "Gagal membuat QR: ${qrResult.exceptionOrNull()?.message}"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Refresh QR")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Akun Bilibili: ${bilibiliSession.username}", style = MaterialTheme.typography.bodyMedium)
+                            Text("漫币 (Coins): ${bilibiliSession.gold} | 漫读券 (Tickets): ${bilibiliSession.coupon}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                BilibiliApi.clearSession(context)
+                                bilibiliSession = BilibiliSession()
+                                bilibiliQrBitmap = null
+                                bilibiliQrData = null
+                                isBilibiliPolling = false
+                                Toast.makeText(context, "Berhasil logout", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text("Logout")
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("URL Bilibili / Comic ID (misal: mc25717 atau 25717)") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (isBilibiliFetchingChapters) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Button(
+                            onClick = {
+                                if (urlInput.isBlank()) {
+                                    Toast.makeText(context, "Masukkan URL atau Comic ID!", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                isBilibiliFetchingChapters = true
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val info = BilibiliApi.fetchSeriesInfo(urlInput, context = context, session = bilibiliSession)
+                                        withContext(Dispatchers.Main) {
+                                            isBilibiliFetchingChapters = false
+                                            if (info.chapters.isNotEmpty()) {
+                                                bilibiliFetchedSeriesInfo = info
+                                                bilibiliSelectedChapters = info.chapters.map { it.number }.toSet()
+                                                showBilibiliChapterDialog = true
+                                            } else {
+                                                Toast.makeText(context, "Tidak ada chapter yang ditemukan untuk '$urlInput'", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        withContext(Dispatchers.Main) {
+                                            isBilibiliFetchingChapters = false
+                                            Toast.makeText(context, "Gagal mengambil chapter: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = urlInput.isNotBlank()
+                        ) {
+                            Text("Fetch Chapters")
+                        }
+                    }
+                }
+            }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val labelText = when(selectedSource) {
@@ -2579,6 +2831,166 @@ fun BatoTab(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text("Tambah (${webtoonsSelectedChapters.size})")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showBilibiliChapterDialog && bilibiliFetchedSeriesInfo != null) {
+            val info = bilibiliFetchedSeriesInfo!!
+            Dialog(onDismissRequest = { showBilibiliChapterDialog = false }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(8.dp),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Text(
+                            text = info.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedButton(onClick = {
+                                    bilibiliSelectedChapters = info.chapters.map { it.number }.toSet()
+                                }) {
+                                    Text("Pilih Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                                OutlinedButton(onClick = {
+                                    bilibiliSelectedChapters = emptySet()
+                                }) {
+                                    Text("Hapus Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Text("${bilibiliSelectedChapters.size}/${info.chapters.size} dipilih", style = MaterialTheme.typography.bodySmall)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = bilibiliRangeInput,
+                                onValueChange = { bilibiliRangeInput = it },
+                                label = { Text("Range (misal: 1-10)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = {
+                                val parts = bilibiliRangeInput.split("-")
+                                if (parts.size == 2) {
+                                    val start = parts[0].trim().toFloatOrNull()
+                                    val end = parts[1].trim().toFloatOrNull()
+                                    if (start != null && end != null && start <= end) {
+                                        val inRange = info.chapters.filter { it.number in start..end }.map { it.number }.toSet()
+                                        bilibiliSelectedChapters = inRange
+                                    }
+                                }
+                            }) {
+                                Text("Terapkan")
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(info.chapters) { ch ->
+                                val isSelected = ch.number in bilibiliSelectedChapters
+                                val ordStr = if (ch.number % 1.0f == 0.0f) ch.number.toInt().toString() else ch.number.toString()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            bilibiliSelectedChapters = if (isSelected) {
+                                                bilibiliSelectedChapters - ch.number
+                                            } else {
+                                                bilibiliSelectedChapters + ch.number
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            bilibiliSelectedChapters = if (checked) {
+                                                bilibiliSelectedChapters + ch.number
+                                            } else {
+                                                bilibiliSelectedChapters - ch.number
+                                            }
+                                        }
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Chapter $ordStr${if (ch.title.isNotBlank()) ": ${ch.title}" else ""}",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        if (ch.isLocked && !ch.isInFree) {
+                                            Text(
+                                                "[Terkunci - ${ch.payGold} coins]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFFFF9800)
+                                            )
+                                        } else {
+                                            Text(
+                                                "[Tersedia / Unlocked]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF4CAF50)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showBilibiliChapterDialog = false },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Batal")
+                            }
+                            Button(
+                                onClick = {
+                                    val selectedChs = info.chapters.filter { it.number in bilibiliSelectedChapters }
+                                    if (selectedChs.isEmpty()) {
+                                        Toast.makeText(context, "Pilih minimal 1 chapter!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    showBilibiliChapterDialog = false
+                                    scope.launch(Dispatchers.IO) {
+                                        val added = BatoEngine.addBilibiliChapters(
+                                            context.cacheDir,
+                                            selectedChs,
+                                            info.title,
+                                            bilibiliSession.toCookieHeader()
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Menambahkan $added chapter ke queue!", Toast.LENGTH_SHORT).show()
+                                            urlInput = ""
+                                        }
+                                    }
+                                },
+                                enabled = bilibiliSelectedChapters.isNotEmpty(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Tambah (${bilibiliSelectedChapters.size})")
                             }
                         }
                     }

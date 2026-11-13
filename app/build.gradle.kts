@@ -76,4 +76,5 @@ dependencies {
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("io.github.awxkee:jxl-coder:2.2.0")
     implementation("org.mozilla.geckoview:geckoview-omni:99.0.20220411174855")
+    implementation("com.google.zxing:core:3.5.3")
 }
