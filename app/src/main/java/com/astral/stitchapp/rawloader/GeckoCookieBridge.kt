@@ -53,8 +53,21 @@ object GeckoCookieBridge {
     suspend fun install(context: Context, runtime: GeckoRuntime) = withContext(Dispatchers.Main) {
         try {
             runtime.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
-                override fun onInstallPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
-                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                override fun onInstallPromptRequest(
+                    extension: WebExtension,
+                    permissions: Array<out String>,
+                    origins: Array<out String>
+                ): GeckoResult<WebExtension.PermissionPromptResponse>? {
+                    return GeckoResult.fromValue(WebExtension.PermissionPromptResponse(true, true, true))
+                }
+
+                override fun onInstallPromptRequest(
+                    extension: WebExtension,
+                    permissions: Array<out String>,
+                    origins: Array<out String>,
+                    dataCollectionPermissions: Array<out String>
+                ): GeckoResult<WebExtension.PermissionPromptResponse>? {
+                    return GeckoResult.fromValue(WebExtension.PermissionPromptResponse(true, true, true))
                 }
 
                 override fun onUpdatePrompt(
@@ -62,7 +75,33 @@ object GeckoCookieBridge {
                     updated: WebExtension,
                     newPermissions: Array<out String>,
                     newOrigins: Array<out String>
-                ): GeckoResult<AllowOrDeny> {
+                ): GeckoResult<AllowOrDeny>? {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                }
+
+                override fun onUpdatePrompt(
+                    extension: WebExtension,
+                    permissions: Array<out String>,
+                    origins: Array<out String>,
+                    dataCollectionPermissions: Array<out String>
+                ): GeckoResult<AllowOrDeny>? {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                }
+
+                override fun onOptionalPrompt(
+                    extension: WebExtension,
+                    permissions: Array<out String>,
+                    origins: Array<out String>
+                ): GeckoResult<AllowOrDeny>? {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                }
+
+                override fun onOptionalPrompt(
+                    extension: WebExtension,
+                    permissions: Array<out String>,
+                    origins: Array<out String>,
+                    dataCollectionPermissions: Array<out String>
+                ): GeckoResult<AllowOrDeny>? {
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                 }
             })

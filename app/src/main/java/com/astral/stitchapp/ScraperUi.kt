@@ -758,6 +758,94 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
+    val COMIX = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        window.runScraper = async function() {
+            log("Starting Comix Scraper...");
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            try {
+                let pages = [];
+                const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
+                window.dispatchEvent(extractEvent);
+                if (extractEvent.detail && Array.isArray(extractEvent.detail.pages) && extractEvent.detail.pages.length > 0) {
+                    pages = extractEvent.detail.pages.map(p => p.src).filter(Boolean);
+                    log("Extracted " + pages.length + " pages via cdl:extract-pages bridge!");
+                }
+
+                if ((!pages || pages.length === 0) && Array.isArray(window.__cdlPages) && window.__cdlPages.length > 0) {
+                    pages = window.__cdlPages.map(p => p.src || p).filter(Boolean);
+                    log("Extracted " + pages.length + " pages via window.__cdlPages!");
+                }
+
+                if (!pages || pages.length === 0) {
+                    try {
+                        for (const k of ['reader.default.v3', 'reader.webtoon.v3']) {
+                            const v = JSON.parse(localStorage.getItem(k) || 'null') || { state: {}, version: 0 };
+                            v.state = Object.assign({}, v.state, { preload: 'all' });
+                            localStorage.setItem(k, JSON.stringify(v));
+                        }
+                    } catch (_) {}
+
+                    const slots = Array.from(document.querySelectorAll('.rpage-page'));
+                    if (slots.length > 0) {
+                        log("Found " + slots.length + " .rpage-page slots, mounting all images...");
+                        for (let i = 0; i < slots.length; i++) {
+                            const slot = slots[i];
+                            slot.setAttribute('data-page', String(i + 1));
+                            let img = slot.querySelector('img.rpage-page__img[src]:not([src=""])') || slot.querySelector('img[src]:not([src=""])');
+                            if (!img) {
+                                try { slot.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+                                for (let wait = 0; wait < 25; wait++) {
+                                    await sleep(120);
+                                    img = slot.querySelector('img.rpage-page__img[src]:not([src=""])') || slot.querySelector('img[src]:not([src=""])');
+                                    if (img && (img.currentSrc || img.src)) break;
+                                }
+                            }
+                            if (window.Android && window.Android.updateProgress) {
+                                window.Android.updateProgress(i + 1, slots.length, false);
+                            }
+                        }
+                        pages = slots.map(s => {
+                            const im = s.querySelector('img.rpage-page__img') || s.querySelector('img');
+                            return im ? (im.currentSrc || im.src || im.getAttribute('data-src') || '') : '';
+                        }).filter(src => /^https?:\/\//i.test(src) && !src.includes('data:image'));
+                        log("Mounted and extracted " + pages.length + " / " + slots.length + " slot images.");
+                    }
+                }
+
+                if (!pages || pages.length === 0) {
+                    const imgs = Array.from(document.querySelectorAll('img.rpage-page__img, .rpage-page img'))
+                        .map(img => img.currentSrc || img.src || img.getAttribute('data-src'))
+                        .filter(src => src && /^https?:\/\//i.test(src) && !src.includes('data:image'));
+                    pages = Array.from(new Set(imgs));
+                }
+
+                if (!pages || pages.length === 0) {
+                    throw new Error("No images found. Open a chapter on comix.to or use the in-page Comix Downloader buttons.");
+                }
+
+                if (window.Android && window.Android.updateProgress) {
+                    window.Android.updateProgress(pages.length, pages.length, true);
+                }
+
+                const result = {
+                    title: document.title.replace(" | Comix", "").trim() || "Comix Chapter",
+                    images: pages,
+                    cookie: document.cookie
+                };
+
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
 
     val KAKAOPAGE = """
     (function() {
@@ -1048,17 +1136,20 @@ fun ScraperWebViewDialog(
     url: String,
     script: String,
     onDismiss: () -> Unit,
+    onQueueUpdated: () -> Unit = {},
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
-                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
+                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
             url = url,
             script = script,
             onDismiss = onDismiss,
+            onQueueUpdated = onQueueUpdated,
             onScrapeSuccess = onScrapeSuccess
         )
     } else {
@@ -1076,13 +1167,16 @@ private fun GeckoScraperDialog(
     url: String,
     script: String,
     onDismiss: () -> Unit,
+    onQueueUpdated: () -> Unit = {},
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     val context = LocalContext.current
     val runtime = remember { GeckoRuntime.getDefault(context) }
     val session = remember { GeckoSession() }
 
-    var status by remember { mutableStateOf("Loading page...") }
+    val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+
+    var status by remember { mutableStateOf(if (isComix) "Preparing Comix Addon..." else "Loading page...") }
 
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
@@ -1100,19 +1194,46 @@ private fun GeckoScraperDialog(
         return fixed
     }
 
-    LaunchedEffect(runtime) {
-        withContext(Dispatchers.IO) {
+    LaunchedEffect(runtime, session) {
+        try {
+            com.astral.stitchapp.rawloader.GeckoCookieBridge.install(context, runtime)
+            Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
+        } catch (e: Exception) {
+            Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
+        }
+        if (isComix) {
             try {
-                com.astral.stitchapp.rawloader.GeckoCookieBridge.install(context, runtime)
-                Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
+                val ext = com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(
+                    context = context,
+                    runtime = runtime,
+                    mainSession = session,
+                    onOpenPopupSession = { popup -> popupSessionState = popup },
+                    onStatusUpdate = { msg -> status = msg },
+                    onArchiveSaved = { _, queuedCount ->
+                        if (queuedCount > 0) {
+                            onQueueUpdated()
+                        }
+                    }
+                )
+                val ver = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                status = if (ext != null) {
+                    "Comix Addon active (v$ver) — Loading Comix..."
+                } else {
+                    "Loading Comix..."
+                }
             } catch (e: Exception) {
-                Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
+                Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
+                status = "Addon error: ${e.message}"
             }
+            session.loadUri(url)
         }
     }
 
     DisposableEffect(session) {
         onDispose {
+            if (isComix) {
+                com.astral.stitchapp.rawloader.ComixExtensionManager.closeBackgroundSessions()
+            }
             try { session.close() } catch (_: Exception) {}
         }
     }
@@ -1290,19 +1411,43 @@ private fun GeckoScraperDialog(
                                 }
                             }
 
+                            session.contentDelegate = object : GeckoSession.ContentDelegate {
+                                override fun onExternalResponse(s: GeckoSession, response: org.mozilla.geckoview.WebResponse) {
+                                    if (isComix) {
+                                        com.astral.stitchapp.rawloader.ComixExtensionManager.handleExternalBlobResponse(
+                                            context = context,
+                                            response = response,
+                                            onStatusUpdate = { msg -> status = msg },
+                                            onArchiveSaved = { _, queuedCount ->
+                                                if (queuedCount > 0) {
+                                                    onQueueUpdated()
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             session.progressDelegate = object : GeckoSession.ProgressDelegate {
                                 override fun onPageStart(s: GeckoSession, pageUrl: String) {
                                     status = "Loading page..."
                                 }
 
                                 override fun onPageStop(s: GeckoSession, success: Boolean) {
-                                    status = if (success) "Page loaded" else "Failed to load"
-                                    s.loadUri(buildJsUri(false))
+                                    if (isComix) {
+                                        val ver = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                                        status = if (success) "Comix Addon active (v$ver) — Ready" else "Failed to load"
+                                    } else {
+                                        status = if (success) "Page loaded" else "Failed to load"
+                                        s.loadUri(buildJsUri(false))
+                                    }
                                 }
                             }
 
-                            session.settings.userAgentOverride = realDeviceUserAgent
-                            session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                            if (!isComix) {
+                                session.settings.userAgentOverride = realDeviceUserAgent
+                                session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)

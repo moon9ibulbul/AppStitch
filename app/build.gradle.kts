@@ -75,6 +75,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("io.github.awxkee:jxl-coder:2.2.0")
-    implementation("org.mozilla.geckoview:geckoview-omni:99.0.20220411174855")
+    implementation("org.mozilla.geckoview:geckoview-omni:142.0.20250827004350") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "androidx.core")
+        exclude(group = "androidx.lifecycle")
+        exclude(group = "androidx.collection")
+        exclude(group = "androidx.annotation")
+    }
+    implementation("androidx.lifecycle:lifecycle-process:2.8.4")
     implementation("com.google.zxing:core:3.5.3")
 }
