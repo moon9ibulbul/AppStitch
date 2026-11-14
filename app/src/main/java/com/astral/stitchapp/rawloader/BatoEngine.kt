@@ -771,7 +771,13 @@ object BatoEngine {
         }
 
         val uri = Uri.parse(urlStr)
-        val cleanUrlStr = uri.buildUpon().fragment(null).build().toString()
+        val rawCleanUrlStr = uri.buildUpon().fragment(null).build().toString()
+        val hostPart = rawCleanUrlStr.substringAfter("://", "").substringBefore("/")
+        val cleanUrlStr = if (hostPart.contains("_") && rawCleanUrlStr.startsWith("https://", ignoreCase = true)) {
+            "http://" + rawCleanUrlStr.substring(8)
+        } else {
+            rawCleanUrlStr
+        }
         val pathPart = uri.path ?: ""
         var ext = if (pathPart.contains(".")) "." + pathPart.substringAfterLast('.') else ".jpg"
         if (ext.length > 5) ext = ".jpg"
@@ -1074,6 +1080,7 @@ object BatoEngine {
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
                     "kakaopage" -> "https://page.kakao.com/"
+                    "mangago" -> "https://www.mangago.me/"
                     "comix" -> null
                     else -> {
                         if (context != null) {
@@ -1144,8 +1151,13 @@ object BatoEngine {
             localFiles.sortBy { it.second.name }
 
             // 2. UNSCRAMBLING PHASE
-            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin") ||
-                images.any { Uri.parse(it).fragment?.contains("scramble=") == true || Uri.parse(it).fragment?.contains("shuffleKey=") == true }
+            val needsUnscramble = sourceType in listOf("bomtoon", "lezhin", "mangago") ||
+                images.any {
+                    val frag = Uri.parse(it).fragment
+                    frag?.contains("scramble=") == true ||
+                        frag?.contains("shuffleKey=") == true ||
+                        frag?.contains("desckey=") == true
+                }
 
             if (needsUnscramble) {
                 updateStatus(cacheDir, itemId, "unscrambling", 0.0)
@@ -1170,7 +1182,14 @@ object BatoEngine {
                                 }
 
                                 unscrambleSemaphore.withPermit {
-                                    if (sourceType == "bomtoon" || paramsUnscram.containsKey("scramble")) {
+                                    if (paramsUnscram.containsKey("desckey")) {
+                                        val rawDesckey = paramsUnscram["desckey"] ?: ""
+                                        val desckey = try { URLDecoder.decode(rawDesckey, "UTF-8") } catch (_: Exception) { rawDesckey }
+                                        val cols = paramsUnscram["cols"]?.toIntOrNull() ?: 0
+                                        if (desckey.isNotBlank()) {
+                                            MangaGoSyncManager.unscrambleImage(targetPath, desckey, cols, context)
+                                        }
+                                    } else if (sourceType == "bomtoon" || paramsUnscram.containsKey("scramble")) {
                                         val scrambleData = paramsUnscram["scramble"]
                                         if (!scrambleData.isNullOrBlank()) {
                                             val decodedData = URLDecoder.decode(scrambleData, "UTF-8")

@@ -110,6 +110,13 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
   - Menambahkan atribut `data-page="1..N"` pada setiap slot `.rpage-page` agar fallback Strategy B mengetahui total halaman sebenarnya (`N`) dan tidak berhenti di halaman ke-3.
   - Mengunduh gambar CDN Comix tanpa header `Referer` (`referer = null` di `BatoEngine.kt`) karena CDN Comix menolak request dengan `Referer`.
 
+### MangaGo (`mangago.me`)
+- File terkait: `MangaGoSyncManager.kt`, `ScraperUi.kt`, `BatoEngine.kt`, `MainActivity.kt`, `app/src/main/assets/mangago_keiyoushi/`.
+- Menyinkronkan `Mangago.kt`, `SoJsonV4Deobfuscator.kt`, dan `build.gradle.kts` secara dinamis dari repositori resmi `keiyoushi/extensions-source` (`src/en/mangago/src/eu/kanade/tachiyomi/extension/en/mangago`, baseline ref `6f345a81459739e35d8fc94c05455464e856f771`), dilengkapi tombol **Refresh Script** dan toggle **Auto Sync** di `BatoTab`.
+- Mengekstrak regex (`KEY_LOCATION_REGEX`, `IMG_SRCS_REGEX`, `COLS_REGEX`, `TOTAL_PAGES_REGEX`, `HEX_VARIABLE_REGEX`), `JS_FILTERS`, `REPLACE_POS_BYTECODE`, parameter `SoJsonV4Deobfuscator`, serta cookie `_m_superu=1` langsung dari kode sumber Keiyoushi.
+- Menangani deobfuscasi script `sojson.v4`, dekripsi AES-CBC ZeroBytePadding (`javax.crypto.Cipher`), unscrambling daftar URL gambar (`str_shuffle` via `Android.unscrambleMangagoList`), evaluasi `getDescramblingKey(url)` dengan helper `replacePos`, serta penggabungan multi-batch halaman (`total_pages` + `input#curl`).
+- Di `BatoEngine.kt`, URL gambar CDN MangaGo dengan hostname mengandung `_` otomatis diturunkan dari `https://` ke `http://` untuk menghindari kegagalan SNI TLS, dan gambar teracak (`cspiclink` dengan `#desckey=...&cols=...`) didescramble menggunakan algoritma grid tile Keiyoushi (`MangaGoSyncManager.unscrambleImage`).
+
 ## 6. Patch Sumber (`.asp`)
 
 - Lokasi: `patches/` dan `app/src/main/assets/patches/` (jaga keduanya tetap sinkron).
