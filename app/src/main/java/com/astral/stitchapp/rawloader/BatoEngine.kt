@@ -838,7 +838,15 @@ object BatoEngine {
                     }
                 }
 
+                val responseCode = conn.responseCode
+                if (responseCode !in 200..299) {
+                    throw Exception("HTTP $responseCode for $cleanUrlStr")
+                }
+
                 val rawBytes = conn.inputStream.use { it.readBytes() }
+                if (rawBytes.isEmpty()) {
+                    throw Exception("Empty image payload for $cleanUrlStr")
+                }
                 val bytes = if (cleanUrlStr.contains("cpx=") || urlStr.contains("cpx=") || BilibiliApi.isCpxPayload(rawBytes)) {
                     BilibiliApi.decryptCpxImage(rawBytes, urlStr)
                 } else {
