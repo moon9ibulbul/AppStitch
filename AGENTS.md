@@ -13,17 +13,17 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 ## 2. Build & Dependensi
 
 - `settings.gradle.kts` memuat repository Mozilla Maven: `https://maven.mozilla.org/maven2/`.
-- `app/build.gradle.kts` memakai `org.mozilla.geckoview:geckoview-omni` untuk engine GeckoView.
+- `app/build.gradle.kts` memakai `org.mozilla.geckoview:geckoview-omni:142.0.20250827004350` untuk engine GeckoView (mendukung WebExtension Manifest V3, `world: "MAIN"`, dan `strict_min_version: "142.0"`).
 - Decoder JXL: `io.github.awxkee:jxl-coder:2.2.0` (`JxlCoder.decode`).
 
 ## 3. Arsitektur Scraper
 
 ### Routing dialog (`ScraperUi.kt`)
-- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks** (`manta`, `kakao`, `ridi`) ke `GeckoScraperDialog`.
+- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks, Comix** (`manta`, `kakao`, `ridi`, `comix`) ke `GeckoScraperDialog`.
   - Memakai Mozilla GeckoView (`GeckoRuntime` + `GeckoSession`) agar popup OAuth, anti-bot, dan WebExtension berfungsi.
 - Sumber lain memakai `StandardWebViewScraperDialog`.
 - Kedua dialog punya tombol **Reload** (`session.reload()` / `webView?.reload()`).
-- Scraping Ridibooks, Bomtoon, Lezhin, Manta, dan MrBlue bergantung pada `ScraperWebViewDialog` untuk autentikasi dan penangkapan data dinamis lewat request browser.
+- Scraping Ridibooks, Bomtoon, Lezhin, Manta, MrBlue, dan Comix bergantung pada `ScraperWebViewDialog` untuk autentikasi dan penangkapan data dinamis lewat request browser.
 
 ### Progress & tombol Scrape
 - `updateProgress(loaded, total, isReady)` menampilkan progress bar dan jumlah gambar.
@@ -31,7 +31,7 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Tombol dinonaktifkan sementara selama scraping gambar berlangsung.
 
 ### Daftar sumber bawaan
-- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Naver Webtoon, Webtoons, Bilibili.
+- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, Naver Webtoon, Webtoons, Bilibili.
 - Ditambah patch sumber kustom dinamis (`.asp`).
 
 ## 4. Autentikasi & Cookie
@@ -93,6 +93,17 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Mengambil URL gambar via Twirp `GetImageIndex` dan `ImageToken`.
 - Dekripsi gambar format CPX secara native menggunakan AES-CBC (`javax.crypto.Cipher`) dengan decoding parameter token `cpx`.
 - Dialog pemilihan chapter interaktif (multi-select, rentang episode, info episode terkunci/koin) sebelum dimasukkan ke antrean scraping `BatoEngine`.
+
+### Comix (`comix.to` / `comix.ws`)
+- File terkait: `ComixExtensionManager.kt`, `ScraperUi.kt`, `BatoEngine.kt`, `MainActivity.kt`.
+- Mengunduh dan memverifikasi addon Firefox resmi **Comix Chapter Downloader** (`comix-downloader@n3uralcreativity.github.io`) via API v5 Mozilla AMO (`https://addons.mozilla.org/api/v5/addons/addon/comix-chapter-downloader/`) tanpa memodifikasi isi `.xpi` agar tanda tangan kriptografi `META-INF/mozilla.rsa` tetap valid.
+- Membutuhkan `geckoview-omni >= 142.0` karena addon memakai Manifest V3, `strict_min_version: "142.0"`, `content_scripts` / `scripting.executeScript` dengan `world: "MAIN"`, dan `declarativeNetRequestWithHostAccess`.
+- Mengimplementasikan delegate GeckoView 142:
+  - `WebExtensionController.PromptDelegate` (`onInstallPromptRequest` mengembalikan `PermissionPromptResponse(true, true, true)`, `onUpdatePrompt`, `onOptionalPrompt`),
+  - Pre-grant optional host permissions (`*://*/*`) via `addOptionalPermissions`,
+  - `WebExtension.TabDelegate` (`onNewTab` mengembalikan instance `GeckoSession` yang belum dibuka untuk tab ekstraksi chapter latar belakang `#cdlx`),
+  - `WebExtension.SessionTabDelegate` (`onUpdateTab`, `onCloseTab`) dan `setTabActive(mainSession, true)`,
+  - `WebExtension.DownloadDelegate` (`onDownload` mencegat payload `data:application/zip;base64,...` / `data:application/pdf;base64,...`, menyimpan arsip ke `Downloads/AstralStitch`, serta mengekstrak gambar chapter otomatis ke antrean `BatoEngine.addArchiveChaptersToQueue`).
 
 ## 6. Patch Sumber (`.asp`)
 

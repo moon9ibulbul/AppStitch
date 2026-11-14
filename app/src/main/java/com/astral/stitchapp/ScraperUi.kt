@@ -758,6 +758,49 @@ object ScraperScripts {
     })();
     """.trimIndent()
 
+    val COMIX = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        window.runScraper = async function() {
+            log("Starting Comix Scraper...");
+            try {
+                let pages = [];
+                const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
+                window.dispatchEvent(extractEvent);
+                if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
+                    pages = extractEvent.detail.pages.map(p => p.src);
+                    log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
+                }
+
+                if (!pages || pages.length === 0) {
+                    const imgs = Array.from(document.querySelectorAll('img.rpage-page__img, .rpage-page img, img'))
+                        .map(img => img.src || img.getAttribute('data-src'))
+                        .filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon'));
+                    pages = Array.from(new Set(imgs));
+                    log("Fallback extracted " + pages.length + " image URLs from DOM.");
+                }
+
+                if (!pages || pages.length === 0) {
+                    throw new Error("No images found. Open a chapter on comix.to or use the in-page Comix Downloader buttons.");
+                }
+
+                const result = {
+                    title: document.title.replace(" | Comix", "").trim() || "Comix Chapter",
+                    images: pages,
+                    cookie: document.cookie
+                };
+
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
 
     val KAKAOPAGE = """
     (function() {
@@ -1048,17 +1091,20 @@ fun ScraperWebViewDialog(
     url: String,
     script: String,
     onDismiss: () -> Unit,
+    onQueueUpdated: () -> Unit = {},
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
-                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true)
+                   url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
+                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
             url = url,
             script = script,
             onDismiss = onDismiss,
+            onQueueUpdated = onQueueUpdated,
             onScrapeSuccess = onScrapeSuccess
         )
     } else {
@@ -1076,13 +1122,16 @@ private fun GeckoScraperDialog(
     url: String,
     script: String,
     onDismiss: () -> Unit,
+    onQueueUpdated: () -> Unit = {},
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
     val context = LocalContext.current
     val runtime = remember { GeckoRuntime.getDefault(context) }
     val session = remember { GeckoSession() }
 
-    var status by remember { mutableStateOf("Loading page...") }
+    val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+
+    var status by remember { mutableStateOf(if (isComix) "Preparing Comix Addon..." else "Loading page...") }
 
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
@@ -1100,19 +1149,46 @@ private fun GeckoScraperDialog(
         return fixed
     }
 
-    LaunchedEffect(runtime) {
-        withContext(Dispatchers.IO) {
+    LaunchedEffect(runtime, session) {
+        try {
+            com.astral.stitchapp.rawloader.GeckoCookieBridge.install(context, runtime)
+            Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
+        } catch (e: Exception) {
+            Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
+        }
+        if (isComix) {
             try {
-                com.astral.stitchapp.rawloader.GeckoCookieBridge.install(context, runtime)
-                Log.d("ScraperUi", "Installed GeckoCookieBridge into GeckoRuntime")
+                val ext = com.astral.stitchapp.rawloader.ComixExtensionManager.installToGecko(
+                    context = context,
+                    runtime = runtime,
+                    mainSession = session,
+                    onOpenPopupSession = { popup -> popupSessionState = popup },
+                    onStatusUpdate = { msg -> status = msg },
+                    onArchiveSaved = { _, queuedCount ->
+                        if (queuedCount > 0) {
+                            onQueueUpdated()
+                        }
+                    }
+                )
+                val ver = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                status = if (ext != null) {
+                    "Comix Addon active (v$ver) — Loading Comix..."
+                } else {
+                    "Loading Comix..."
+                }
             } catch (e: Exception) {
-                Log.e("ScraperUi", "Failed to install GeckoCookieBridge into GeckoRuntime", e)
+                Log.e("ScraperUi", "Failed to install Comix addon into GeckoRuntime", e)
+                status = "Addon error: ${e.message}"
             }
+            session.loadUri(url)
         }
     }
 
     DisposableEffect(session) {
         onDispose {
+            if (isComix) {
+                com.astral.stitchapp.rawloader.ComixExtensionManager.closeBackgroundSessions()
+            }
             try { session.close() } catch (_: Exception) {}
         }
     }
@@ -1290,19 +1366,43 @@ private fun GeckoScraperDialog(
                                 }
                             }
 
+                            session.contentDelegate = object : GeckoSession.ContentDelegate {
+                                override fun onExternalResponse(s: GeckoSession, response: org.mozilla.geckoview.WebResponse) {
+                                    if (isComix) {
+                                        com.astral.stitchapp.rawloader.ComixExtensionManager.handleExternalBlobResponse(
+                                            context = context,
+                                            response = response,
+                                            onStatusUpdate = { msg -> status = msg },
+                                            onArchiveSaved = { _, queuedCount ->
+                                                if (queuedCount > 0) {
+                                                    onQueueUpdated()
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             session.progressDelegate = object : GeckoSession.ProgressDelegate {
                                 override fun onPageStart(s: GeckoSession, pageUrl: String) {
                                     status = "Loading page..."
                                 }
 
                                 override fun onPageStop(s: GeckoSession, success: Boolean) {
-                                    status = if (success) "Page loaded" else "Failed to load"
-                                    s.loadUri(buildJsUri(false))
+                                    if (isComix) {
+                                        val ver = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                                        status = if (success) "Comix Addon active (v$ver) — Ready" else "Failed to load"
+                                    } else {
+                                        status = if (success) "Page loaded" else "Failed to load"
+                                        s.loadUri(buildJsUri(false))
+                                    }
                                 }
                             }
 
-                            session.settings.userAgentOverride = realDeviceUserAgent
-                            session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                            if (!isComix) {
+                                session.settings.userAgentOverride = realDeviceUserAgent
+                                session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxSize().padding(bottom = 120.dp)

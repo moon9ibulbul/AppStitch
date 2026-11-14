@@ -341,6 +341,150 @@ object BatoEngine {
         return JSONObject().apply { put("added", 1) }
     }
 
+    suspend fun addArchiveChaptersToQueue(
+        cacheDir: File,
+        archiveFilename: String,
+        archiveBytes: ByteArray,
+        sourceType: String = "comix"
+    ): Int = withContext(Dispatchers.IO) {
+        val validImageExts = setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "jxl")
+        val baseArchiveTitle = archiveFilename
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace(Regex("\\.(zip|cbz|pdf)$", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .ifBlank { "Comix Chapter" }
+
+        val chapterEntries = linkedMapOf<String, MutableList<Pair<String, ByteArray>>>()
+
+        fun collectZipBytes(zipData: ByteArray, defaultChapterKey: String) {
+            try {
+                java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(zipData)).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val rawName = entry.name.replace('\\', '/').trimStart('/')
+                            val fileNameOnly = rawName.substringAfterLast('/')
+                            val ext = fileNameOnly.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                            if (ext == "cbz" || ext == "zip") {
+                                val nestedBytes = zis.readBytes()
+                                val nestedKey = fileNameOnly.substringBeforeLast('.')
+                                collectZipBytes(nestedBytes, nestedKey)
+                            } else if (ext in validImageExts && !fileNameOnly.startsWith("cover.", ignoreCase = true)) {
+                                val parentPath = if (rawName.contains('/')) rawName.substringBeforeLast('/') else ""
+                                val chapterKey = when {
+                                    parentPath.isNotBlank() -> parentPath.substringAfterLast('/')
+                                    else -> defaultChapterKey
+                                }
+                                val imgBytes = zis.readBytes()
+                                if (imgBytes.isNotEmpty()) {
+                                    chapterEntries.getOrPut(chapterKey) { mutableListOf() }
+                                        .add(Pair(fileNameOnly, imgBytes))
+                                }
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        collectZipBytes(archiveBytes, "")
+        if (chapterEntries.isEmpty()) return@withContext 0
+
+        val naturalComparator = Comparator<String> { a, b ->
+            val chunksA = Regex("(\\d+|\\D+)").findAll(a).map { it.value }.toList()
+            val chunksB = Regex("(\\d+|\\D+)").findAll(b).map { it.value }.toList()
+            val minLen = minOf(chunksA.size, chunksB.size)
+            for (i in 0 until minLen) {
+                val ca = chunksA[i]
+                val cb = chunksB[i]
+                val na = ca.toBigIntegerOrNull()
+                val nb = cb.toBigIntegerOrNull()
+                val cmp = if (na != null && nb != null) {
+                    na.compareTo(nb)
+                } else {
+                    ca.compareTo(cb, ignoreCase = true)
+                }
+                if (cmp != 0) return@Comparator cmp
+            }
+            chunksA.size.compareTo(chunksB.size)
+        }
+
+        val sortedChapterKeys = chapterEntries.keys.sortedWith(naturalComparator)
+        var addedCount = 0
+
+        queueMutex.withLock {
+            val queue = loadQueue(cacheDir)
+
+            for (chapterKey in sortedChapterKeys) {
+                val pages = chapterEntries[chapterKey] ?: continue
+                if (pages.isEmpty()) continue
+                pages.sortWith { p1, p2 -> naturalComparator.compare(p1.first, p2.first) }
+
+                val chapterTitle = if (chapterKey.isBlank() || chapterKey.equals(baseArchiveTitle, ignoreCase = true)) {
+                    baseArchiveTitle
+                } else if (chapterKey.startsWith(baseArchiveTitle, ignoreCase = true)) {
+                    chapterKey
+                } else {
+                    "$baseArchiveTitle - $chapterKey"
+                }
+
+                val sanitizedTitle = sanitizeFilename(chapterTitle)
+                val existingIndices = queue.indices.filter {
+                    val qTitle = queue[it].title
+                    qTitle.equals(chapterTitle, ignoreCase = true) ||
+                        sanitizeFilename(qTitle).equals(sanitizedTitle, ignoreCase = true)
+                }
+                for (i in existingIndices.reversed()) {
+                    val oldItem = queue[i]
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.removeAt(i)
+                    }
+                }
+
+                val jobId = UUID.randomUUID().toString()
+                val prescrapedDir = File(cacheDir, "prescraped_cache/$jobId")
+                if (!prescrapedDir.exists()) prescrapedDir.mkdirs()
+
+                val savedPaths = mutableListOf<String>()
+                pages.forEachIndexed { idx, (origName, bytes) ->
+                    val ext = origName.substringAfterLast('.', "jpg").lowercase(Locale.ROOT)
+                    val filename = String.format(Locale.ROOT, "prescraped_%04d.%s", idx + 1, ext)
+                    val targetFile = File(prescrapedDir, filename)
+                    targetFile.writeBytes(bytes)
+                    savedPaths.add(targetFile.absolutePath)
+                }
+
+                if (savedPaths.isNotEmpty()) {
+                    val fakeUrl = "direct://${sanitizedTitle}/${System.currentTimeMillis()}_$addedCount"
+                    queue.add(
+                        QueueItem(
+                            id = jobId,
+                            url = fakeUrl,
+                            title = chapterTitle,
+                            type = sourceType,
+                            cookie = "",
+                            preScrapedImages = savedPaths
+                        )
+                    )
+                    addedCount++
+                }
+            }
+
+            if (addedCount > 0) {
+                saveQueue(cacheDir, queue)
+            }
+        }
+
+        addedCount
+    }
+
     suspend fun removeItem(cacheDir: File, itemId: String) = queueMutex.withLock {
         val queue = loadQueue(cacheDir)
         queue.removeAll { it.id == itemId }
@@ -930,6 +1074,7 @@ object BatoEngine {
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
                     "kakaopage" -> "https://page.kakao.com/"
+                    "comix" -> "https://comix.to/"
                     else -> {
                         if (context != null) {
                             PatchManager.getPatch(context, sourceType)?.baseUrl.takeIf { !it.isNullOrBlank() }
