@@ -1072,6 +1072,7 @@ object ScraperScripts {
 }
 
 class ScraperJsInterface(
+    private val context: android.content.Context? = null,
     private val onResult: (String, List<String>, String) -> Unit,
     private val onLog: (String) -> Unit,
     private val onProgress: ((Int, Int, Boolean) -> Unit)? = null
@@ -1088,15 +1089,46 @@ class ScraperJsInterface(
     }
 
     @JavascriptInterface
+    fun deobfuscateSoJsonV4(jsf: String): String {
+        return try {
+            com.astral.stitchapp.rawloader.MangaGoSyncManager.decodeSoJsonV4(jsf, context)
+        } catch (e: Exception) {
+            "ERROR: " + e.message
+        }
+    }
+
+    @JavascriptInterface
+    fun aesDecryptMangago(encryptedBase64: String, keyHex: String, ivHex: String): String {
+        return try {
+            com.astral.stitchapp.rawloader.MangaGoSyncManager.aesDecryptZeroPadding(encryptedBase64, keyHex, ivHex)
+        } catch (e: Exception) {
+            "ERROR: " + e.message
+        }
+    }
+
+    @JavascriptInterface
+    fun unscrambleMangagoList(imageList: String, chapterJs: String): String {
+        return try {
+            com.astral.stitchapp.rawloader.MangaGoSyncManager.unscrambleImageList(imageList, chapterJs, context)
+        } catch (e: Exception) {
+            imageList
+        }
+    }
+
+    @JavascriptInterface
     fun fetchUrl(urlString: String): String {
         return try {
             val url = URL(urlString)
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
-            val cookie = CookieManager.getInstance().getCookie(urlString)
-            if (cookie != null) conn.setRequestProperty("Cookie", cookie)
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
+            var cookie = CookieManager.getInstance().getCookie(urlString) ?: ""
+            if (urlString.contains("mangago", ignoreCase = true) && !cookie.contains("_m_superu=")) {
+                cookie = if (cookie.isNotBlank()) "$cookie; _m_superu=1" else "_m_superu=1"
+            }
+            if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
+            conn.setRequestProperty("Referer", "${url.protocol}://${url.host}/")
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36")
 
             val reader = BufferedReader(InputStreamReader(conn.inputStream))
@@ -1117,6 +1149,7 @@ class ScraperJsInterface(
         try {
             val json = JSONObject(jsonStr)
             val title = json.optString("title", "Scraped Content")
+            val jsCookie = json.optString("cookie", "")
             val imgArray = json.optJSONArray("images")
             val list = mutableListOf<String>()
             if (imgArray != null) {
@@ -1124,7 +1157,7 @@ class ScraperJsInterface(
                     list.add(imgArray.getString(i))
                 }
             }
-            onResult(title, list, "")
+            onResult(title, list, jsCookie)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -1543,14 +1576,24 @@ private fun StandardWebViewScraperDialog(
     onDismiss: () -> Unit,
     onScrapeSuccess: (String, List<String>, String) -> Unit
 ) {
+    val currentContext = LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
     var status by remember { mutableStateOf("Loading page...") }
+    var activeScript by remember(script) { mutableStateOf(script) }
 
     val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
+    val isMangaGo = url.contains("mangago", ignoreCase = true) || script.contains("MangaGo", ignoreCase = true)
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
     var isScrapeReady by remember { mutableStateOf(true) }
     var hasScraped by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isMangaGo) {
+        if (isMangaGo && com.astral.stitchapp.rawloader.MangaGoSyncManager.isAutoSyncEnabled(currentContext)) {
+            com.astral.stitchapp.rawloader.MangaGoSyncManager.checkAndSyncScript(currentContext, forceManual = false)
+            activeScript = com.astral.stitchapp.rawloader.MangaGoSyncManager.getScraperScript(currentContext)
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1574,8 +1617,14 @@ private fun StandardWebViewScraperDialog(
                             val cookieManager = CookieManager.getInstance()
                             cookieManager.setAcceptCookie(true)
                             cookieManager.setAcceptThirdPartyCookies(this, true)
+                            if (isMangaGo) {
+                                val cfg = com.astral.stitchapp.rawloader.MangaGoSyncManager.getConfig(context)
+                                cookieManager.setCookie("https://www.mangago.me", "${cfg.superCookieName}=${cfg.superCookieValue}; path=/")
+                                cookieManager.setCookie(url, "${cfg.superCookieName}=${cfg.superCookieValue}; path=/")
+                            }
 
                             addJavascriptInterface(ScraperJsInterface(
+                                context = context,
                                 onResult = { t, i, jsCookie ->
                                     if (!hasScraped) {
                                         hasScraped = true
@@ -1618,7 +1667,7 @@ private fun StandardWebViewScraperDialog(
 
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
-                                    view?.evaluateJavascript(script, null)
+                                    view?.evaluateJavascript(activeScript, null)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -1626,7 +1675,7 @@ private fun StandardWebViewScraperDialog(
                                     view?.evaluateJavascript("""
                                         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                                     """.trimIndent(), null)
-                                    view?.evaluateJavascript(script, null)
+                                    view?.evaluateJavascript(activeScript, null)
                                 }
                             }
                             webChromeClient = object : WebChromeClient() {
@@ -1750,7 +1799,7 @@ private fun StandardWebViewScraperDialog(
                         Button(
                             onClick = {
                                 status = "Scraping started..."
-                                webView?.evaluateJavascript(script) {
+                                webView?.evaluateJavascript(activeScript) {
                                     webView?.evaluateJavascript("window.runScraper();", null)
                                 }
                             },

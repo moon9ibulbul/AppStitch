@@ -45,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.CookieManager
@@ -55,6 +57,7 @@ import androidx.documentfile.provider.DocumentFile
 import java.util.zip.ZipInputStream
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.astral.stitchapp.rawloader.BatoEngine
+import com.astral.stitchapp.rawloader.MangaGoSyncManager
 import com.astral.stitchapp.rawloader.PatchManager
 import com.astral.stitchapp.rawloader.Patch
 import com.astral.stitchapp.rawloader.WebtoonsApi
@@ -498,7 +501,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.7") },
+                    title = { Text("AstralStitch v1.5.8") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -1904,11 +1907,12 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "Naver Webtoon", "Webtoons", "Bilibili")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "MangaGo", "Naver Webtoon", "Webtoons", "Bilibili")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
     var expandedSource by remember { mutableStateOf(false) }
+    var sourceSearchQuery by remember { mutableStateOf("") }
 
     var webtoonsSession by remember { mutableStateOf(WebtoonsApi.loadSession(context)) }
     var webtoonsEmailInput by remember { mutableStateOf("") }
@@ -1941,11 +1945,17 @@ fun BatoTab(
     var lezhinCookieInput by remember { mutableStateOf(prefs.getString("lezhin_cookie", "") ?: "") }
     var mrblueCookieInput by remember { mutableStateOf(prefs.getString("mrblue_cookie", "") ?: "") }
     var kakaopageCookieInput by remember { mutableStateOf(prefs.getString("kakaopage_cookie", "") ?: "") }
+    var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
 
     var comixAddonVersion by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)) }
     var isComixAutoUpdate by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.isAutoUpdateEnabled(context)) }
     var isComixUpdating by remember { mutableStateOf(false) }
     var comixStatusMsg by remember { mutableStateOf<String?>(null) }
+
+    var mangagoScriptVersion by remember { mutableStateOf(com.astral.stitchapp.rawloader.MangaGoSyncManager.getInstalledVersionInfo(context)) }
+    var isMangaGoAutoSync by remember { mutableStateOf(com.astral.stitchapp.rawloader.MangaGoSyncManager.isAutoSyncEnabled(context)) }
+    var isMangaGoSyncing by remember { mutableStateOf(false) }
+    var mangagoStatusMsg by remember { mutableStateOf<String?>(null) }
 
     var autoRetry by remember { mutableStateOf(true) }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
@@ -2243,17 +2253,179 @@ fun BatoTab(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Source: ")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Source: ", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.width(8.dp))
-            Box {
-                OutlinedButton(onClick = { expandedSource = true }) { Text(selectedSource) }
-                DropdownMenu(expanded = expandedSource, onDismissRequest = { expandedSource = false }) {
-                    allSources.forEach { src ->
-                        DropdownMenuItem(
-                            text = { Text(src) },
-                            onClick = { selectedSource = src; expandedSource = false }
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = {
+                        sourceSearchQuery = ""
+                        expandedSource = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            Text(
+                                text = selectedSource,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val isBuiltIn = selectedSource in builtInSources
+                            Surface(
+                                shape = MaterialTheme.shapes.extraSmall,
+                                color = if (isBuiltIn) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+                            ) {
+                                Text(
+                                    text = if (isBuiltIn) "Built-in" else "Patch",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "(${allSources.size}) ▾",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                if (expandedSource) {
+                    Popup(
+                        alignment = Alignment.TopStart,
+                        onDismissRequest = {
+                            expandedSource = false
+                            sourceSearchQuery = ""
+                        },
+                        properties = PopupProperties(focusable = true)
+                    ) {
+                        val filteredSources = remember(allSources, sourceSearchQuery) {
+                            if (sourceSearchQuery.isBlank()) allSources
+                            else allSources.filter { it.contains(sourceSearchQuery.trim(), ignoreCase = true) }
+                        }
+                        ElevatedCard(
+                            modifier = Modifier
+                                .widthIn(min = 260.dp, max = 340.dp)
+                                .heightIn(max = 380.dp)
+                                .padding(top = 4.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Pilih Source (${allSources.size})",
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            expandedSource = false
+                                            sourceSearchQuery = ""
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Close",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = sourceSearchQuery,
+                                    onValueChange = { sourceSearchQuery = it },
+                                    placeholder = { Text("Cari source...", style = MaterialTheme.typography.bodySmall) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    textStyle = MaterialTheme.typography.bodySmall
+                                )
+                                HorizontalDivider()
+                                if (filteredSources.isEmpty()) {
+                                    Text(
+                                        text = "Tidak ada source yang cocok",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 250.dp)
+                                    ) {
+                                        items(filteredSources) { src ->
+                                            val isSelected = src == selectedSource
+                                            val isBuiltIn = src in builtInSources
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = src,
+                                                            style = if (isSelected) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = MaterialTheme.shapes.extraSmall,
+                                                            color = if (isBuiltIn) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+                                                        ) {
+                                                            Text(
+                                                                text = if (isBuiltIn) "Built-in" else "Patch",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                leadingIcon = {
+                                                    RadioButton(
+                                                        selected = isSelected,
+                                                        onClick = null,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                },
+                                                onClick = {
+                                                    selectedSource = src
+                                                    expandedSource = false
+                                                    sourceSearchQuery = ""
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2610,6 +2782,7 @@ fun BatoTab(
                                         "MrBlue" -> "mrblue"
                                         "KakaoPage" -> "kakaopage"
                                         "Comix" -> "comix"
+                                        "MangaGo" -> "mangago"
                                         "Naver Webtoon" -> "naver"
                                         else -> patchObj?.type ?: selectedSource.lowercase()
                                     }
@@ -2621,6 +2794,7 @@ fun BatoTab(
                                         type == "mrblue" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mrblue.com/", ScraperScripts.MRBLUE)
                                         type == "kakaopage" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://page.kakao.com/", ScraperScripts.KAKAOPAGE)
                                         type == "comix" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://comix.to/", ScraperScripts.COMIX)
+                                        type == "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", MangaGoSyncManager.getScraperScript(context))
                                         patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                         else -> null
                                     }
@@ -2640,6 +2814,7 @@ fun BatoTab(
                                         "bomtoon" -> bomtoonCookieInput
                                         "lezhin" -> lezhinCookieInput
                                         "mrblue" -> mrblueCookieInput
+                                        "mangago" -> mangagoCookieInput
                                         "kakaopage" -> {
                                             if (kakaopageCookieInput.isNotBlank()) kakaopageCookieInput
                                             else prefs.getString("kakaopage_cookie", "")?.takeIf { it.isNotBlank() }
@@ -2681,7 +2856,7 @@ fun BatoTab(
                                 }
                             }
                         },
-                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix")
+                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "MangaGo")
                     ) { Text("Add") }
                 }
             }
@@ -2702,6 +2877,93 @@ fun BatoTab(
             "Lezhin" -> OutlinedTextField(value = lezhinCookieInput, onValueChange = { lezhinCookieInput = it; prefs.edit().putString("lezhin_cookie", it).apply() }, label = { Text("Lezhin Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "MrBlue" -> OutlinedTextField(value = mrblueCookieInput, onValueChange = { mrblueCookieInput = it; prefs.edit().putString("mrblue_cookie", it).apply() }, label = { Text("MrBlue Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             "KakaoPage" -> OutlinedTextField(value = kakaopageCookieInput, onValueChange = { kakaopageCookieInput = it; prefs.edit().putString("kakaopage_cookie", it).apply() }, label = { Text("KakaoPage Cookie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            "MangaGo" -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "MangaGo Script Sync (Keiyoushi)",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Synced Version: $mangagoScriptVersion",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        mangagoStatusMsg?.let { msg ->
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isMangaGoAutoSync,
+                                    onCheckedChange = { checked ->
+                                        isMangaGoAutoSync = checked
+                                        MangaGoSyncManager.setAutoSyncEnabled(context, checked)
+                                    }
+                                )
+                                Text("Auto Sync", style = MaterialTheme.typography.bodySmall)
+                            }
+
+                            Button(
+                                onClick = {
+                                    isMangaGoSyncing = true
+                                    mangagoStatusMsg = "Checking Keiyoushi repo..."
+                                    scope.launch(Dispatchers.IO) {
+                                        val res = MangaGoSyncManager.checkAndSyncScript(
+                                            context,
+                                            forceManual = true,
+                                            onProgress = { status ->
+                                                scope.launch(Dispatchers.Main) { mangagoStatusMsg = status }
+                                            }
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            isMangaGoSyncing = false
+                                            if (res.isSuccess) {
+                                                mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
+                                                mangagoStatusMsg = res.getOrNull() ?: "Script synced ($mangagoScriptVersion)"
+                                                Toast.makeText(context, mangagoStatusMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                mangagoStatusMsg = "Sync error: ${res.exceptionOrNull()?.message}"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isMangaGoSyncing
+                            ) {
+                                if (isMangaGoSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text("Refresh Script")
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = mangagoCookieInput,
+                    onValueChange = {
+                        mangagoCookieInput = it
+                        prefs.edit().putString("mangago_cookie", it).apply()
+                    },
+                    label = { Text("MangaGo Cookie (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
             "Comix" -> {
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -3091,13 +3353,16 @@ fun BatoTab(
                 onDismiss = {
                     showScraperDialog = false
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                    mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
                 },
                 onQueueUpdated = {
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                    mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
                 },
                 onScrapeSuccess = { title, images, cookie ->
                     showScraperDialog = false
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
+                    mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
                     val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                     val type = when(selectedSource) {
                         "Ridibooks" -> "ridi"
@@ -3106,6 +3371,7 @@ fun BatoTab(
                         "MrBlue" -> "mrblue"
                         "KakaoPage" -> "kakaopage"
                         "Comix" -> "comix"
+                        "MangaGo" -> "mangago"
                         else -> patchObj?.type ?: selectedSource.lowercase()
                     }
                     val resolvedCookie = when(type) {
@@ -3147,6 +3413,15 @@ fun BatoTab(
                             if (merged.isNotBlank()) {
                                 kakaopageCookieInput = merged
                                 prefs.edit().putString("kakaopage_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        "mangago" -> {
+                            val existing = if (mangagoCookieInput.isNotBlank()) mangagoCookieInput else prefs.getString("mangago_cookie", "") ?: ""
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(existing, cookie)
+                            if (merged.isNotBlank()) {
+                                mangagoCookieInput = merged
+                                prefs.edit().putString("mangago_cookie", merged).apply()
                                 merged
                             } else cookie
                         }
