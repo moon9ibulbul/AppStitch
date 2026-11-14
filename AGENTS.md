@@ -95,15 +95,20 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Dialog pemilihan chapter interaktif (multi-select, rentang episode, info episode terkunci/koin) sebelum dimasukkan ke antrean scraping `BatoEngine`.
 
 ### Comix (`comix.to` / `comix.ws`)
-- File terkait: `ComixExtensionManager.kt`, `ScraperUi.kt`, `BatoEngine.kt`, `MainActivity.kt`.
+- File terkait: `ComixExtensionManager.kt`, `ScraperUi.kt`, `BatoEngine.kt`, `MainActivity.kt`, `app/src/main/assets/comix_helper/`.
 - Mengunduh dan memverifikasi addon Firefox resmi **Comix Chapter Downloader** (`comix-downloader@n3uralcreativity.github.io`) via API v5 Mozilla AMO (`https://addons.mozilla.org/api/v5/addons/addon/comix-chapter-downloader/`) tanpa memodifikasi isi `.xpi` agar tanda tangan kriptografi `META-INF/mozilla.rsa` tetap valid.
 - Membutuhkan `geckoview-omni >= 142.0` karena addon memakai Manifest V3, `strict_min_version: "142.0"`, `content_scripts` / `scripting.executeScript` dengan `world: "MAIN"`, dan `declarativeNetRequestWithHostAccess`.
 - Mengimplementasikan delegate GeckoView 142:
   - `WebExtensionController.PromptDelegate` (`onInstallPromptRequest` mengembalikan `PermissionPromptResponse(true, true, true)`, `onUpdatePrompt`, `onOptionalPrompt`),
   - Pre-grant optional host permissions (`*://*/*`) via `addOptionalPermissions`,
-  - `WebExtension.TabDelegate` (`onNewTab` mengembalikan instance `GeckoSession` yang belum dibuka untuk tab ekstraksi chapter latar belakang `#cdlx`),
+  - `WebExtension.TabDelegate` (`onNewTab` mengembalikan instance `GeckoSession` yang belum dibuka untuk tab ekstraksi chapter latar belakang `#cdlx`, lalu mengaktifkannya dengan `session.setActive(true)` saat mulai dimuat),
   - `WebExtension.SessionTabDelegate` (`onUpdateTab`, `onCloseTab`) dan `setTabActive(mainSession, true)`,
   - `WebExtension.DownloadDelegate` (`onDownload` mencegat payload `data:application/zip;base64,...` / `data:application/pdf;base64,...`, menyimpan arsip ke `Downloads/AstralStitch`, serta mengekstrak gambar chapter otomatis ke antrean `BatoEngine.addArchiveChaptersToQueue`).
+- Memasang built-in companion extension MV3 `comix-helper@astral.stitchapp` (`app/src/main/assets/comix_helper/comix_bridge.js`, `run_at: "document_start"`, `world: "MAIN"`) untuk mengatasi bug "hanya 3 gambar terunduh":
+  - Memaksa pengaturan reader `reader.default.v3` dan `reader.webtoon.v3` di `localStorage` menjadi `preload: "all"` (menggantikan default `preload: "some"` yang hanya memuat 3 gambar awal).
+  - Membungkus `JSON.parse`, `Response.prototype.json`, `TextDecoder.prototype.decode`, dan `window.atob` menggunakan `Proxy` (tetap menjaga `toString()` native) untuk menangkap daftar halaman chapter terdekripsi (`result.pages.items`) dan menjawab event `cdl:extract-pages` (Strategy 0).
+  - Menambahkan atribut `data-page="1..N"` pada setiap slot `.rpage-page` agar fallback Strategy B mengetahui total halaman sebenarnya (`N`) dan tidak berhenti di halaman ke-3.
+  - Mengunduh gambar CDN Comix tanpa header `Referer` (`referer = null` di `BatoEngine.kt`) karena CDN Comix menolak request dengan `Referer`.
 
 ## 6. Patch Sumber (`.asp`)
 

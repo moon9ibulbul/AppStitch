@@ -765,25 +765,70 @@ object ScraperScripts {
 
         window.runScraper = async function() {
             log("Starting Comix Scraper...");
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
             try {
                 let pages = [];
                 const extractEvent = new CustomEvent('cdl:extract-pages', { detail: {} });
                 window.dispatchEvent(extractEvent);
-                if (extractEvent.detail && extractEvent.detail.pages && extractEvent.detail.pages.length > 0) {
-                    pages = extractEvent.detail.pages.map(p => p.src);
-                    log("Extracted " + pages.length + " pages via cdl:extract-pages event!");
+                if (extractEvent.detail && Array.isArray(extractEvent.detail.pages) && extractEvent.detail.pages.length > 0) {
+                    pages = extractEvent.detail.pages.map(p => p.src).filter(Boolean);
+                    log("Extracted " + pages.length + " pages via cdl:extract-pages bridge!");
+                }
+
+                if ((!pages || pages.length === 0) && Array.isArray(window.__cdlPages) && window.__cdlPages.length > 0) {
+                    pages = window.__cdlPages.map(p => p.src || p).filter(Boolean);
+                    log("Extracted " + pages.length + " pages via window.__cdlPages!");
                 }
 
                 if (!pages || pages.length === 0) {
-                    const imgs = Array.from(document.querySelectorAll('img.rpage-page__img, .rpage-page img, img'))
-                        .map(img => img.src || img.getAttribute('data-src'))
-                        .filter(src => src && !src.includes('data:image') && !src.includes('avatar') && !src.includes('logo') && !src.includes('icon'));
+                    try {
+                        for (const k of ['reader.default.v3', 'reader.webtoon.v3']) {
+                            const v = JSON.parse(localStorage.getItem(k) || 'null') || { state: {}, version: 0 };
+                            v.state = Object.assign({}, v.state, { preload: 'all' });
+                            localStorage.setItem(k, JSON.stringify(v));
+                        }
+                    } catch (_) {}
+
+                    const slots = Array.from(document.querySelectorAll('.rpage-page'));
+                    if (slots.length > 0) {
+                        log("Found " + slots.length + " .rpage-page slots, mounting all images...");
+                        for (let i = 0; i < slots.length; i++) {
+                            const slot = slots[i];
+                            slot.setAttribute('data-page', String(i + 1));
+                            let img = slot.querySelector('img.rpage-page__img[src]:not([src=""])') || slot.querySelector('img[src]:not([src=""])');
+                            if (!img) {
+                                try { slot.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch (_) {}
+                                for (let wait = 0; wait < 25; wait++) {
+                                    await sleep(120);
+                                    img = slot.querySelector('img.rpage-page__img[src]:not([src=""])') || slot.querySelector('img[src]:not([src=""])');
+                                    if (img && (img.currentSrc || img.src)) break;
+                                }
+                            }
+                            if (window.Android && window.Android.updateProgress) {
+                                window.Android.updateProgress(i + 1, slots.length, false);
+                            }
+                        }
+                        pages = slots.map(s => {
+                            const im = s.querySelector('img.rpage-page__img') || s.querySelector('img');
+                            return im ? (im.currentSrc || im.src || im.getAttribute('data-src') || '') : '';
+                        }).filter(src => /^https?:\/\//i.test(src) && !src.includes('data:image'));
+                        log("Mounted and extracted " + pages.length + " / " + slots.length + " slot images.");
+                    }
+                }
+
+                if (!pages || pages.length === 0) {
+                    const imgs = Array.from(document.querySelectorAll('img.rpage-page__img, .rpage-page img'))
+                        .map(img => img.currentSrc || img.src || img.getAttribute('data-src'))
+                        .filter(src => src && /^https?:\/\//i.test(src) && !src.includes('data:image'));
                     pages = Array.from(new Set(imgs));
-                    log("Fallback extracted " + pages.length + " image URLs from DOM.");
                 }
 
                 if (!pages || pages.length === 0) {
                     throw new Error("No images found. Open a chapter on comix.to or use the in-page Comix Downloader buttons.");
+                }
+
+                if (window.Android && window.Android.updateProgress) {
+                    window.Android.updateProgress(pages.length, pages.length, true);
                 }
 
                 const result = {

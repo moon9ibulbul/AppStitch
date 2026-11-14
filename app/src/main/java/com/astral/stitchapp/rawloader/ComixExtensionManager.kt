@@ -39,6 +39,8 @@ object ComixExtensionManager {
     private const val AMO_API_URL = "https://addons.mozilla.org/api/v5/addons/addon/comix-chapter-downloader/"
     private const val ADDON_FILENAME = "comix_extension.xpi"
     const val ADDON_ID = "comix-downloader@n3uralcreativity.github.io"
+    private const val HELPER_EXTENSION_ID = "comix-helper@astral.stitchapp"
+    private const val HELPER_BUILTIN_URI = "resource://android/assets/comix_helper/"
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val backgroundSessions = Collections.newSetFromMap(ConcurrentHashMap<GeckoSession, Boolean>())
@@ -280,6 +282,33 @@ object ComixExtensionManager {
             }
         })
 
+        // Install built-in companion MAIN-world bridge extension to fix the 3-image lazy-load extraction bug
+        try {
+            controller.ensureBuiltIn(HELPER_BUILTIN_URI, HELPER_EXTENSION_ID).accept(
+                { helperExt ->
+                    if (helperExt != null) {
+                        try {
+                            controller.setAllowedInPrivateBrowsing(helperExt, true)
+                            controller.enable(helperExt, WebExtensionController.EnableSource.USER)
+                        } catch (_: Exception) {}
+                        Log.d(TAG, "Installed built-in Comix helper bridge: ${helperExt.id}")
+                    }
+                },
+                { err ->
+                    Log.w(TAG, "ensureBuiltIn warning for $HELPER_EXTENSION_ID: $err")
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Error ensuring Comix helper bridge", e)
+        }
+
+        val bridgeJsUri: String? = try {
+            val jsText = context.assets.open("comix_helper/comix_bridge.js").bufferedReader().use { it.readText() }
+            "javascript:" + android.net.Uri.encode(jsText)
+        } catch (_: Exception) {
+            null
+        }
+
         val fileUri = "file://" + addonFile.absolutePath
         val deferred = CompletableDeferred<WebExtension?>()
 
@@ -296,6 +325,7 @@ object ComixExtensionManager {
                                 controller = controller,
                                 ext = activeExt,
                                 mainSession = mainSession,
+                                bridgeJsUri = bridgeJsUri,
                                 onOpenPopupSession = onOpenPopupSession,
                                 onStatusUpdate = onStatusUpdate,
                                 onArchiveSaved = onArchiveSaved
@@ -323,6 +353,7 @@ object ComixExtensionManager {
                                 controller = controller,
                                 ext = ext,
                                 mainSession = mainSession,
+                                bridgeJsUri = bridgeJsUri,
                                 onOpenPopupSession = onOpenPopupSession,
                                 onStatusUpdate = onStatusUpdate,
                                 onArchiveSaved = onArchiveSaved
@@ -341,7 +372,7 @@ object ComixExtensionManager {
             { existingList ->
                 val existing = existingList?.firstOrNull {
                     it.id.equals(ADDON_ID, ignoreCase = true) ||
-                        it.id.contains("comix", ignoreCase = true)
+                        it.id.contains("comix-downloader", ignoreCase = true)
                 }
                 val existingVer = existing?.metaData?.version ?: ""
                 if (existing != null && (targetVersion == "Not Installed" || existingVer == targetVersion)) {
@@ -397,6 +428,7 @@ object ComixExtensionManager {
         controller: WebExtensionController,
         ext: WebExtension,
         mainSession: GeckoSession,
+        bridgeJsUri: String?,
         onOpenPopupSession: (GeckoSession?) -> Unit,
         onStatusUpdate: (String) -> Unit,
         onArchiveSaved: (String, Int) -> Unit
@@ -460,6 +492,30 @@ object ComixExtensionManager {
                 val isBackgroundExtraction = createDetails.active == false ||
                     targetUrl.contains("#cdlx", ignoreCase = true) ||
                     targetUrl == "about:blank"
+
+                newSession.progressDelegate = object : GeckoSession.ProgressDelegate {
+                    override fun onPageStart(session: GeckoSession, url: String) {
+                        try {
+                            session.setActive(true)
+                        } catch (_: Exception) {}
+                        if (bridgeJsUri != null && (url.contains("comix.", ignoreCase = true))) {
+                            try {
+                                session.loadUri(bridgeJsUri)
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    override fun onPageStop(session: GeckoSession, success: Boolean) {
+                        try {
+                            session.setActive(true)
+                        } catch (_: Exception) {}
+                        if (bridgeJsUri != null) {
+                            try {
+                                session.loadUri(bridgeJsUri)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
 
                 newSession.contentDelegate = object : GeckoSession.ContentDelegate {
                     override fun onCloseRequest(s: GeckoSession) {
