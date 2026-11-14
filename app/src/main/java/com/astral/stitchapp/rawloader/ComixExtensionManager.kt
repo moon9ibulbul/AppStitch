@@ -417,7 +417,7 @@ object ComixExtensionManager {
             }
 
             override fun onCloseTab(
-                extension: WebExtension,
+                extension: WebExtension?,
                 session: GeckoSession
             ): GeckoResult<AllowOrDeny> {
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
@@ -482,7 +482,7 @@ object ComixExtensionManager {
                     }
 
                     override fun onCloseTab(
-                        extension: WebExtension,
+                        extension: WebExtension?,
                         session: GeckoSession
                     ): GeckoResult<AllowOrDeny> {
                         backgroundSessions.remove(session)
