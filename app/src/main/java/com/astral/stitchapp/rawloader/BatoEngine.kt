@@ -225,7 +225,7 @@ object BatoEngine {
 
         chapters.forEach { ch ->
             val chTitle = "$sanitizedSeries - Episode ${ch.number}"
-            val urlWithFlag = if (ch.isAdRequired) "${ch.url}#ad_required=true" else ch.url
+            val urlWithFlag = if (ch.isAdRequired && !ch.isPurchased) "${ch.url}#ad_required=true" else ch.url
 
             val existing = queue.filter { it.url == urlWithFlag || (it.title == chTitle && it.type == "webtoons") }
             existing.forEach { oldItem ->

@@ -498,7 +498,7 @@ fun MainScreen(isDarkTheme: Boolean, onThemeChange: (Boolean) -> Unit) {
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AstralStitch v1.5.6") },
+                    title = { Text("AstralStitch v1.5.7") },
                     actions = {
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -1904,7 +1904,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon", "Bilibili")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Naver Webtoon", "Webtoons", "Bilibili")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -2794,8 +2794,11 @@ fun BatoTab(
                                     Spacer(Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text("Episode ${ch.number}: ${ch.title}", style = MaterialTheme.typography.bodyMedium)
-                                        if (ch.isAdRequired) {
-                                            Text("[Ad Watch / Fast Pass]", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF9800))
+                                        if (ch.isPurchased) {
+                                            Text("[Sudah Dibeli / Unlocked]", style = MaterialTheme.typography.labelSmall, color = Color(0xFF4CAF50))
+                                        } else if (ch.isAdRequired) {
+                                            val label = if (ch.price > 0) "[Fast Pass - ${ch.price} Coins / Ad Watch]" else "[Fast Pass / Ad Watch]"
+                                            Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFFF9800))
                                         }
                                     }
                                 }

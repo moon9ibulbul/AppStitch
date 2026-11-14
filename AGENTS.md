@@ -31,7 +31,7 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Tombol dinonaktifkan sementara selama scraping gambar berlangsung.
 
 ### Daftar sumber bawaan
-- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Naver Webtoon.
+- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Naver Webtoon, Webtoons, Bilibili.
 - Ditambah patch sumber kustom dinamis (`.asp`).
 
 ## 4. Autentikasi & Cookie

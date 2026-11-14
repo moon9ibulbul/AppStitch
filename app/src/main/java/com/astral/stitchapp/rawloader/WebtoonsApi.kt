@@ -31,7 +31,9 @@ data class WebtoonsChapter(
     val number: Int,
     val title: String,
     val url: String,
-    val isAdRequired: Boolean = false
+    val isAdRequired: Boolean = false,
+    val isPurchased: Boolean = false,
+    val price: Int = 0
 )
 
 data class WebtoonsSeriesInfo(
@@ -455,6 +457,36 @@ object WebtoonsApi {
             val seriesTitle = titleInfo.optString("title").ifBlank { titleInfo.optString("titleName").ifBlank { "Webtoons Series $titleNo" } }
             val totalEpisodes = titleInfo.optInt("totalEpisodeCount", 1000)
 
+            // 1. Check user product rights if logged in
+            val rightsMap = mutableMapOf<Int, Pair<Boolean, Boolean>>() // epNo -> (hasRight, infinite)
+            val rightEpisodeNos = mutableSetOf<Int>()
+
+            if (session != null && session.isLoggedIn && session.neoSes.isNotBlank()) {
+                try {
+                    val rightsUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/productRightList?titleNo=$titleNo&v=1&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+                    val rightsJsonStr = sendApiRequest(rightsUrl, session = session)
+                    if (rightsJsonStr != null) {
+                        val rightsObj = JSONObject(rightsJsonStr)
+                        val rightArray = rightsObj.optJSONObject("message")?.optJSONObject("result")?.optJSONArray("rightList")
+                        if (rightArray != null) {
+                            for (j in 0 until rightArray.length()) {
+                                val rObj = rightArray.optJSONObject(j) ?: continue
+                                val epNo = rObj.optInt("episodeNo", -1)
+                                if (epNo > 0) {
+                                    val hasRight = rObj.optBoolean("hasRight", false)
+                                    val infinite = rObj.optBoolean("infinite", false)
+                                    rightsMap[epNo] = Pair(hasRight, infinite)
+                                    rightEpisodeNos.add(epNo)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // 2. Fetch public episodes list
             val pageSize = maxOf(totalEpisodes, 500)
             val listUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/episodeList?titleNo=$titleNo&startIndex=0&pageSize=$pageSize&v=6&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
             val listJsonStr = sendApiRequest(listUrl, session = session) ?: return null
@@ -462,11 +494,14 @@ object WebtoonsApi {
             val epArray = listObj.optJSONObject("message")?.optJSONObject("result")?.optJSONObject("episodeList")?.optJSONArray("episode") ?: return null
 
             val episodes = mutableListOf<WebtoonsChapter>()
+            val knownEpisodeNos = mutableSetOf<Int>()
+
             for (i in 0 until epArray.length()) {
                 val epObj = epArray.optJSONObject(i) ?: continue
                 val epNum = epObj.optInt("episodeNo", -1)
                 if (epNum <= 0) continue
 
+                knownEpisodeNos.add(epNum)
                 val epSubj = epObj.optString("episodeTitle").ifBlank { "Episode $epNum" }
                 val hasProdInfo = epObj.has("productInfo") && !epObj.isNull("productInfo") && epObj.opt("productInfo") != false
                 val isDailyPass = epObj.optBoolean("dailyPassEpisode", false)
@@ -475,7 +510,9 @@ object WebtoonsApi {
                 val allowsAd = epObj.optBoolean("allowsAd", false)
                 val price = epObj.optInt("price", 0)
 
-                val isPaid = hasProdInfo || isDailyPass || isRewardAd || isPassRestrict || allowsAd || price > 0
+                val rightInfo = rightsMap[epNum]
+                val hasRight = rightInfo?.first == true
+                val isPaid = (hasProdInfo || isDailyPass || isRewardAd || isPassRestrict || allowsAd || price > 0) && !hasRight
 
                 val epUrl = "https://www.webtoons.com/$lang/a/b/viewer?title_no=$titleNo&episode_no=$epNum"
                 episodes.add(
@@ -483,7 +520,71 @@ object WebtoonsApi {
                         number = epNum,
                         title = epSubj,
                         url = epUrl,
-                        isAdRequired = isPaid
+                        isAdRequired = isPaid,
+                        isPurchased = hasRight,
+                        price = price
+                    )
+                )
+            }
+
+            // 3. Detect and fetch fast-pass / paid episodes not present in episodeList
+            val missingEps = mutableSetOf<Int>()
+            for (epNo in rightEpisodeNos) {
+                if (epNo !in knownEpisodeNos) {
+                    missingEps.add(epNo)
+                }
+            }
+            val maxKnown = knownEpisodeNos.maxOrNull() ?: 0
+            if (totalEpisodes > maxKnown && totalEpisodes > 0) {
+                for (epNo in (maxKnown + 1)..totalEpisodes) {
+                    missingEps.add(epNo)
+                }
+            }
+
+            for (epNo in missingEps.sorted()) {
+                var epTitle = "Episode $epNo"
+                var allowsAd = false
+                var price = 0
+                val rightInfo = rightsMap[epNo]
+                val hasRight = rightInfo?.first == true
+
+                try {
+                    val prodUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/getProduct?titleNo=$titleNo&episodeNo=$epNo&v=3&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+                    val prodJsonStr = sendApiRequest(prodUrl, session = session)
+                    if (prodJsonStr != null) {
+                        val prodObj = JSONObject(prodJsonStr).optJSONObject("message")?.optJSONObject("result")?.optJSONObject("product")
+                        if (prodObj != null) {
+                            val titleFromProd = prodObj.optString("episodeTitle")
+                            if (titleFromProd.isNotBlank()) {
+                                epTitle = titleFromProd
+                            }
+                            val saleUnits = prodObj.optJSONArray("saleUnitList")
+                            if (saleUnits != null) {
+                                for (u in 0 until saleUnits.length()) {
+                                    val unit = saleUnits.optJSONObject(u) ?: continue
+                                    val unitType = unit.optString("saleUnitType")
+                                    if (unitType == "REWARD_AD") {
+                                        allowsAd = true
+                                    } else if (unitType in listOf("PREVIEW", "COMPLETE")) {
+                                        price = unit.optInt("policyPrice", price)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                val epUrl = "https://www.webtoons.com/$lang/a/b/viewer?title_no=$titleNo&episode_no=$epNo"
+                episodes.add(
+                    WebtoonsChapter(
+                        number = epNo,
+                        title = epTitle,
+                        url = epUrl,
+                        isAdRequired = !hasRight,
+                        isPurchased = hasRight,
+                        price = price
                     )
                 )
             }
@@ -745,10 +846,34 @@ object WebtoonsApi {
                     getImageSecureToken(session)
                     val productId = "linewebtoon-WEBTOON-$titleNo-$epNo"
                     val adSaleUnitId = "$productId-reward_ad-1"
-                    val adClaimed = buyProduct(productId, adSaleUnitId, 0, session)
+                    var adClaimed = buyProduct(productId, adSaleUnitId, 0, session)
                     if (!adClaimed) {
                         val passSaleUnitId = "$productId-complete_daily_pass-1"
-                        buyProduct(productId, passSaleUnitId, 0, session)
+                        adClaimed = buyProduct(productId, passSaleUnitId, 0, session)
+                    }
+                    if (!adClaimed && session != null && session.isLoggedIn && session.coins > 0) {
+                        val lang = if (episodeUrl.contains("/id/", ignoreCase = true)) "id" else "en"
+                        val prodUrl = "https://global.apis.naver.com/lineWebtoon/webtoon/getProduct?titleNo=$titleNo&episodeNo=$epNo&v=3&serviceZone=GLOBAL&language=$lang&locale=$lang&platform=APP_ANDROID"
+                        val prodRes = sendApiRequest(prodUrl, session = session)
+                        if (prodRes != null) {
+                            val prodObj = JSONObject(prodRes).optJSONObject("message")?.optJSONObject("result")?.optJSONObject("product")
+                            val saleUnits = prodObj?.optJSONArray("saleUnitList")
+                            if (saleUnits != null) {
+                                for (u in 0 until saleUnits.length()) {
+                                    val unit = saleUnits.optJSONObject(u) ?: continue
+                                    val unitType = unit.optString("saleUnitType")
+                                    val price = unit.optInt("policyPrice", 0)
+                                    if (unitType in listOf("COMPLETE", "PREVIEW") && price > 0 && session.coins >= price) {
+                                        val unitId = "$productId-${unitType.lowercase(Locale.ROOT)}-1"
+                                        val bought = buyProduct(productId, unitId, price, session)
+                                        if (bought && context != null) {
+                                            saveSession(context, session.copy(coins = maxOf(0, session.coins - price)))
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
