@@ -70,6 +70,10 @@ import com.astral.stitchapp.rawloader.BilibiliChapter
 import com.astral.stitchapp.rawloader.BilibiliSeriesInfo
 import com.astral.stitchapp.rawloader.BilibiliQrData
 import com.astral.stitchapp.rawloader.BilibiliQrPollStatus
+import com.astral.stitchapp.rawloader.KuaikanApi
+import com.astral.stitchapp.rawloader.KuaikanSession
+import com.astral.stitchapp.rawloader.KuaikanChapter
+import com.astral.stitchapp.rawloader.KuaikanSeriesInfo
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.astral.stitchapp.rawloader.GeckoCookieExtractor
@@ -1907,7 +1911,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "MangaGo", "Naver Webtoon", "Webtoons", "Bilibili")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "Comix", "MangaGo", "Naver Webtoon", "Webtoons", "Bilibili", "KuaikanManhua")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -1937,6 +1941,13 @@ fun BatoTab(
     var bilibiliSelectedChapters by remember { mutableStateOf<Set<Float>>(emptySet()) }
     var isBilibiliFetchingChapters by remember { mutableStateOf(false) }
     var bilibiliRangeInput by remember { mutableStateOf("") }
+
+    var kuaikanSession by remember { mutableStateOf(KuaikanApi.loadSession(context)) }
+    var showKuaikanChapterDialog by remember { mutableStateOf(false) }
+    var kuaikanFetchedSeriesInfo by remember { mutableStateOf<KuaikanSeriesInfo?>(null) }
+    var kuaikanSelectedChapters by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var isKuaikanFetchingChapters by remember { mutableStateOf(false) }
+    var kuaikanRangeInput by remember { mutableStateOf("") }
 
     var urlInput by remember { mutableStateOf("") }
     var chapterInput by remember { mutableStateOf("") }
@@ -2748,6 +2759,121 @@ fun BatoTab(
                     }
                 }
             }
+        } else if (selectedSource == "KuaikanManhua") {
+            if (!kuaikanSession.isLoggedIn) {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Login KuaikanManhua", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Login melalui GeckoView (Desktop UA), lalu tekan tombol 'Generate Cookie' untuk membuat file cookie berformat Netscape (.kuaikan_cookies).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+                        Button(
+                            onClick = {
+                                scraperUrl = KuaikanApi.LOGIN_URL
+                                scraperScript = ScraperScripts.KUAIKAN
+                                showScraperDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Login KuaikanManhua")
+                        }
+                    }
+                }
+            } else {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Akun KuaikanManhua: ${kuaikanSession.username.ifBlank { "Cookie Active" }}",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "Cookie: .kuaikan_cookies (Netscape)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    scraperUrl = KuaikanApi.LOGIN_URL
+                                    scraperScript = ScraperScripts.KUAIKAN
+                                    showScraperDialog = true
+                                }
+                            ) {
+                                Text("Re-login")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    KuaikanApi.clearSession(context)
+                                    kuaikanSession = KuaikanSession()
+                                    Toast.makeText(context, "Berhasil logout KuaikanManhua", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Text("Logout")
+                            }
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        label = { Text("URL Komik (Topic) (misal: https://www.kuaikanmanhua.com/web/topic/21881/?cps=box)") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (isKuaikanFetchingChapters) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else {
+                        Button(
+                            onClick = {
+                                if (urlInput.isBlank()) {
+                                    Toast.makeText(context, "Masukkan URL Komik (Topic) atau Topic ID!", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                isKuaikanFetchingChapters = true
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val info = KuaikanApi.fetchSeriesInfo(urlInput, context = context, session = kuaikanSession)
+                                        withContext(Dispatchers.Main) {
+                                            isKuaikanFetchingChapters = false
+                                            if (info.chapters.isNotEmpty()) {
+                                                kuaikanFetchedSeriesInfo = info
+                                                kuaikanSelectedChapters = info.chapters.map { it.number }.toSet()
+                                                showKuaikanChapterDialog = true
+                                            } else {
+                                                Toast.makeText(context, "Tidak ada chapter yang ditemukan untuk '$urlInput'", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        withContext(Dispatchers.Main) {
+                                            isKuaikanFetchingChapters = false
+                                            Toast.makeText(context, "Gagal mengambil chapter: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = urlInput.isNotBlank()
+                        ) {
+                            Text("Fetch Chapters")
+                        }
+                    }
+                }
+            }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val labelText = when(selectedSource) {
@@ -3346,6 +3472,177 @@ fun BatoTab(
             }
         }
 
+        if (showKuaikanChapterDialog && kuaikanFetchedSeriesInfo != null) {
+            val info = kuaikanFetchedSeriesInfo!!
+            Dialog(onDismissRequest = { showKuaikanChapterDialog = false }) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(8.dp),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Text(
+                            text = info.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Topic ID: ${info.topicId} • ${info.chapters.size} Chapters",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedButton(onClick = {
+                                    kuaikanSelectedChapters = info.chapters.map { it.number }.toSet()
+                                }) {
+                                    Text("Pilih Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                                OutlinedButton(onClick = {
+                                    kuaikanSelectedChapters = emptySet()
+                                }) {
+                                    Text("Hapus Semua", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Text("${kuaikanSelectedChapters.size}/${info.chapters.size} dipilih", style = MaterialTheme.typography.bodySmall)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = kuaikanRangeInput,
+                                onValueChange = { kuaikanRangeInput = it },
+                                label = { Text("Range (misal: 1-10)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = {
+                                val parts = kuaikanRangeInput.split("-")
+                                if (parts.size == 2) {
+                                    val start = parts[0].trim().toIntOrNull()
+                                    val end = parts[1].trim().toIntOrNull()
+                                    if (start != null && end != null && start <= end) {
+                                        val inRange = info.chapters.filter { it.number in start..end }.map { it.number }.toSet()
+                                        kuaikanSelectedChapters = inRange
+                                    }
+                                }
+                            }) {
+                                Text("Terapkan")
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(info.chapters) { ch ->
+                                val isSelected = ch.number in kuaikanSelectedChapters
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            kuaikanSelectedChapters = if (isSelected) {
+                                                kuaikanSelectedChapters - ch.number
+                                            } else {
+                                                kuaikanSelectedChapters + ch.number
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            kuaikanSelectedChapters = if (checked) {
+                                                kuaikanSelectedChapters + ch.number
+                                            } else {
+                                                kuaikanSelectedChapters - ch.number
+                                            }
+                                        }
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            ch.title.ifBlank { "${ch.number}" },
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        val pagesStr = if (ch.imageCount > 0) " • ${ch.imageCount}p" else ""
+                                        if (ch.isFree) {
+                                            Text(
+                                                "[FREE$pagesStr]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF4CAF50)
+                                            )
+                                        } else if (ch.canView) {
+                                            Text(
+                                                "[Tersedia / Unlocked$pagesStr]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF4CAF50)
+                                            )
+                                        } else {
+                                            Text(
+                                                "[PAID / Terkunci$pagesStr]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFFFF9800)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showKuaikanChapterDialog = false },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Batal")
+                            }
+                            Button(
+                                onClick = {
+                                    val selectedChs = info.chapters.filter { it.number in kuaikanSelectedChapters }
+                                    if (selectedChs.isEmpty()) {
+                                        Toast.makeText(context, "Pilih minimal 1 chapter!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    showKuaikanChapterDialog = false
+                                    scope.launch(Dispatchers.IO) {
+                                        val added = BatoEngine.addKuaikanChapters(
+                                            context.cacheDir,
+                                            selectedChs,
+                                            info.title,
+                                            kuaikanSession.netscapeCookie.ifBlank { kuaikanSession.rawCookie }
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Menambahkan $added chapter ke queue!", Toast.LENGTH_SHORT).show()
+                                            urlInput = ""
+                                        }
+                                    }
+                                },
+                                enabled = kuaikanSelectedChapters.isNotEmpty(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Tambah (${kuaikanSelectedChapters.size})")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (showScraperDialog) {
             ScraperWebViewDialog(
                 url = scraperUrl,
@@ -3372,7 +3669,34 @@ fun BatoTab(
                         "KakaoPage" -> "kakaopage"
                         "Comix" -> "comix"
                         "MangaGo" -> "mangago"
+                        "KuaikanManhua" -> "kuaikan"
                         else -> patchObj?.type ?: selectedSource.lowercase()
+                    }
+                    if (type == "kuaikan") {
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val rawToSave = cookie.ifBlank {
+                                    GeckoCookieExtractor.extractCookieString(context, KuaikanApi.LOGIN_URL)
+                                }
+                                if (rawToSave.isBlank()) {
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Cookie kosong! Pastikan Anda sudah login.", Toast.LENGTH_LONG).show()
+                                    }
+                                    return@launch
+                                }
+                                val newSession = KuaikanApi.generateSessionFromRawCookie(context, rawToSave)
+                                withContext(Dispatchers.Main) {
+                                    kuaikanSession = newSession
+                                    Toast.makeText(context, "Cookie Netscape (.kuaikan_cookies) berhasil digenerate!", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Gagal membuat cookie: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                        return@ScraperWebViewDialog
                     }
                     val resolvedCookie = when(type) {
                         "ridi" -> {

@@ -19,11 +19,11 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 ## 3. Arsitektur Scraper
 
 ### Routing dialog (`ScraperUi.kt`)
-- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks, Comix** (`manta`, `kakao`, `ridi`, `comix`) ke `GeckoScraperDialog`.
+- `ScraperWebViewDialog` mengarahkan sumber **Manta, KakaoPage, Ridibooks, Comix, KuaikanManhua** (`manta`, `kakao`, `ridi`, `comix`, `kuaikan`) ke `GeckoScraperDialog`.
   - Memakai Mozilla GeckoView (`GeckoRuntime` + `GeckoSession`) agar popup OAuth, anti-bot, dan WebExtension berfungsi.
 - Sumber lain memakai `StandardWebViewScraperDialog`.
 - Kedua dialog punya tombol **Reload** (`session.reload()` / `webView?.reload()`).
-- Scraping Ridibooks, Bomtoon, Lezhin, Manta, MrBlue, dan Comix bergantung pada `ScraperWebViewDialog` untuk autentikasi dan penangkapan data dinamis lewat request browser.
+- Scraping Ridibooks, Bomtoon, Lezhin, Manta, MrBlue, Comix, dan login KuaikanManhua bergantung pada `ScraperWebViewDialog` untuk autentikasi dan penangkapan data dinamis lewat request browser.
 
 ### Progress & tombol Scrape
 - `updateProgress(loaded, total, isReady)` menampilkan progress bar dan jumlah gambar.
@@ -31,12 +31,12 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Tombol dinonaktifkan sementara selama scraping gambar berlangsung.
 
 ### Daftar sumber bawaan
-- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, Naver Webtoon, Webtoons, Bilibili.
+- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, MangaGo, Naver Webtoon, Webtoons, Bilibili, KuaikanManhua.
 - Ditambah patch sumber kustom dinamis (`.asp`).
 
 ## 4. Autentikasi & Cookie
 
-- Cookie/session tiap sumber disimpan terpisah di SharedPreferences: `ridi_cookie`, `bomtoon_cookie`, `lezhin_cookie`, `mrblue_cookie`, `kakaopage_cookie`, `webtoons_session`.
+- Cookie/session tiap sumber disimpan terpisah di SharedPreferences: `ridi_cookie`, `bomtoon_cookie`, `lezhin_cookie`, `mrblue_cookie`, `kakaopage_cookie`, `webtoons_session`, `bilibili_session`, `kuaikan_session` (plus file `.kuaikan_cookies` format Netscape).
 
 ### `CookieWebViewDialog` (`MainActivity.kt`) untuk login OAuth Kakao
 - `fixKakaoUrl`: menghapus `#webTalkLogin` dan menambah `talk_login_error=true` agar login ID/password web standar yang tampil.
@@ -116,6 +116,14 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Mengekstrak regex (`KEY_LOCATION_REGEX`, `IMG_SRCS_REGEX`, `COLS_REGEX`, `TOTAL_PAGES_REGEX`, `HEX_VARIABLE_REGEX`), `JS_FILTERS`, `REPLACE_POS_BYTECODE`, parameter `SoJsonV4Deobfuscator`, serta cookie `_m_superu=1` langsung dari kode sumber Keiyoushi.
 - Menangani deobfuscasi script `sojson.v4`, dekripsi AES-CBC ZeroBytePadding (`javax.crypto.Cipher`), unscrambling daftar URL gambar (`str_shuffle` via `Android.unscrambleMangagoList`), evaluasi `getDescramblingKey(url)` dengan helper `replacePos`, serta penggabungan multi-batch halaman (`total_pages` + `input#curl`).
 - Di `BatoEngine.kt`, URL gambar CDN MangaGo dengan hostname mengandung `_` otomatis diturunkan dari `https://` ke `http://` untuk menghindari kegagalan SNI TLS, dan gambar teracak (`cspiclink` dengan `#desckey=...&cols=...`) didescramble menggunakan algoritma grid tile Keiyoushi (`MangaGoSyncManager.unscrambleImage`).
+
+### KuaikanManhua (`kuaikanmanhua.com`)
+- File terkait: `KuaikanApi.kt`, `ScraperUi.kt`, `GeckoCookieExtractor.kt`, `BatoEngine.kt`, `MainActivity.kt`, `app/src/main/assets/cookie_extractor/background.js`.
+- Login memakai `GeckoScraperDialog` (`ScraperUi.kt`) yang mengarah ke `https://www.kuaikanmanhua.com/webs/loginh?redirect=https://www.kuaikanmanhua.com/?cps=box&cps=box` dengan **Desktop User-Agent** (`USER_AGENT_MODE_DESKTOP` + `VIEWPORT_MODE_DESKTOP`) karena KuaikanManhua tidak mendukung login via UI mobile.
+- Khusus KuaikanManhua, tombol `'Scrape'` di GeckoView diganti menjadi `'Generate Cookie'`. Saat ditekan, raw cookie dikonversi ke format **Netscape HTTP Cookie File** (`.kkmh.com`) dan disimpan ke `.kuaikan_cookies` serta `kuaikan_session`.
+- Setelah cookie ter-generate, dialog GeckoView tertutup dan menampilkan input URL Topic (misal `https://www.kuaikanmanhua.com/web/topic/21881/?cps=box`) dengan tombol **Fetch Chapters**.
+- Memanggil mobile API Kuaikan (`api.kkmh.com` — `/v2/topic/topic_catalogue/list`, `/v2/topic/topic_detail`, `/v2/comic/detail/get`) dengan tanda tangan kriptografi MD5 `X-Sign-B` (menggabungkan `A:<android_id>`, `SIGNING_SECRET`, 8-byte `server_time`, 8-byte `client_time`, dan parameter terurut sebagai signed byte string) serta header `App-Info` Base64.
+- Menyediakan dialog pemilihan chapter interaktif (single, multi-select, select all/none, dan rentang chapter) lengkap dengan judul komik dan judul masing-masing chapter untuk dimasukkan ke antrean `BatoEngine`.
 
 ## 6. Patch Sumber (`.asp`)
 

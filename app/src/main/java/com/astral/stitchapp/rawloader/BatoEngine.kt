@@ -206,6 +206,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "Bilibili Chapter", type = "bilibili", cookie = cookie))
                     added = 1
                 }
+            } else if (sourceType == "kuaikan") {
+                val existingKuaikan = queue.filter { it.url == url }
+                existingKuaikan.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "KuaikanManhua Chapter", type = "kuaikan", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -269,6 +282,40 @@ object BatoEngine {
 
             if (queue.none { it.url == chUrl }) {
                 queue.add(QueueItem(url = chUrl, title = chTitle, type = "bilibili", cookie = cookie))
+                addedCount++
+            }
+        }
+
+        if (addedCount > 0) {
+            saveQueue(cacheDir, queue)
+        }
+        return@withLock addedCount
+    }
+
+    suspend fun addKuaikanChapters(cacheDir: File, chapters: List<KuaikanChapter>, seriesTitle: String, cookie: String = ""): Int = queueMutex.withLock {
+        val queue = loadQueue(cacheDir)
+        var addedCount = 0
+        val sanitizedSeries = sanitizeFilename(seriesTitle)
+
+        chapters.forEach { ch ->
+            val chTitle = if (ch.title.isNotBlank()) {
+                "$sanitizedSeries - ${sanitizeFilename(ch.title)}"
+            } else {
+                "$sanitizedSeries - ${ch.number}"
+            }
+            val chUrl = "https://www.kuaikanmanhua.com/web/comic/${ch.id}/#topic_id=${ch.topicId}&comic_id=${ch.id}"
+
+            val existing = queue.filter { it.url == chUrl || (it.title == chTitle && it.type == "kuaikan") }
+            existing.forEach { oldItem ->
+                if (oldItem.status == "done" || oldItem.status == "failed") {
+                    val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                    if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                    queue.remove(oldItem)
+                }
+            }
+
+            if (queue.none { it.url == chUrl }) {
+                queue.add(QueueItem(url = chUrl, title = chTitle, type = "kuaikan", cookie = cookie))
                 addedCount++
             }
         }
@@ -779,8 +826,9 @@ object BatoEngine {
             rawCleanUrlStr
         }
         val pathPart = uri.path ?: ""
-        var ext = if (pathPart.contains(".")) "." + pathPart.substringAfterLast('.') else ".jpg"
-        if (ext.length > 5) ext = ".jpg"
+        val validExts = setOf(".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga", ".avif", ".jxl")
+        var ext = if (pathPart.contains(".")) "." + pathPart.substringAfterLast('.').lowercase(Locale.ROOT) else ".jpg"
+        if (ext !in validExts) ext = ".jpg"
 
         val filename = String.format(Locale.ROOT, "img_%04d%s", idx, ext)
         val target = File(destDir, filename)
@@ -869,18 +917,30 @@ object BatoEngine {
         } catch (_: Exception) { return file }
 
         val headerStr = if (read >= 0) String(header, 0, read, Charsets.US_ASCII) else ""
-        val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
+        val isWebp = read >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
+        val isPng = read >= 8 && header[0] == 0x89.toByte() && header[1] == 0x50.toByte() &&
+                header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
+        val isJpeg = read >= 3 && header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()
         val isFakeJpg = headerStr.contains("Fake jpg")
-        val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
+        val isAvif = read >= 12 && (headerStr.substring(4, 12) == "ftypavif" || headerStr.substring(4, 12) == "ftypavis")
         val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
                 (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
+        val isBmp = read >= 2 && header[0] == 0x42.toByte() && header[1] == 0x4D.toByte()
 
         val ext = file.extension.lowercase(Locale.ROOT)
-        val isJpgExt = ext in setOf("jpg", "jpeg", "jfif")
+        val detectedExt = when {
+            isJxl -> "jxl"
+            isWebp || isFakeJpg -> "webp"
+            isAvif -> "avif"
+            isPng -> "png"
+            isJpeg -> "jpg"
+            isBmp -> "bmp"
+            else -> null
+        }
 
-        if (isJpgExt && (isFakeJpg || isWebp || isAvif || isJxl)) {
-            val targetExt = if (isJxl) "jxl" else "webp"
-            val newFile = File(file.parentFile, file.nameWithoutExtension + "." + targetExt)
+        val isJpegPair = ext in setOf("jpg", "jpeg", "jfif") && detectedExt == "jpg"
+        if (detectedExt != null && detectedExt != ext && !isJpegPair) {
+            val newFile = File(file.parentFile, file.nameWithoutExtension + "." + detectedExt)
             if (file.renameTo(newFile)) {
                 return newFile
             }
@@ -1075,6 +1135,9 @@ object BatoEngine {
             } else if (sourceType == "bilibili") {
                 images.addAll(BilibiliApi.scrapeChapterImages(context, url, item.cookie))
                 referer = "https://manga.bilibili.com/"
+            } else if (sourceType == "kuaikan") {
+                images.addAll(KuaikanApi.scrapeChapterImages(context, cacheDir, url, item.cookie))
+                referer = null
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
@@ -1120,7 +1183,8 @@ object BatoEngine {
                         if (action == "paused" || action == "removed") return@async action
 
                         val targetPath = downloadSemaphore.withPermit {
-                            downloadImage(imgUrl, dlDir, i + 1, item.cookie, referer)
+                            val cookieForImg = if (sourceType == "kuaikan") null else item.cookie
+                            downloadImage(imgUrl, dlDir, i + 1, cookieForImg, referer)
                         }
 
                         if (sourceType == "naver") {
