@@ -613,9 +613,24 @@ object MangaGoSyncManager {
             }
 
             async function fetchText(targetUrl) {
+                let isSameOrigin = false;
+                try {
+                    isSameOrigin = new URL(targetUrl, location.href).origin === location.origin;
+                } catch (_) {}
+
+                if (isSameOrigin) {
+                    try {
+                        const resp = await fetch(targetUrl, { credentials: 'include' });
+                        if (resp.ok) {
+                            const txt = await resp.text();
+                            if (txt && !txt.includes("<title>Just a moment...</title>")) return txt;
+                        }
+                    } catch (_) {}
+                }
+
                 if (window.Android && typeof window.Android.fetchUrl === 'function') {
                     const res = window.Android.fetchUrl(targetUrl);
-                    if (res && !res.startsWith("ERROR:")) return res;
+                    if (res && !res.startsWith("ERROR:") && !res.includes("<title>Just a moment...</title>")) return res;
                 }
                 const resp = await fetch(targetUrl, { credentials: 'include' });
                 if (!resp.ok) throw new Error("HTTP " + resp.status + " fetching " + targetUrl);
@@ -698,7 +713,7 @@ object MangaGoSyncManager {
                     }
 
                     const getDescramblingKey = imageKeyScript
-                        ? new Function("url", ${JSONObject.quote(cfg.replacePosJs)} + "\n" + imageKeyScript + "\nreturn String(key);")
+                        ? new Function("url", "var mk, _m, key;\n" + ${JSONObject.quote(cfg.replacePosJs)} + "\n" + imageKeyScript + "\nreturn String(key);")
                         : null;
 
                     async function getChapterImageUrlsFromHtml(pageHtml) {
