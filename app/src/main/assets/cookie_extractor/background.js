@@ -35,6 +35,9 @@
             queries.push({ domain: "mrblue.com" });
         } else if (domain.includes("manta")) {
             queries.push({ domain: "manta.net" });
+        } else if (domain.includes("kuaikan") || domain.includes("kkmh")) {
+            queries.push({ domain: "kuaikanmanhua.com" });
+            queries.push({ domain: "kkmh.com" });
         } else if (domain) {
             queries.push({ domain: domain });
             const parts = domain.split('.');
@@ -89,7 +92,7 @@
     browser.cookies.onChanged.addListener((changeInfo) => {
         if (!changeInfo || !changeInfo.cookie) return;
         const d = (changeInfo.cookie.domain || "").toLowerCase();
-        if (d.includes("kakao") || d.includes("ridi") || d.includes("bomtoon") || d.includes("lezhin") || d.includes("mrblue") || d.includes("manta")) {
+        if (d.includes("kakao") || d.includes("ridi") || d.includes("bomtoon") || d.includes("lezhin") || d.includes("mrblue") || d.includes("manta") || d.includes("kuaikan") || d.includes("kkmh")) {
             getAllDomainCookies(d).then(cookieString => {
                 if (nativePort && cookieString) {
                     try {

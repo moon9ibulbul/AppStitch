@@ -206,6 +206,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "Bilibili Chapter", type = "bilibili", cookie = cookie))
                     added = 1
                 }
+            } else if (sourceType == "kuaikan") {
+                val existingKuaikan = queue.filter { it.url == url }
+                existingKuaikan.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "KuaikanManhua Chapter", type = "kuaikan", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -269,6 +282,40 @@ object BatoEngine {
 
             if (queue.none { it.url == chUrl }) {
                 queue.add(QueueItem(url = chUrl, title = chTitle, type = "bilibili", cookie = cookie))
+                addedCount++
+            }
+        }
+
+        if (addedCount > 0) {
+            saveQueue(cacheDir, queue)
+        }
+        return@withLock addedCount
+    }
+
+    suspend fun addKuaikanChapters(cacheDir: File, chapters: List<KuaikanChapter>, seriesTitle: String, cookie: String = ""): Int = queueMutex.withLock {
+        val queue = loadQueue(cacheDir)
+        var addedCount = 0
+        val sanitizedSeries = sanitizeFilename(seriesTitle)
+
+        chapters.forEach { ch ->
+            val chTitle = if (ch.title.isNotBlank()) {
+                "$sanitizedSeries - Chapter ${ch.number} - ${sanitizeFilename(ch.title)}"
+            } else {
+                "$sanitizedSeries - Chapter ${ch.number}"
+            }
+            val chUrl = "https://www.kuaikanmanhua.com/web/comic/${ch.id}/#topic_id=${ch.topicId}&comic_id=${ch.id}"
+
+            val existing = queue.filter { it.url == chUrl || (it.title == chTitle && it.type == "kuaikan") }
+            existing.forEach { oldItem ->
+                if (oldItem.status == "done" || oldItem.status == "failed") {
+                    val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                    if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                    queue.remove(oldItem)
+                }
+            }
+
+            if (queue.none { it.url == chUrl }) {
+                queue.add(QueueItem(url = chUrl, title = chTitle, type = "kuaikan", cookie = cookie))
                 addedCount++
             }
         }
@@ -1075,6 +1122,9 @@ object BatoEngine {
             } else if (sourceType == "bilibili") {
                 images.addAll(BilibiliApi.scrapeChapterImages(context, url, item.cookie))
                 referer = "https://manga.bilibili.com/"
+            } else if (sourceType == "kuaikan") {
+                images.addAll(KuaikanApi.scrapeChapterImages(context, cacheDir, url, item.cookie))
+                referer = null
             } else {
                 if (item.preScrapedImages.isNotEmpty()) {
                     images.addAll(item.preScrapedImages)
@@ -1120,7 +1170,8 @@ object BatoEngine {
                         if (action == "paused" || action == "removed") return@async action
 
                         val targetPath = downloadSemaphore.withPermit {
-                            downloadImage(imgUrl, dlDir, i + 1, item.cookie, referer)
+                            val cookieForImg = if (sourceType == "kuaikan") null else item.cookie
+                            downloadImage(imgUrl, dlDir, i + 1, cookieForImg, referer)
                         }
 
                         if (sourceType == "naver") {

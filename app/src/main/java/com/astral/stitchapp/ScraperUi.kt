@@ -1069,6 +1069,40 @@ object ScraperScripts {
         };
     })();
     """.trimIndent()
+
+    val KUAIKAN = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        window.runScraper = async function() {
+            log("Generating KuaikanManhua Cookie...");
+            try {
+                window.dispatchEvent(new CustomEvent('astral:request-cookies'));
+                await sleep(400);
+
+                let extCookies = (document.documentElement ? document.documentElement.getAttribute('data-astral-cookies') : null) || window.__ASTRAL_COOKIES__ || '';
+                let docCookie = document.cookie || '';
+
+                let cookieParts = [];
+                if (docCookie) cookieParts.push(docCookie);
+                if (extCookies) cookieParts.push(extCookies);
+                let cookieStr = cookieParts.join('; ');
+
+                const result = {
+                    title: document.title || "KuaikanManhua",
+                    images: [],
+                    cookie: cookieStr
+                };
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
 }
 
 class ScraperJsInterface(
@@ -1175,7 +1209,8 @@ fun ScraperWebViewDialog(
     val useGecko = url.contains("manta", ignoreCase = true) || script.contains("Manta", ignoreCase = true) || script.contains("manta", ignoreCase = true) ||
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
                    url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
-                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+                   url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true) ||
+                   url.contains("kuaikan", ignoreCase = true) || url.contains("kkmh", ignoreCase = true) || script.contains("Kuaikan", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
@@ -1208,6 +1243,7 @@ private fun GeckoScraperDialog(
     val session = remember { GeckoSession() }
 
     val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
+    val isKuaikan = url.contains("kuaikan", ignoreCase = true) || url.contains("kkmh", ignoreCase = true) || script.contains("Kuaikan", ignoreCase = true)
 
     var status by remember { mutableStateOf(if (isComix) "Preparing Comix Addon..." else "Loading page...") }
 
@@ -1274,6 +1310,8 @@ private fun GeckoScraperDialog(
     val androidVersion = android.os.Build.VERSION.RELEASE
     val model = android.os.Build.MODEL
     val realDeviceUserAgent = "Mozilla/5.0 (Linux; Android $androidVersion; $model) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    val desktopUserAgent = com.astral.stitchapp.rawloader.KuaikanApi.DESKTOP_USER_AGENT
+    val activeUserAgent = if (isKuaikan) desktopUserAgent else realDeviceUserAgent
 
     val buildJsUri: (Boolean) -> String = remember(script) {
         { autoRun ->
@@ -1330,7 +1368,11 @@ private fun GeckoScraperDialog(
                             session.navigationDelegate = object : GeckoSession.NavigationDelegate {
                                 override fun onNewSession(s: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
                                     val popup = GeckoSession()
-                                    popup.settings.userAgentOverride = realDeviceUserAgent
+                                    if (isKuaikan) {
+                                        popup.settings.userAgentMode = org.mozilla.geckoview.GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+                                        popup.settings.viewportMode = org.mozilla.geckoview.GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+                                    }
+                                    popup.settings.userAgentOverride = activeUserAgent
                                     popup.contentDelegate = object : GeckoSession.ContentDelegate {
                                         override fun onCloseRequest(geckoSession: GeckoSession) {
                                             try { geckoSession.close() } catch (_: Exception) {}
@@ -1434,7 +1476,7 @@ private fun GeckoScraperDialog(
                                             if (v.isBlank()) k else "$k=$v"
                                         }
 
-                                        if (!hasScraped && list.isNotEmpty()) {
+                                        if (!hasScraped && (list.isNotEmpty() || isKuaikan)) {
                                             hasScraped = true
                                             onScrapeSuccess(title, list, finalCookieString)
                                         }
@@ -1478,7 +1520,11 @@ private fun GeckoScraperDialog(
                             }
 
                             if (!isComix) {
-                                session.settings.userAgentOverride = realDeviceUserAgent
+                                if (isKuaikan) {
+                                    session.settings.userAgentMode = org.mozilla.geckoview.GeckoSessionSettings.USER_AGENT_MODE_DESKTOP
+                                    session.settings.viewportMode = org.mozilla.geckoview.GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
+                                }
+                                session.settings.userAgentOverride = activeUserAgent
                                 session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
                             }
                         }
@@ -1556,12 +1602,12 @@ private fun GeckoScraperDialog(
 
                         Button(
                             onClick = {
-                                status = "Scraping started..."
+                                status = if (isKuaikan) "Generating cookie..." else "Scraping started..."
                                 session.loadUri(buildJsUri(true))
                             },
                             enabled = isScrapeReady,
                             modifier = Modifier.weight(1f)
-                        ) { Text("Scrape") }
+                        ) { Text(if (isKuaikan) "Generate Cookie" else "Scrape") }
                     }
                 }
             }
