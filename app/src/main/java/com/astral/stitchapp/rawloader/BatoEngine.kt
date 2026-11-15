@@ -299,9 +299,9 @@ object BatoEngine {
 
         chapters.forEach { ch ->
             val chTitle = if (ch.title.isNotBlank()) {
-                "$sanitizedSeries - Chapter ${ch.number} - ${sanitizeFilename(ch.title)}"
+                "$sanitizedSeries - ${sanitizeFilename(ch.title)}"
             } else {
-                "$sanitizedSeries - Chapter ${ch.number}"
+                "$sanitizedSeries - ${ch.number}"
             }
             val chUrl = "https://www.kuaikanmanhua.com/web/comic/${ch.id}/#topic_id=${ch.topicId}&comic_id=${ch.id}"
 
@@ -826,8 +826,9 @@ object BatoEngine {
             rawCleanUrlStr
         }
         val pathPart = uri.path ?: ""
-        var ext = if (pathPart.contains(".")) "." + pathPart.substringAfterLast('.') else ".jpg"
-        if (ext.length > 5) ext = ".jpg"
+        val validExts = setOf(".png", ".jpg", ".jpeg", ".jfif", ".webp", ".bmp", ".tiff", ".tif", ".tga", ".avif", ".jxl")
+        var ext = if (pathPart.contains(".")) "." + pathPart.substringAfterLast('.').lowercase(Locale.ROOT) else ".jpg"
+        if (ext !in validExts) ext = ".jpg"
 
         val filename = String.format(Locale.ROOT, "img_%04d%s", idx, ext)
         val target = File(destDir, filename)
@@ -916,18 +917,30 @@ object BatoEngine {
         } catch (_: Exception) { return file }
 
         val headerStr = if (read >= 0) String(header, 0, read, Charsets.US_ASCII) else ""
-        val isWebp = headerStr.length >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
+        val isWebp = read >= 12 && headerStr.startsWith("RIFF") && headerStr.substring(8, 12) == "WEBP"
+        val isPng = read >= 8 && header[0] == 0x89.toByte() && header[1] == 0x50.toByte() &&
+                header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
+        val isJpeg = read >= 3 && header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()
         val isFakeJpg = headerStr.contains("Fake jpg")
-        val isAvif = headerStr.length >= 12 && headerStr.substring(4, 12) == "ftypavif"
+        val isAvif = read >= 12 && (headerStr.substring(4, 12) == "ftypavif" || headerStr.substring(4, 12) == "ftypavis")
         val isJxl = (read >= 2 && header[0] == 0xFF.toByte() && header[1] == 0x0A.toByte()) ||
                 (read >= 12 && (headerStr.substring(4, 8) == "JXL " || headerStr.contains("ftypjxl")))
+        val isBmp = read >= 2 && header[0] == 0x42.toByte() && header[1] == 0x4D.toByte()
 
         val ext = file.extension.lowercase(Locale.ROOT)
-        val isJpgExt = ext in setOf("jpg", "jpeg", "jfif")
+        val detectedExt = when {
+            isJxl -> "jxl"
+            isWebp || isFakeJpg -> "webp"
+            isAvif -> "avif"
+            isPng -> "png"
+            isJpeg -> "jpg"
+            isBmp -> "bmp"
+            else -> null
+        }
 
-        if (isJpgExt && (isFakeJpg || isWebp || isAvif || isJxl)) {
-            val targetExt = if (isJxl) "jxl" else "webp"
-            val newFile = File(file.parentFile, file.nameWithoutExtension + "." + targetExt)
+        val isJpegPair = ext in setOf("jpg", "jpeg", "jfif") && detectedExt == "jpg"
+        if (detectedExt != null && detectedExt != ext && !isJpegPair) {
+            val newFile = File(file.parentFile, file.nameWithoutExtension + "." + detectedExt)
             if (file.renameTo(newFile)) {
                 return newFile
             }

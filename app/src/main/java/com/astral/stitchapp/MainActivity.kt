@@ -3574,7 +3574,7 @@ fun BatoTab(
                                     Spacer(Modifier.width(8.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            "Chapter ${ch.number}${if (ch.title.isNotBlank()) ": ${ch.title}" else ""}",
+                                            ch.title.ifBlank { "${ch.number}" },
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         val pagesStr = if (ch.imageCount > 0) " • ${ch.imageCount}p" else ""
