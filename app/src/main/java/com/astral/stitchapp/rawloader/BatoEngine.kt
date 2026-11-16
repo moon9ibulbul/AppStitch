@@ -219,6 +219,19 @@ object BatoEngine {
                     queue.add(QueueItem(url = url, title = "KuaikanManhua Chapter", type = "kuaikan", cookie = cookie))
                     added = 1
                 }
+            } else if (sourceType == "tappytoon") {
+                val existingTappy = queue.filter { it.url == url }
+                existingTappy.forEach { oldItem ->
+                    if (oldItem.status == "done" || oldItem.status == "failed") {
+                        val oldPrescrapedDir = File(cacheDir, "prescraped_cache/${oldItem.id}")
+                        if (oldPrescrapedDir.exists()) oldPrescrapedDir.deleteRecursively()
+                        queue.remove(oldItem)
+                    }
+                }
+                if (queue.none { it.url == url }) {
+                    queue.add(QueueItem(url = url, title = "TappyToon Chapter", type = "tappytoon", cookie = cookie))
+                    added = 1
+                }
             }
 
             if (added > 0) {
@@ -1151,6 +1164,7 @@ object BatoEngine {
                     "lezhin" -> "https://www.lezhin.com/"
                     "mrblue" -> "https://www.mrblue.com/"
                     "kakaopage" -> "https://page.kakao.com/"
+                    "tappytoon" -> "https://www.tappytoon.com/"
                     "mangago" -> "https://www.mangago.me/"
                     "comix" -> null
                     else -> {
