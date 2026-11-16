@@ -2768,12 +2768,6 @@ fun BatoTab(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("Login KuaikanManhua", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Login melalui GeckoView (Desktop UA), lalu tekan tombol 'Generate Cookie' untuk membuat file cookie berformat Netscape (.kuaikan_cookies).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
                         Button(
                             onClick = {
                                 scraperUrl = KuaikanApi.LOGIN_URL
@@ -2797,11 +2791,6 @@ fun BatoTab(
                             Text(
                                 "Akun KuaikanManhua: ${kuaikanSession.username.ifBlank { "Cookie Active" }}",
                                 style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "Cookie: .kuaikan_cookies (Netscape)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2831,7 +2820,7 @@ fun BatoTab(
                     OutlinedTextField(
                         value = urlInput,
                         onValueChange = { urlInput = it },
-                        label = { Text("URL Komik (Topic) (misal: https://www.kuaikanmanhua.com/web/topic/21881/?cps=box)") },
+                        label = { Text("Url Komik") },
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
