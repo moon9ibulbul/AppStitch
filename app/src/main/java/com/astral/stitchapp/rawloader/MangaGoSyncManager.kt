@@ -219,7 +219,7 @@ object MangaGoSyncManager {
                 connectTimeout = 15000
                 readTimeout = 15000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "AstralStitch/1.5.8 (Android; Keiyoushi-Sync)")
+                setRequestProperty("User-Agent", "AstralStitch/1.5.9 (Android; Keiyoushi-Sync)")
                 if (acceptHeader != null) {
                     setRequestProperty("Accept", acceptHeader)
                 }
