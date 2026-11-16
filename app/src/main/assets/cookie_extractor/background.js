@@ -38,6 +38,11 @@
         } else if (domain.includes("kuaikan") || domain.includes("kkmh")) {
             queries.push({ domain: "kuaikanmanhua.com" });
             queries.push({ domain: "kkmh.com" });
+        } else if (domain.includes("tappytoon")) {
+            queries.push({ domain: "tappytoon.com" });
+            queries.push({ domain: "www.tappytoon.com" });
+            queries.push({ domain: "api-global.tappytoon.com" });
+            queries.push({ domain: "content-repository-cdn.tappytoon.com" });
         } else if (domain) {
             queries.push({ domain: domain });
             const parts = domain.split('.');
@@ -92,7 +97,7 @@
     browser.cookies.onChanged.addListener((changeInfo) => {
         if (!changeInfo || !changeInfo.cookie) return;
         const d = (changeInfo.cookie.domain || "").toLowerCase();
-        if (d.includes("kakao") || d.includes("ridi") || d.includes("bomtoon") || d.includes("lezhin") || d.includes("mrblue") || d.includes("manta") || d.includes("kuaikan") || d.includes("kkmh")) {
+        if (d.includes("kakao") || d.includes("ridi") || d.includes("bomtoon") || d.includes("lezhin") || d.includes("mrblue") || d.includes("manta") || d.includes("kuaikan") || d.includes("kkmh") || d.includes("tappytoon")) {
             getAllDomainCookies(d).then(cookieString => {
                 if (nativePort && cookieString) {
                     try {

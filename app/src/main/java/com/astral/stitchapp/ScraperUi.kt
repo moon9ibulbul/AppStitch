@@ -1103,6 +1103,138 @@ object ScraperScripts {
         };
     })();
     """.trimIndent()
+
+    val TAPPYTOON = """
+    (function() {
+        'use strict';
+        $COMMON_SCRIPTS
+
+        function getEpisodeIdFromUrl() {
+            const match = window.location.pathname.match(/\/chapters\/(\d+)/) ||
+                          window.location.pathname.match(/\/(?:chapter[s]?|book\/[^\/]+)\/(\d+)/i);
+            return match ? match[1] : null;
+        }
+
+        function findChapterData(obj, url) {
+            if (!obj || typeof obj !== 'object') return null;
+
+            const episodeId = getEpisodeIdFromUrl();
+            if (episodeId && url && !url.includes(episodeId)) {
+                return null;
+            }
+
+            const filesArray = Array.isArray(obj.files)
+                ? obj.files
+                : (obj.data && Array.isArray(obj.data.files) ? obj.data.files : null);
+
+            if (filesArray) {
+                const validFiles = filesArray.filter(f => f && f.url && f.sortKey !== undefined);
+                if (validFiles.length > 0) {
+                    const sortedImages = [...validFiles].sort((a, b) => a.sortKey - b.sortKey);
+                    return {
+                        images: sortedImages.map(f => ({
+                            ord: f.sortKey,
+                            downloadUrl: f.url
+                        })),
+                        title: document.title || ('Chapter ' + (episodeId || '')).trim(),
+                        episodeId: episodeId
+                    };
+                }
+            }
+            return null;
+        }
+
+        function onChapterDataFound(found) {
+            if (!found || !found.images || found.images.length === 0) return;
+            window._tappyCapturedData = found;
+            log("Detected Tappytoon chapter data: " + found.images.length + " pages.");
+            if (window.Android && window.Android.updateProgress) {
+                window.Android.updateProgress(found.images.length, found.images.length, true);
+            }
+        }
+
+        if (!window._tappyHooksInstalled) {
+            window._tappyHooksInstalled = true;
+            window._tappyCapturedData = window._tappyCapturedData || null;
+
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this.addEventListener('load', function() {
+                    try {
+                        const res = JSON.parse(this.responseText);
+                        const reqUrl = typeof url === 'string' ? url : (url && url.toString ? url.toString() : '');
+                        const found = findChapterData(res, reqUrl);
+                        if (found) onChapterDataFound(found);
+                    } catch (e) {}
+                });
+                return originalOpen.apply(this, arguments);
+            };
+
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                const response = await originalFetch.apply(this, args);
+                try {
+                    const reqUrl = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+                    const clone = response.clone();
+                    clone.json().then(data => {
+                        const found = findChapterData(data, reqUrl);
+                        if (found) onChapterDataFound(found);
+                    }).catch(() => {});
+                } catch (e) {}
+                return response;
+            };
+        } else if (window._tappyCapturedData && window._tappyCapturedData.images && window._tappyCapturedData.images.length > 0) {
+            if (window.Android && window.Android.updateProgress) {
+                window.Android.updateProgress(window._tappyCapturedData.images.length, window._tappyCapturedData.images.length, true);
+            }
+        }
+
+        window.runScraper = async function() {
+            log("Starting Tappytoon Scraper...");
+            try {
+                const captured = window._tappyCapturedData;
+                if (!captured || !captured.images || captured.images.length === 0) {
+                    const msg = "No chapter data detected yet. Please open a Tappytoon chapter first (e.g. /chapters/123456), or reload the chapter page.";
+                    log(msg);
+                    throw new Error(msg);
+                }
+
+                const orderedUrls = captured.images.map(item => item.downloadUrl).filter(Boolean);
+                if (orderedUrls.length === 0) {
+                    throw new Error("Captured chapter data contained no image URLs.");
+                }
+
+                const episodeId = captured.episodeId || getEpisodeIdFromUrl() || '';
+                const rawTitle = (document.title || captured.title || ('Chapter ' + episodeId)).replace(/\s*\|\s*Tappytoon.*$/i, '').trim();
+                const title = rawTitle || ('Tappytoon Chapter ' + episodeId).trim();
+
+                window.dispatchEvent(new CustomEvent('astral:request-cookies'));
+                await sleep(400);
+
+                let extCookies = (document.documentElement ? document.documentElement.getAttribute('data-astral-cookies') : null) || window.__ASTRAL_COOKIES__ || '';
+                let docCookie = document.cookie || '';
+
+                let cookieParts = [];
+                if (docCookie) cookieParts.push(docCookie);
+                if (extCookies) cookieParts.push(extCookies);
+                let cookieStr = cookieParts.join('; ');
+
+                const result = {
+                    title: title,
+                    images: orderedUrls,
+                    cookie: cookieStr
+                };
+                log("Tappytoon: Successfully scraped " + orderedUrls.length + " images!");
+                if (window.Android && window.Android.onImagesFound) {
+                    window.Android.onImagesFound(JSON.stringify(result));
+                }
+            } catch(e) {
+                log("Tappytoon Error: " + e.message);
+                alert("Tappytoon Error: " + e.message);
+            }
+        };
+    })();
+    """.trimIndent()
 }
 
 class ScraperJsInterface(
@@ -1210,7 +1342,8 @@ fun ScraperWebViewDialog(
                    url.contains("kakao", ignoreCase = true) || script.contains("Kakao", ignoreCase = true) || script.contains("kakao", ignoreCase = true) ||
                    url.contains("ridi", ignoreCase = true) || script.contains("Ridi", ignoreCase = true) || script.contains("ridi", ignoreCase = true) ||
                    url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true) ||
-                   url.contains("kuaikan", ignoreCase = true) || url.contains("kkmh", ignoreCase = true) || script.contains("Kuaikan", ignoreCase = true)
+                   url.contains("kuaikan", ignoreCase = true) || url.contains("kkmh", ignoreCase = true) || script.contains("Kuaikan", ignoreCase = true) ||
+                   url.contains("tappytoon", ignoreCase = true) || script.contains("Tappytoon", ignoreCase = true) || script.contains("tappytoon", ignoreCase = true)
 
     if (useGecko) {
         GeckoScraperDialog(
@@ -1244,6 +1377,7 @@ private fun GeckoScraperDialog(
 
     val isComix = url.contains("comix", ignoreCase = true) || script.contains("Comix", ignoreCase = true) || script.contains("comix", ignoreCase = true)
     val isKuaikan = url.contains("kuaikan", ignoreCase = true) || url.contains("kkmh", ignoreCase = true) || script.contains("Kuaikan", ignoreCase = true)
+    val isTappytoon = url.contains("tappytoon", ignoreCase = true) || script.contains("Tappytoon", ignoreCase = true) || script.contains("tappytoon", ignoreCase = true)
 
     var status by remember { mutableStateOf(if (isComix) "Preparing Comix Addon..." else "Loading page...") }
 
@@ -1295,6 +1429,34 @@ private fun GeckoScraperDialog(
                 status = "Addon error: ${e.message}"
             }
             session.loadUri(url)
+        } else if (isTappytoon) {
+            try {
+                runtime.webExtensionController.ensureBuiltIn(
+                    "resource://android/assets/tappytoon_helper/",
+                    "tappytoon-helper@astral.stitchapp"
+                ).accept(
+                    { helperExt ->
+                        if (helperExt != null) {
+                            try {
+                                runtime.webExtensionController.setAllowedInPrivateBrowsing(helperExt, true)
+                                runtime.webExtensionController.enable(
+                                    helperExt,
+                                    org.mozilla.geckoview.WebExtensionController.EnableSource.USER
+                                )
+                            } catch (_: Exception) {}
+                            Log.d("ScraperUi", "Installed Tappytoon helper bridge: ${helperExt.id}")
+                        }
+                        session.loadUri(url)
+                    },
+                    { err ->
+                        Log.w("ScraperUi", "Tappytoon helper ensureBuiltIn warning: $err")
+                        session.loadUri(url)
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("ScraperUi", "Failed to install Tappytoon helper bridge", e)
+                session.loadUri(url)
+            }
         }
     }
 
@@ -1451,6 +1613,11 @@ private fun GeckoScraperDialog(
                                         }
 
                                         parseIntoMap(cm4)
+                                        if (isTappytoon) {
+                                            parseIntoMap(cm.getCookie("https://www.tappytoon.com/") ?: "")
+                                            parseIntoMap(cm.getCookie("https://api-global.tappytoon.com/") ?: "")
+                                            parseIntoMap(cm.getCookie("https://content-repository-cdn.tappytoon.com/") ?: "")
+                                        }
                                         parseIntoMap(jsCookie)
 
                                         val bridgeCookie = com.astral.stitchapp.rawloader.GeckoCookieBridge.getCookieString()
@@ -1525,7 +1692,9 @@ private fun GeckoScraperDialog(
                                     session.settings.viewportMode = org.mozilla.geckoview.GeckoSessionSettings.VIEWPORT_MODE_DESKTOP
                                 }
                                 session.settings.userAgentOverride = activeUserAgent
-                                session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                                if (!isTappytoon) {
+                                    session.loadUri(if (url.contains("kakao", ignoreCase = true)) fixKakaoUrl(url) else url)
+                                }
                             }
                         }
                     },

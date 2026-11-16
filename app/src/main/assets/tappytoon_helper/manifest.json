@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Astral Tappytoon Extraction Bridge",
+  "version": "1.0.0",
+  "description": "Intercepts Tappytoon chapter API responses at document_start for GeckoView",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "tappytoon-helper@astral.stitchapp",
+      "strict_min_version": "142.0"
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "host_permissions": [
+    "*://tappytoon.com/*",
+    "*://*.tappytoon.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://tappytoon.com/*",
+        "*://*.tappytoon.com/*"
+      ],
+      "js": ["tappytoon_bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ]
+}
