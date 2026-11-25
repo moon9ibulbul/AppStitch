@@ -1798,15 +1798,23 @@ private fun StandardWebViewScraperDialog(
 
     val isMrBlue = url.contains("mrblue") || script.contains("MrBlue") || script.contains("mrblue")
     val isMangaGo = url.contains("mangago", ignoreCase = true) || script.contains("MangaGo", ignoreCase = true)
+    val isKagane = url.contains("kagane", ignoreCase = true) || script.contains("Kagane", ignoreCase = true)
     var loadedCount by remember { mutableIntStateOf(0) }
     var totalCount by remember { mutableIntStateOf(0) }
     var isScrapeReady by remember { mutableStateOf(true) }
     var hasScraped by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isMangaGo) {
+    LaunchedEffect(isMangaGo, isKagane) {
         if (isMangaGo && com.astral.stitchapp.rawloader.MangaGoSyncManager.isAutoSyncEnabled(currentContext)) {
             com.astral.stitchapp.rawloader.MangaGoSyncManager.checkAndSyncScript(currentContext, forceManual = false)
             activeScript = com.astral.stitchapp.rawloader.MangaGoSyncManager.getScraperScript(currentContext)
+        }
+        if (isKagane) {
+            com.astral.stitchapp.rawloader.KaganeSyncManager.setLastBaseUrl(currentContext, url)
+            if (com.astral.stitchapp.rawloader.KaganeSyncManager.isAutoSyncEnabled(currentContext)) {
+                com.astral.stitchapp.rawloader.KaganeSyncManager.checkAndSyncScript(currentContext, forceManual = false)
+                activeScript = com.astral.stitchapp.rawloader.KaganeSyncManager.getScraperScript(currentContext)
+            }
         }
     }
 
