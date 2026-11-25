@@ -58,6 +58,7 @@ import java.util.zip.ZipInputStream
 import com.astral.stitchapp.ui.theme.AstralStitchTheme
 import com.astral.stitchapp.rawloader.BatoEngine
 import com.astral.stitchapp.rawloader.MangaGoSyncManager
+import com.astral.stitchapp.rawloader.KaganeSyncManager
 import com.astral.stitchapp.rawloader.PatchManager
 import com.astral.stitchapp.rawloader.Patch
 import com.astral.stitchapp.rawloader.WebtoonsApi
@@ -1911,7 +1912,7 @@ fun BatoTab(
     val prefs = context.getSharedPreferences("app_settings", android.content.Context.MODE_PRIVATE)
 
     val installedPatches = remember(showSettings) { PatchManager.loadAll(context) }
-    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "TappyToon", "Comix", "MangaGo", "Naver Webtoon", "Webtoons", "Bilibili", "KuaikanManhua")
+    val builtInSources = listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "TappyToon", "Comix", "MangaGo", "Kagane", "Naver Webtoon", "Webtoons", "Bilibili", "KuaikanManhua")
     val allSources = builtInSources + installedPatches.map { it.name }
 
     var selectedSource by remember { mutableStateOf("Ridibooks") }
@@ -1958,6 +1959,7 @@ fun BatoTab(
     var kakaopageCookieInput by remember { mutableStateOf(prefs.getString("kakaopage_cookie", "") ?: "") }
     var tappytoonCookieInput by remember { mutableStateOf(prefs.getString("tappytoon_cookie", "") ?: "") }
     var mangagoCookieInput by remember { mutableStateOf(prefs.getString("mangago_cookie", "") ?: "") }
+    var kaganeCookieInput by remember { mutableStateOf(prefs.getString("kagane_cookie", "") ?: "") }
 
     var comixAddonVersion by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)) }
     var isComixAutoUpdate by remember { mutableStateOf(com.astral.stitchapp.rawloader.ComixExtensionManager.isAutoUpdateEnabled(context)) }
@@ -1968,6 +1970,11 @@ fun BatoTab(
     var isMangaGoAutoSync by remember { mutableStateOf(com.astral.stitchapp.rawloader.MangaGoSyncManager.isAutoSyncEnabled(context)) }
     var isMangaGoSyncing by remember { mutableStateOf(false) }
     var mangagoStatusMsg by remember { mutableStateOf<String?>(null) }
+
+    var kaganeScriptVersion by remember { mutableStateOf(com.astral.stitchapp.rawloader.KaganeSyncManager.getInstalledVersionInfo(context)) }
+    var isKaganeAutoSync by remember { mutableStateOf(com.astral.stitchapp.rawloader.KaganeSyncManager.isAutoSyncEnabled(context)) }
+    var isKaganeSyncing by remember { mutableStateOf(false) }
+    var kaganeStatusMsg by remember { mutableStateOf<String?>(null) }
 
     var autoRetry by remember { mutableStateOf(true) }
     var skipStitching by remember { mutableStateOf(prefs.getBoolean("skip_stitching", false)) }
@@ -2900,6 +2907,7 @@ fun BatoTab(
                                         "TappyToon" -> "tappytoon"
                                         "Comix" -> "comix"
                                         "MangaGo" -> "mangago"
+                                        "Kagane" -> "kagane"
                                         "Naver Webtoon" -> "naver"
                                         else -> patchObj?.type ?: selectedSource.lowercase()
                                     }
@@ -2913,6 +2921,11 @@ fun BatoTab(
                                         type == "tappytoon" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.tappytoon.com/", ScraperScripts.TAPPYTOON)
                                         type == "comix" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://comix.to/", ScraperScripts.COMIX)
                                         type == "mangago" -> Pair(if (urlInput.isNotBlank()) urlInput else "https://www.mangago.me/", MangaGoSyncManager.getScraperScript(context))
+                                        type == "kagane" -> {
+                                            val kaganeUrl = if (urlInput.isNotBlank()) urlInput else KaganeSyncManager.getDefaultBaseUrl(context)
+                                            KaganeSyncManager.setLastBaseUrl(context, kaganeUrl)
+                                            Pair(kaganeUrl, KaganeSyncManager.getScraperScript(context))
+                                        }
                                         patchObj != null -> Pair(if (urlInput.isNotBlank()) urlInput else patchObj.baseUrl, patchObj.script)
                                         else -> null
                                     }
@@ -2933,6 +2946,7 @@ fun BatoTab(
                                         "lezhin" -> lezhinCookieInput
                                         "mrblue" -> mrblueCookieInput
                                         "mangago" -> mangagoCookieInput
+                                        "kagane" -> kaganeCookieInput
                                         "kakaopage" -> {
                                             if (kakaopageCookieInput.isNotBlank()) kakaopageCookieInput
                                             else prefs.getString("kakaopage_cookie", "")?.takeIf { it.isNotBlank() }
@@ -2979,8 +2993,7 @@ fun BatoTab(
                                 }
                             }
                         },
-                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "TappyToon", "Comix", "MangaGo")
-                    ) { Text("Add") }
+                        enabled = urlInput.isNotBlank() || PatchManager.getPatch(context, selectedSource) != null || installedPatches.any { it.name.equals(selectedSource, ignoreCase = true) } || selectedSource in listOf("Ridibooks", "Bomtoon", "Lezhin", "MrBlue", "KakaoPage", "TappyToon", "Comix", "MangaGo", "Kagane")) { Text("Add") }
                 }
             }
         }
@@ -3084,6 +3097,93 @@ fun BatoTab(
                         prefs.edit().putString("mangago_cookie", it).apply()
                     },
                     label = { Text("MangaGo Cookie (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+            "Kagane" -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Kagane Script Sync (Keiyoushi)",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Synced Version: $kaganeScriptVersion",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        kaganeStatusMsg?.let { msg ->
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isKaganeAutoSync,
+                                    onCheckedChange = { checked ->
+                                        isKaganeAutoSync = checked
+                                        KaganeSyncManager.setAutoSyncEnabled(context, checked)
+                                    }
+                                )
+                                Text("Auto Sync", style = MaterialTheme.typography.bodySmall)
+                            }
+
+                            Button(
+                                onClick = {
+                                    isKaganeSyncing = true
+                                    kaganeStatusMsg = "Checking Keiyoushi repo..."
+                                    scope.launch(Dispatchers.IO) {
+                                        val res = KaganeSyncManager.checkAndSyncScript(
+                                            context,
+                                            forceManual = true,
+                                            onProgress = { status ->
+                                                scope.launch(Dispatchers.Main) { kaganeStatusMsg = status }
+                                            }
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            isKaganeSyncing = false
+                                            if (res.isSuccess) {
+                                                kaganeScriptVersion = KaganeSyncManager.getInstalledVersionInfo(context)
+                                                kaganeStatusMsg = res.getOrNull() ?: "Script synced ($kaganeScriptVersion)"
+                                                Toast.makeText(context, kaganeStatusMsg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                kaganeStatusMsg = "Sync error: ${res.exceptionOrNull()?.message}"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isKaganeSyncing
+                            ) {
+                                if (isKaganeSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text("Refresh Script")
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = kaganeCookieInput,
+                    onValueChange = {
+                        kaganeCookieInput = it
+                        prefs.edit().putString("kagane_cookie", it).apply()
+                    },
+                    label = { Text("Kagane Cookie (Optional)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -3649,15 +3749,18 @@ fun BatoTab(
                     showScraperDialog = false
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
                     mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
+                    kaganeScriptVersion = KaganeSyncManager.getInstalledVersionInfo(context)
                 },
                 onQueueUpdated = {
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
                     mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
+                    kaganeScriptVersion = KaganeSyncManager.getInstalledVersionInfo(context)
                 },
                 onScrapeSuccess = { title, images, cookie ->
                     showScraperDialog = false
                     comixAddonVersion = com.astral.stitchapp.rawloader.ComixExtensionManager.getInstalledVersion(context)
                     mangagoScriptVersion = MangaGoSyncManager.getInstalledVersionInfo(context)
+                    kaganeScriptVersion = KaganeSyncManager.getInstalledVersionInfo(context)
                     val patchObj = PatchManager.getPatch(context, selectedSource) ?: installedPatches.find { it.name.equals(selectedSource, ignoreCase = true) }
                     val type = when(selectedSource) {
                         "Ridibooks" -> "ridi"
@@ -3668,6 +3771,7 @@ fun BatoTab(
                         "TappyToon" -> "tappytoon"
                         "Comix" -> "comix"
                         "MangaGo" -> "mangago"
+                        "Kagane" -> "kagane"
                         "KuaikanManhua" -> "kuaikan"
                         else -> patchObj?.type ?: selectedSource.lowercase()
                     }
@@ -3754,6 +3858,15 @@ fun BatoTab(
                             if (merged.isNotBlank()) {
                                 mangagoCookieInput = merged
                                 prefs.edit().putString("mangago_cookie", merged).apply()
+                                merged
+                            } else cookie
+                        }
+                        "kagane" -> {
+                            val existing = if (kaganeCookieInput.isNotBlank()) kaganeCookieInput else prefs.getString("kagane_cookie", "") ?: ""
+                            val merged = GeckoCookieExtractor.mergeCookieStrings(existing, cookie)
+                            if (merged.isNotBlank()) {
+                                kaganeCookieInput = merged
+                                prefs.edit().putString("kagane_cookie", merged).apply()
                                 merged
                             } else cookie
                         }

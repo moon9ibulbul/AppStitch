@@ -143,7 +143,9 @@ object PatchManager {
                     val arr = JSONArray(currentStr)
                     for (i in 0 until arr.length()) {
                         val p = Patch.fromJsonObject(arr.getJSONObject(i))
-                        if (p != null && !p.id.equals("mangago", true) && !p.id.equals("comix", true) && !p.type.equals("mangago", true) && !p.type.equals("comix", true)) {
+                        // mangago/comix/kagane are built-in sources now, drop legacy patch entries.
+                        val builtInIds = setOf("mangago", "comix", "kagane")
+                        if (p != null && builtInIds.none { it.equals(p.id, true) || it.equals(p.type, true) }) {
                             current.add(p)
                         }
                     }

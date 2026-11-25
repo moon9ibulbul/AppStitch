@@ -31,12 +31,12 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Tombol dinonaktifkan sementara selama scraping gambar berlangsung.
 
 ### Daftar sumber bawaan
-- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, MangaGo, Naver Webtoon, Webtoons, Bilibili, KuaikanManhua.
+- Tab 'Rawloader' (`BatoTab`) memakai `builtInSources` di `MainActivity.kt`: Ridibooks, Bomtoon, Lezhin, MrBlue, KakaoPage, Comix, MangaGo, Kagane, Naver Webtoon, Webtoons, Bilibili, KuaikanManhua.
 - Ditambah patch sumber kustom dinamis (`.asp`).
 
 ## 4. Autentikasi & Cookie
 
-- Cookie/session tiap sumber disimpan terpisah di SharedPreferences: `ridi_cookie`, `bomtoon_cookie`, `lezhin_cookie`, `mrblue_cookie`, `kakaopage_cookie`, `webtoons_session`, `bilibili_session`, `kuaikan_session` (plus file `.kuaikan_cookies` format Netscape).
+- Cookie/session tiap sumber disimpan terpisah di SharedPreferences: `ridi_cookie`, `bomtoon_cookie`, `lezhin_cookie`, `mrblue_cookie`, `kakaopage_cookie`, `mangago_cookie`, `kagane_cookie`, `webtoons_session`, `bilibili_session`, `kuaikan_session` (plus file `.kuaikan_cookies` format Netscape).
 
 ### `CookieWebViewDialog` (`MainActivity.kt`) untuk login OAuth Kakao
 - `fixKakaoUrl`: menghapus `#webTalkLogin` dan menambah `talk_login_error=true` agar login ID/password web standar yang tampil.
@@ -117,6 +117,14 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 - Menangani deobfuscasi script `sojson.v4`, dekripsi AES-CBC ZeroBytePadding (`javax.crypto.Cipher`), unscrambling daftar URL gambar (`str_shuffle` via `Android.unscrambleMangagoList`), evaluasi `getDescramblingKey(url)` dengan helper `replacePos`, serta penggabungan multi-batch halaman (`total_pages` + `input#curl`).
 - Di `BatoEngine.kt`, URL gambar CDN MangaGo dengan hostname mengandung `_` otomatis diturunkan dari `https://` ke `http://` untuk menghindari kegagalan SNI TLS, dan gambar teracak (`cspiclink` dengan `#desckey=...&cols=...`) didescramble menggunakan algoritma grid tile Keiyoushi (`MangaGoSyncManager.unscrambleImage`).
 
+### Kagane (`kagane.moe` / mirror)
+- File terkait: `KaganeSyncManager.kt`, `ScraperUi.kt`, `BatoEngine.kt`, `MainActivity.kt`, `app/src/main/assets/kagane_keiyoushi/`.
+- Dulu berupa patch `kagane.asp`; sekarang **built-in** dan tidak lagi dibaca dari `patches/` (entri patch lama dibersihkan `PatchManager`).
+- Menyinkronkan `Kagane.kt` dan `build.gradle.kts` dari `keiyoushi/extensions-source` (`src/all/kagane/src/eu/kanade/tachiyomi/extension/all/kagane`, baseline ref `bac637ac333a03da0f8c5e7894713d782670b2d7`), dengan tombol **Refresh Script** dan toggle **Auto Sync** di `BatoTab`.
+- Alur API saat ini (diparse dari source Keiyoushi): `POST {base}/api/integrity` → `POST {base}/api/v2/books/{chapterId}?intent=Read` dengan header `x-integrity-token` → URL halaman `{cache_url}/api/v2/books/page/{original|datasaver}/{chapterId}/{page_id}.{ext}?token={access_token}`.
+- Chapter ID diambil dari segmen terakhir URL reader (`takeLast(36)`); untuk URL series dipakai `/api/v2/series/{id}/books/index?fields=List` (kolom ditentukan `fields`) atau `POST /api/v2/search/series` untuk slug.
+- `BatoEngine.kt` mengirim header `Origin`/`Referer` origin situs untuk gambar Kagane (host gambar 404 tanpa Origin) dan memperbarui token sekali bila unduhan gagal 401/403/507 (`KaganeSyncManager.refreshAccessToken`).
+
 ### KuaikanManhua (`kuaikanmanhua.com`)
 - File terkait: `KuaikanApi.kt`, `ScraperUi.kt`, `GeckoCookieExtractor.kt`, `BatoEngine.kt`, `MainActivity.kt`, `app/src/main/assets/cookie_extractor/background.js`.
 - Login memakai `GeckoScraperDialog` (`ScraperUi.kt`) yang mengarah ke `https://www.kuaikanmanhua.com/webs/loginh?redirect=https://www.kuaikanmanhua.com/?cps=box&cps=box` dengan **Desktop User-Agent** (`USER_AGENT_MODE_DESKTOP` + `VIEWPORT_MODE_DESKTOP`) karena KuaikanManhua tidak mendukung login via UI mobile.
@@ -128,12 +136,8 @@ Panduan untuk agent yang bekerja di repo ini. Isinya disusun dari memory Jules d
 ## 6. Patch Sumber (`.asp`)
 
 - Lokasi: `patches/` dan `app/src/main/assets/patches/` (jaga keduanya tetap sinkron).
-- Patch bawaan: `manta.asp`, `kagane.asp`, `kakaopage.asp`, `xcomic.asp`, `myreadingmanga.asp`, `yaoimangaonline.asp`, `yaoiscan.asp`.
-- `kagane.asp` (domain `https://kagane.si/`):
-  - mengekstrak UUID yang tertanam di segmen path URL berawalan slug, memakai regex,
-  - resolve slug series ke UUID via `POST /api/v2/search/series`,
-  - resolve UUID chapter via `/api/v2/series/{uuid}/books/index?fields=List`,
-  - mengambil data chapter via `/api/v2/books/{uuid}?intent=Read&is_datasaver=false`.
+- Patch bawaan: `manta.asp`, `xcomic.asp`, `myreadingmanga.asp`, `yaoimangaonline.asp`, `yaoiscan.asp`.
+- Kagane sudah dipindahkan dari patch menjadi sumber built-in (lihat bagian Kagane).
 
 ## 7. Stitching Otomatis (`SmartStitcher.kt`)
 

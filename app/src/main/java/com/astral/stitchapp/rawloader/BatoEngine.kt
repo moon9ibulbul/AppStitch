@@ -800,7 +800,15 @@ object BatoEngine {
         return emptyList()
     }
 
-    private fun downloadImage(urlStr: String, destDir: File, idx: Int, cookie: String?, referer: String?): File {
+    private fun downloadImage(
+        urlStr: String,
+        destDir: File,
+        idx: Int,
+        cookie: String?,
+        referer: String?,
+        origin: String? = null,
+        context: android.content.Context? = null
+    ): File {
         if (File(urlStr).exists()) {
             val srcFile = File(urlStr)
             val ext = if (srcFile.extension.isNotBlank()) ".${srcFile.extension}" else ".jpg"
@@ -851,9 +859,10 @@ object BatoEngine {
         }
 
         var lastException: Exception? = null
+        var downloadUrl = cleanUrlStr
         for (attempt in 0 until 3) {
             try {
-                val conn = (URL(cleanUrlStr).openConnection() as HttpURLConnection).apply {
+                val conn = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 30000
                     readTimeout = 30000
@@ -861,6 +870,9 @@ object BatoEngine {
                     setRequestProperty("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
                     if (!referer.isNullOrBlank()) {
                         setRequestProperty("Referer", referer)
+                    }
+                    if (!origin.isNullOrBlank()) {
+                        setRequestProperty("Origin", origin.trimEnd('/'))
                     }
 
                     if (!cookie.isNullOrBlank()) {
@@ -901,12 +913,24 @@ object BatoEngine {
 
                 val responseCode = conn.responseCode
                 if (responseCode !in 200..299) {
-                    throw Exception("HTTP $responseCode for $cleanUrlStr")
+                    // Kagane reader tokens are bound to one book and expire; renew once and retry.
+                    if (origin != null && responseCode in setOf(401, 403, 507) && downloadUrl.contains("/books/page/")) {
+                        val chapterId = KaganeSyncManager.parseChapterIdFromPageUrl(downloadUrl)
+                        val refreshed = if (chapterId != null) {
+                            KaganeSyncManager.refreshAccessToken(context, origin, chapterId, cookie)
+                        } else null
+                        if (refreshed != null) {
+                            downloadUrl = KaganeSyncManager.replaceToken(downloadUrl, refreshed)
+                            lastException = Exception("HTTP $responseCode for $downloadUrl (token refreshed)")
+                            continue
+                        }
+                    }
+                    throw Exception("HTTP $responseCode for $downloadUrl")
                 }
 
                 val rawBytes = conn.inputStream.use { it.readBytes() }
                 if (rawBytes.isEmpty()) {
-                    throw Exception("Empty image payload for $cleanUrlStr")
+                    throw Exception("Empty image payload for $downloadUrl")
                 }
                 val bytes = if (cleanUrlStr.contains("cpx=") || urlStr.contains("cpx=") || BilibiliApi.isCpxPayload(rawBytes)) {
                     BilibiliApi.decryptCpxImage(rawBytes, urlStr)
@@ -1166,6 +1190,10 @@ object BatoEngine {
                     "kakaopage" -> "https://page.kakao.com/"
                     "tappytoon" -> "https://www.tappytoon.com/"
                     "mangago" -> "https://www.mangago.me/"
+                    "kagane" -> {
+                        if (context != null) KaganeSyncManager.setLastBaseUrl(context, item.url)
+                        KaganeSyncManager.getLastBaseUrl(context) + "/"
+                    }
                     "comix" -> null
                     else -> {
                         if (context != null) {
@@ -1198,7 +1226,15 @@ object BatoEngine {
 
                         val targetPath = downloadSemaphore.withPermit {
                             val cookieForImg = if (sourceType == "kuaikan") null else item.cookie
-                            downloadImage(imgUrl, dlDir, i + 1, cookieForImg, referer)
+                            downloadImage(
+                                imgUrl,
+                                dlDir,
+                                i + 1,
+                                cookieForImg,
+                                referer,
+                                origin = if (sourceType == "kagane") referer else null,
+                                context = context
+                            )
                         }
 
                         if (sourceType == "naver") {
